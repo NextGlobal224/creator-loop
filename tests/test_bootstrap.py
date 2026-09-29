@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sqlite3
 import sys
 import tempfile
@@ -24,11 +24,14 @@ T = "2026-09-29T00:00:00Z"
 class BootstrapTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.path = Path(self.tmp.name) / "thÆ° má»¥c cÃ³ dáº¥u" / "creator_loop.sqlite3"
+        self.path = (
+            Path(self.tmp.name) / "thÆ° má»¥c cÃ³ dáº¥u" / "creator_loop.sqlite3"
+        )
         initialize(self.path)
         self.db = _connect_write(self.path)
         self.addCleanup(self.tmp.cleanup)
         self.addCleanup(self.db.close)
+
     def seed(self):
         d = self.db
         d.execute(
@@ -106,6 +109,7 @@ class BootstrapTests(unittest.TestCase):
             ).fetchone()[0],
             64,
         )
+
     def test_project_reference_exactly_one(self):
         self.seed()
         for asset, claim in [(None, None), ("a1", "cv1")]:
@@ -401,8 +405,12 @@ class BootstrapTests(unittest.TestCase):
     def test_data_root_override(self):
         old = os.environ.get("CREATOR_LOOP_DATA_ROOT")
         try:
-            os.environ["CREATOR_LOOP_DATA_ROOT"] = str(Path(self.tmp.name) / "dá»¯ liá»‡u")
-            self.assertEqual(data_root(), (Path(self.tmp.name) / "dá»¯ liá»‡u").resolve())
+            os.environ["CREATOR_LOOP_DATA_ROOT"] = str(
+                Path(self.tmp.name) / "dá»¯ liá»‡u"
+            )
+            self.assertEqual(
+                data_root(), (Path(self.tmp.name) / "dá»¯ liá»‡u").resolve()
+            )
         finally:
             if old is None:
                 os.environ.pop("CREATOR_LOOP_DATA_ROOT", None)
@@ -412,8 +420,3 @@ class BootstrapTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
-
-

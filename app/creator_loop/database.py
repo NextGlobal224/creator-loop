@@ -1,4 +1,4 @@
-﻿"""Versioned SQLite bootstrap and read-only health probes."""
+"""Versioned SQLite bootstrap and read-only health probes."""
 
 import hashlib
 import sqlite3
@@ -56,6 +56,7 @@ def initialize(path: Path) -> None:
 
     finally:
         db.close()
+
 
 def validate(db: sqlite3.Connection) -> None:
     if db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
