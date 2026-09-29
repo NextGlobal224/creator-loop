@@ -1,9 +1,13 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from creator_loop.worker_process import (
     ProcessIdentity,
     WorkerOwnership,
+    load_ownership,
     owns_process,
+    save_ownership,
 )
 
 
@@ -52,6 +56,42 @@ class WorkerOwnershipTests(unittest.TestCase):
         )
 
         self.assertFalse(owns_process(record, reused_pid))
+
+    def test_ownership_record_round_trip(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "runtime" / "worker.json"
+            record = WorkerOwnership(
+                run_id="run-unicode",
+                pid=4321,
+                executable=r"C:\Creator Loop\công cụ\worker.exe",
+                creation_identity="2026-09-29T15:00:00Z",
+            )
+
+            save_ownership(path, record)
+
+            self.assertEqual(load_ownership(path), record)
+            self.assertFalse(path.with_suffix(".json.tmp").exists())
+
+    def test_invalid_ownership_record_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "worker.json"
+            path.write_text(
+                '{"run_id":"run-1","pid":1234}',
+                encoding="utf-8",
+            )
+
+            self.assertIsNone(load_ownership(path))
+
+    def test_invalid_pid_type_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "worker.json"
+            path.write_text(
+                '{"creation_identity":"x","executable":"worker.exe",'
+                '"pid":true,"run_id":"run-1"}',
+                encoding="utf-8",
+            )
+
+            self.assertIsNone(load_ownership(path))
 
 
 if __name__ == "__main__":
