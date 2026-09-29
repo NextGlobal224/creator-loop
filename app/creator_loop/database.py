@@ -1,4 +1,4 @@
-"""Versioned SQLite bootstrap and read-only health probes."""
+﻿"""Versioned SQLite bootstrap and read-only health probes."""
 
 import hashlib
 import sqlite3
@@ -26,7 +26,8 @@ def migration_path() -> Path:
 
 def initialize(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with _connect_write(path) as db:
+    db = _connect_write(path)
+    try:
         version = db.execute("PRAGMA user_version").fetchone()[0]
         sql = migration_path().read_text(encoding="utf-8")
         digest = hashlib.sha256(sql.encode("utf-8")).hexdigest()
@@ -53,6 +54,8 @@ def initialize(path: Path) -> None:
         )
         validate(db)
 
+    finally:
+        db.close()
 
 def validate(db: sqlite3.Connection) -> None:
     if db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
@@ -65,9 +68,15 @@ def validate(db: sqlite3.Connection) -> None:
 
 def backup(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with _connect_write(source) as src, sqlite3.connect(destination) as dst:
+
+    src = _connect_write(source)
+    dst = sqlite3.connect(destination)
+    try:
         src.backup(dst)
         validate(dst)
+    finally:
+        dst.close()
+        src.close()
 
 
 def open_readonly(path: Path) -> sqlite3.Connection:
