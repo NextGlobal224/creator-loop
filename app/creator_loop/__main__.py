@@ -3,6 +3,11 @@
 import argparse
 import sys
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 from . import __version__
 from .database import initialize, open_readonly, validate
 from .paths import data_root, ensure_data_root
