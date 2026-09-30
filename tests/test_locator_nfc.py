@@ -1,4 +1,4 @@
-﻿import hashlib
+import hashlib
 import json
 import unicodedata
 import unittest
@@ -15,9 +15,7 @@ class TextSnapshotLocatorTests(unittest.TestCase):
         self.assertNotEqual(raw_snapshot, nfc_snapshot)
         self.assertEqual(nfc_snapshot, "Café Đà Nẵng")
 
-        digest = "sha256:" + hashlib.sha256(
-            nfc_snapshot.encode("utf-8")
-        ).hexdigest()
+        digest = "sha256:" + hashlib.sha256(nfc_snapshot.encode("utf-8")).hexdigest()
 
         locator = json.dumps(
             {

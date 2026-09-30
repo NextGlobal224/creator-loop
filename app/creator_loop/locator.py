@@ -1,4 +1,4 @@
-﻿"""Validate the V1 locator contract before writing Evidence."""
+"""Validate the V1 locator contract before writing Evidence."""
 
 import hashlib
 import json
@@ -55,9 +55,9 @@ def validate_locator(
         ].startswith("sha256:"):
             raise ValueError("Text digest required")
         if nfc_snapshot is not None:
-            expected_digest = "sha256:" + hashlib.sha256(
-                nfc_snapshot.encode("utf-8")
-            ).hexdigest()
+            expected_digest = (
+                "sha256:" + hashlib.sha256(nfc_snapshot.encode("utf-8")).hexdigest()
+            )
             if value["text_digest"] != expected_digest:
                 raise ValueError("Text digest does not match NFC snapshot")
     elif kind == "WHOLE_ASSET":
@@ -66,5 +66,3 @@ def validate_locator(
     else:
         raise ValueError("Unknown locator type")
     return value
-
-

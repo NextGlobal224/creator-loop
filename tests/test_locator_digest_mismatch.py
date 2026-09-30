@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 
 from app.creator_loop.locator import validate_locator
 
