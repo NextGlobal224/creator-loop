@@ -2,6 +2,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from creator_loop.database import initialize
@@ -354,3 +355,164 @@ class EvidenceRepositoryTests(unittest.TestCase):
         ).fetchone()[0]
 
         self.assertEqual(count, 2)
+
+    def _prepare_append(self) -> EvidenceVersion:
+        evidence = Evidence(
+            evidence_id="evidence-append",
+            asset_id="asset-1",
+            evidence_type="SPEECH",
+            created_at="2026-09-30T00:00:00Z",
+            deleted_at=None,
+        )
+        first = EvidenceVersion(
+            evidence_version_id="evidence-append-v1",
+            evidence_id=evidence.evidence_id,
+            asset_id=evidence.asset_id,
+            version_no=1,
+            anchor_file_id="file-1",
+            content="Original transcript",
+            locator_type="TIME_RANGE",
+            locator_data='{"start_ms":0,"end_ms":1000,"track":"audio"}',
+            producer_type="HUMAN",
+            processing_run_id=None,
+            created_by="creator",
+            created_at="2026-09-30T00:00:00Z",
+        )
+        self.repo.create_with_version(evidence, first)
+        return replace(
+            first,
+            evidence_version_id="evidence-append-v2",
+            version_no=2,
+            content="Corrected transcript",
+            created_at="2026-09-30T00:01:00Z",
+        )
+
+    def _create_append_anchor(
+        self, file_id: str, duration_ms: int | None, asset_id: str = "asset-1"
+    ) -> None:
+        self.db.execute(
+            """
+            INSERT INTO asset_files (
+                file_id, asset_id, role, storage_key, sha256,
+                byte_size, mime_type, created_at, duration_ms
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                file_id,
+                asset_id,
+                "ORIGINAL",
+                f"storage/originals/{file_id}.mp4",
+                "b" * 64,
+                100,
+                "video/mp4",
+                "2026-09-30T00:00:00Z",
+                duration_ms,
+            ),
+        )
+        self.db.commit()
+
+    def _version_rows(self) -> list[tuple]:
+        return self.db.execute(
+            "SELECT * FROM evidence_versions ORDER BY version_no"
+        ).fetchall()
+
+    def test_append_duration_allows_range_within_known_duration(self) -> None:
+        version = replace(
+            self._prepare_append(),
+            locator_data='{"start_ms":1000,"end_ms":60000,"track":"audio"}',
+        )
+        before = self._version_rows()
+
+        self.repo.append_version(version)
+
+        after = self._version_rows()
+        self.assertEqual(len(after), 2)
+        self.assertEqual(after[:1], before)
+        row = self.db.execute(
+            """
+            SELECT version_no, anchor_file_id, locator_data, content
+            FROM evidence_versions WHERE evidence_version_id=?
+            """,
+            (version.evidence_version_id,),
+        ).fetchone()
+        self.assertEqual(
+            row, (2, "file-1", version.locator_data, "Corrected transcript")
+        )
+
+    def test_append_duration_rejects_range_beyond_known_duration(self) -> None:
+        version = replace(
+            self._prepare_append(),
+            locator_data='{"start_ms":1000,"end_ms":60001,"track":"audio"}',
+        )
+        before = self._version_rows()
+
+        with self.assertRaisesRegex(ValueError, "Time range exceeds duration"):
+            self.repo.append_version(version)
+
+        self.assertEqual(self._version_rows(), before)
+
+    def test_append_duration_uses_shorter_selected_anchor(self) -> None:
+        version = replace(
+            self._prepare_append(),
+            anchor_file_id="file-short",
+            locator_data='{"start_ms":1000,"end_ms":3000,"track":"audio"}',
+        )
+        self._create_append_anchor("file-short", 2000)
+        before = self._version_rows()
+
+        with self.assertRaisesRegex(ValueError, "Time range exceeds duration"):
+            self.repo.append_version(version)
+
+        self.assertEqual(self._version_rows(), before)
+
+    def test_append_duration_keeps_null_duration_unknown(self) -> None:
+        version = replace(
+            self._prepare_append(),
+            anchor_file_id="file-unknown",
+            locator_data='{"start_ms":1000,"end_ms":70000,"track":"audio"}',
+        )
+        self._create_append_anchor("file-unknown", None)
+        before = self._version_rows()
+
+        self.repo.append_version(version)
+
+        after = self._version_rows()
+        self.assertEqual(len(after), 2)
+        self.assertEqual(after[:1], before)
+        row = self.db.execute(
+            """
+            SELECT v.version_no, v.anchor_file_id, v.locator_data, f.duration_ms
+            FROM evidence_versions v
+            JOIN asset_files f ON f.file_id = v.anchor_file_id
+            WHERE v.evidence_version_id=?
+            """,
+            (version.evidence_version_id,),
+        ).fetchone()
+        self.assertEqual(row, (2, "file-unknown", version.locator_data, None))
+
+    def test_append_duration_rejects_cross_asset_anchor(self) -> None:
+        version = replace(self._prepare_append(), anchor_file_id="file-other")
+        self.db.execute(
+            """
+            INSERT INTO assets (asset_id, media_type, display_name, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("asset-other", "VIDEO", "Other video", "2026-09-30T00:00:00Z"),
+        )
+        self._create_append_anchor("file-other", 60000, "asset-other")
+        before = self._version_rows()
+
+        with self.assertRaisesRegex(ValueError, "Anchor file belongs to another Asset"):
+            self.repo.append_version(version)
+
+        self.assertEqual(self._version_rows(), before)
+
+    def test_append_duration_rejects_missing_anchor(self) -> None:
+        version = replace(self._prepare_append(), anchor_file_id="file-missing")
+        before = self._version_rows()
+
+        with self.assertRaisesRegex(ValueError, "Anchor file does not exist"):
+            self.repo.append_version(version)
+
+        self.assertEqual(self._version_rows(), before)
