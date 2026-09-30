@@ -101,5 +101,163 @@ class LibraryRepositoryTests(unittest.TestCase):
             )
 
 
+
+    def test_create_asset_file(self) -> None:
+        self.repo.create_source(
+            Source(
+                source_id="source-file",
+                platform="LOCAL",
+                canonical_url=None,
+                external_id=None,
+                publisher_name=None,
+                published_at=None,
+                captured_at=None,
+                rights_status="UNKNOWN",
+                created_at="2026-09-30T00:00:00Z",
+            )
+        )
+        self.repo.create_asset(
+            Asset(
+                asset_id="asset-file",
+                media_type="VIDEO",
+                display_name="Raw video",
+                created_at="2026-09-30T00:00:00Z",
+                deleted_at=None,
+            )
+        )
+
+        self.repo.create_asset_file(
+            asset_id="asset-file",
+            file_id="file-original",
+            role="ORIGINAL",
+            storage_key="storage/originals/video.mp4",
+            sha256="a" * 64,
+            byte_size=1234,
+            mime_type="video/mp4",
+            parent_file_id=None,
+            processing_run_id=None,
+            created_at="2026-09-30T00:00:00Z",
+        )
+
+        row = self.db.execute(
+            """
+            SELECT asset_id, role, storage_key, byte_size
+            FROM asset_files
+            WHERE file_id=?
+            """,
+            ("file-original",),
+        ).fetchone()
+
+        self.assertEqual(
+            row,
+            ("asset-file", "ORIGINAL", "storage/originals/video.mp4", 1234),
+        )
+
+    def test_create_processing_run_for_asset_file(self) -> None:
+        self.repo.create_asset(
+            Asset(
+                asset_id="asset-run",
+                media_type="VIDEO",
+                display_name="Processing video",
+                created_at="2026-09-30T00:00:00Z",
+                deleted_at=None,
+            )
+        )
+
+        self.repo.create_asset_file(
+            asset_id="asset-run",
+            file_id="file-input",
+            role="ORIGINAL",
+            storage_key="storage/originals/input.mp4",
+            sha256="b" * 64,
+            byte_size=5678,
+            mime_type="video/mp4",
+            parent_file_id=None,
+            processing_run_id=None,
+            created_at="2026-09-30T00:00:00Z",
+        )
+
+        self.repo.create_processing_run(
+            run_id="run-1",
+            asset_id="asset-run",
+            input_file_id="file-input",
+            task_type="TRANSCRIBE",
+            status="QUEUED",
+            tool_name="fake-engine",
+            tool_version="1.0",
+            model_name=None,
+            model_version=None,
+            started_at=None,
+            finished_at=None,
+            error_code=None,
+            error_message=None,
+            created_at="2026-09-30T00:00:00Z",
+        )
+
+        row = self.db.execute(
+            """
+            SELECT asset_id, input_file_id, task_type, status
+            FROM processing_runs
+            WHERE run_id=?
+            """,
+            ("run-1",),
+        ).fetchone()
+
+        self.assertEqual(
+            row,
+            ("asset-run", "file-input", "TRANSCRIBE", "QUEUED"),
+        )
+
+
+    def test_processing_run_rejects_input_file_from_another_asset(self) -> None:
+        for asset_id in ("asset-a", "asset-b"):
+            self.repo.create_asset(
+                Asset(
+                    asset_id=asset_id,
+                    media_type="VIDEO",
+                    display_name=asset_id,
+                    created_at="2026-09-30T00:00:00Z",
+                    deleted_at=None,
+                )
+            )
+
+        self.repo.create_asset_file(
+            asset_id="asset-a",
+            file_id="file-a",
+            role="ORIGINAL",
+            storage_key="storage/originals/a.mp4",
+            sha256="c" * 64,
+            byte_size=100,
+            mime_type="video/mp4",
+            parent_file_id=None,
+            processing_run_id=None,
+            created_at="2026-09-30T00:00:00Z",
+        )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.repo.create_processing_run(
+                run_id="run-cross-asset",
+                asset_id="asset-b",
+                input_file_id="file-a",
+                task_type="TRANSCRIBE",
+                status="QUEUED",
+                tool_name="fake-engine",
+                tool_version="1.0",
+                model_name=None,
+                model_version=None,
+                started_at=None,
+                finished_at=None,
+                error_code=None,
+                error_message=None,
+                created_at="2026-09-30T00:00:00Z",
+            )
+
+        count = self.db.execute(
+            "SELECT count(*) FROM processing_runs WHERE run_id=?",
+            ("run-cross-asset",),
+        ).fetchone()[0]
+
+        self.assertEqual(count, 0)
+
 if __name__ == "__main__":
     unittest.main()
