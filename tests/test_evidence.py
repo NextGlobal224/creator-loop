@@ -1,4 +1,4 @@
-﻿import json
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -167,7 +167,6 @@ class EvidenceRepositoryTests(unittest.TestCase):
         ).fetchone()[0]
 
         self.assertEqual(count, 0)
-
 
     def test_cross_asset_anchor_is_rejected_without_partial_evidence(self) -> None:
         self.db.execute(

@@ -1,4 +1,4 @@
-﻿import sqlite3
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -99,8 +99,6 @@ class LibraryRepositoryTests(unittest.TestCase):
                     created_at="2026-09-30T00:00:00Z",
                 )
             )
-
-
 
     def test_create_asset_file(self) -> None:
         self.repo.create_source(
@@ -208,7 +206,6 @@ class LibraryRepositoryTests(unittest.TestCase):
             ("asset-run", "file-input", "TRANSCRIBE", "QUEUED"),
         )
 
-
     def test_processing_run_rejects_input_file_from_another_asset(self) -> None:
         for asset_id in ("asset-a", "asset-b"):
             self.repo.create_asset(
@@ -258,6 +255,7 @@ class LibraryRepositoryTests(unittest.TestCase):
         ).fetchone()[0]
 
         self.assertEqual(count, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
