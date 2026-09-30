@@ -1,6 +1,8 @@
 """Validate the V1 locator contract before writing Evidence."""
 
+import hashlib
 import json
+import unicodedata
 
 
 def validate_locator(
@@ -9,7 +11,16 @@ def validate_locator(
     *,
     duration_ms: int | None = None,
     text_length: int | None = None,
+    text_snapshot: str | None = None,
 ) -> dict:
+    if text_snapshot is not None:
+        if not isinstance(text_snapshot, str):
+            raise ValueError("Text snapshot must be a string")
+        nfc_snapshot = unicodedata.normalize("NFC", text_snapshot)
+        text_length = len(nfc_snapshot)
+    else:
+        nfc_snapshot = None
+
     value = json.loads(raw)
     if not isinstance(value, dict):
         raise ValueError("Locator data must be an object")
@@ -43,6 +54,12 @@ def validate_locator(
             "text_digest"
         ].startswith("sha256:"):
             raise ValueError("Text digest required")
+        if nfc_snapshot is not None:
+            expected_digest = (
+                "sha256:" + hashlib.sha256(nfc_snapshot.encode("utf-8")).hexdigest()
+            )
+            if value["text_digest"] != expected_digest:
+                raise ValueError("Text digest does not match NFC snapshot")
     elif kind == "WHOLE_ASSET":
         if value:
             raise ValueError("Whole asset locator must be empty")
