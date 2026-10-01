@@ -1,14 +1,14 @@
 # Bàn giao hiện tại — Gate 2 Library/Evidence
 
-**Cập nhật:** 01/10/2026 (+07:00). Đây là ảnh chụp trạng thái; khi tiếp tục phải đối chiếu lại Git, source và CI. [Biên bản Gate 1](../Creator_Loop_Gate_1_Status.md) là lịch sử, không phải trạng thái Gate 2 hiện tại.
+**Cập nhật:** 02/10/2026 (+07:00). Đây là ảnh chụp trạng thái; khi tiếp tục phải đối chiếu lại Git, source và CI. [Biên bản Gate 1](../Creator_Loop_Gate_1_Status.md) là lịch sử, không phải trạng thái Gate 2 hiện tại.
 
 ## Trạng thái mới nhất
 
-- `main`/`origin/main` ở merge commit `8337d47` của [PR #5](https://github.com/NextGlobal224/creator-loop/pull/5). PR đã **MERGED** ngày 01/10/2026; head `82eac16`, ba required checks `fast-schema-domain`, `security-dependencies-workflow`, `windows-artifact` đều `SUCCESS` trong [run 36894651760](https://github.com/NextGlobal224/creator-loop/actions/runs/36894651760), `publish-release` `SKIPPED` theo nhánh PR. Branch protection `main` đòi ba context này, `strict=true`, `enforce_admins=true` khi kiểm qua GitHub API; release gate chưa chạy.
-- Branch `gate2-evidence-anchor-reopen`, từ `8337d47`; [PR #6](https://github.com/NextGlobal224/creator-loop/pull/6) head đầu `41b64e4`. `Codex-Kit-v2/` là untracked có sẵn và được giữ nguyên. Slice thêm resolver cho Evidence Version: chỉ trả anchor đã ghi khi đường dẫn, size/hash và locator hợp lệ; TEXT trả đoạn NFC. Local Python 3.12: Ruff lint/format, mypy, compileall và workflow policy PASS; unittest 69 ca: 68 PASS, 1 SKIP (symlink `WinError 1314`). Link Markdown/whitespace của hai tài liệu cập nhật PASS. CI PR head đầu: fast PASS, Windows test FAIL ở hai so sánh `Path` do runner dùng tên thư mục TEMP dạng 8.3; test đang sửa để so đường dẫn đã `resolve()`, chưa có kết quả CI trên head sửa. Chưa có viewer mở đoạn video/vùng ảnh, nên Gate 2 vẫn **đang triển khai**.
+- `main`/`origin/main` ở merge commit `1339865` của [PR #6](https://github.com/NextGlobal224/creator-loop/pull/6), đã **MERGED** lúc 17:07 UTC ngày 01/10/2026. Head `0031bbd` có ba required checks `fast-schema-domain`, `security-dependencies-workflow`, `windows-artifact` đều `SUCCESS` trong [run 36896760837](https://github.com/NextGlobal224/creator-loop/actions/runs/36896760837); `publish-release` `SKIPPED` đúng nhánh PR. Branch protection `main` đòi ba context này, `strict=true`, `enforce_admins=true`; release gate chưa chạy. PR #5 đã merge trước đó tại `8337d47`.
+- Branch hiện tại `gate2-video-image-original-intake`, từ `1339865`. `Codex-Kit-v2/` vẫn untracked và nguyên vẹn. Slice mới dùng chung cơ chế ghi bản gốc của TEXT, thêm backend nhập MP4/PNG/JPEG theo chữ ký byte trên tệp đã lưu. Local Python 3.12: Ruff lint/format, mypy, compileall, workflow policy PASS; unittest 72 ca: 71 PASS, 1 SKIP (symlink `WinError 1314`). Chưa có PR/CI cho slice này, UI nhập/mở media và giải mã codec thật còn thiếu; Gate 2 vẫn **đang triển khai**.
 - Máy nghiệm thu 8 GB là máy hiện tại theo người dùng: Dell XPS 15 9550, Windows 10 Pro x64 build 19045, RAM vật lý 8,429,834,240 byte. Engine/model sẽ chỉ dùng cục bộ, chưa phân phối; đường dẫn/phiên bản/license và test engine thật chưa xác nhận. Xem [ma trận nghiệm thu V1](PRODUCT_ACCEPTANCE.md) để đối chiếu 24 yêu cầu và điều kiện hoàn thành.
 
-Các mục bên dưới lưu mốc trước khi merge PR #5 để đối chiếu lịch sử; thông tin branch/PR OPEN trong đó không còn là trạng thái hiện hành.
+Các mục bên dưới lưu mốc trước khi merge PR #5 để đối chiếu lịch sử; thông tin branch/PR OPEN trong đó không còn là trạng thái hiện hành. PR #6 head đầu `41b64e4` từng FAIL Windows test do so sánh đường dẫn TEMP 8.3; commit `0031bbd` sửa kỳ vọng sang canonical `Path.resolve()` và run mới đạt cả ba check.
 
 ## Mục tiêu và ràng buộc
 
@@ -43,6 +43,6 @@ Thứ tự ưu tiên trong `AGENTS.md` khớp file contract thực tế: Data Ar
 
 ## Việc tiếp theo
 
-1. Hoàn tất diff slice Evidence resolver; commit/PR nhỏ, xác nhận ba required checks trên đúng head rồi merge theo branch protection nếu đạt.
-2. Tiếp tục Gate 2 bằng luồng nhập Video/Image và mở Evidence ở đúng đoạn/vùng trong ứng dụng; giữ original/dẫn xuất và version đúng contract. Test symlink Windows còn SKIP vì máy hiện tại thiếu quyền tạo symlink (`WinError 1314`).
+1. Review diff slice nhập MP4/PNG/JPEG; tạo commit/PR nhỏ, xác nhận ba required checks trên đúng head rồi merge theo branch protection nếu đạt.
+2. Tiếp tục Gate 2 bằng UI nhập/mở Video/Image và mở Evidence đúng đoạn/vùng; kiểm định dạng thực bằng decoder/engine thích hợp. Giữ original/dẫn xuất và version đúng contract. Test symlink Windows còn SKIP vì máy hiện tại thiếu quyền tạo symlink (`WinError 1314`).
 3. Khi có UI/engine phù hợp, lấy đường dẫn/phiên bản/nguồn engine và model cục bộ để chạy nghiệm thu thật trên máy 8 GB. Gate 3–5 và release vẫn chưa hoàn tất. Các mục IDE chưa thử của bộ hướng dẫn giữ trạng thái trong [CODEX_WORKFLOW.md](CODEX_WORKFLOW.md).
