@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import sys
 from ctypes import wintypes
 from pathlib import Path
 from typing import BinaryIO
@@ -16,12 +17,19 @@ _FILE_ATTRIBUTE_NORMAL = 0x80
 _FILE_DISPOSITION_INFO_CLASS = 4
 _INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 
+if sys.platform == "win32":
+    _WindowsDLL = ctypes.WinDLL
+else:
+    _WindowsDLL = ctypes.CDLL
+
 
 class _FileDispositionInfo(ctypes.Structure):
     _fields_ = [("DeleteFile", ctypes.c_ubyte)]
 
 
-def _kernel32() -> ctypes.WinDLL:
+def _kernel32() -> _WindowsDLL:
+    if sys.platform != "win32":
+        raise OSError("TEXT original intake requires Windows handle semantics")
     if os.name != "nt":
         raise OSError("TEXT original intake requires Windows handle semantics")
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -47,7 +55,9 @@ def _kernel32() -> ctypes.WinDLL:
     return kernel32
 
 
-def _mark_for_deletion(kernel32: ctypes.WinDLL, handle: int) -> None:
+def _mark_for_deletion(kernel32: _WindowsDLL, handle: int) -> None:
+    if sys.platform != "win32":
+        raise OSError("TEXT original intake requires Windows handle semantics")
     disposition = _FileDispositionInfo(1)
     if not kernel32.SetFileInformationByHandle(
         handle,
@@ -66,6 +76,8 @@ class OwnedWindowsFile:
 
     @classmethod
     def create_new(cls, path: Path) -> OwnedWindowsFile:
+        if sys.platform != "win32":
+            raise OSError("TEXT original intake requires Windows handle semantics")
         import msvcrt
 
         kernel32 = _kernel32()
@@ -110,6 +122,8 @@ class OwnedWindowsFile:
 
     def discard(self) -> None:
         """Mark this still-open file, rather than its pathname, for deletion."""
+        if sys.platform != "win32":
+            raise OSError("TEXT original intake requires Windows handle semantics")
         import msvcrt
 
         _mark_for_deletion(_kernel32(), msvcrt.get_osfhandle(self.stream.fileno()))
