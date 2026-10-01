@@ -63,10 +63,10 @@ jobs:
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0 (Node 24)
         with:
           python-version: '3.12'
-      - name: Tests on Windows
-        run: python -m unittest discover -s tests -v
       - name: Install pinned packaging dependencies
         run: python -m pip install -r requirements-release.txt
+      - name: Tests on Windows
+        run: python -m unittest discover -s tests -v
       - name: Build one-directory application
         run: python -m PyInstaller --noconfirm --clean --onedir --name CreatorLoop --paths app --add-data "migrations/0001_initial.sql;migrations" packaging/entrypoint.py
       - name: Pack and smoke the exact ZIP
@@ -82,6 +82,9 @@ jobs:
           $env:CREATOR_LOOP_DATA_ROOT = Join-Path $env:RUNNER_TEMP 'dữ liệu người dùng'
           & (Join-Path $target 'CreatorLoop/CreatorLoop.exe') --smoke
           if ($LASTEXITCODE -ne 0) { throw 'Extracted artifact smoke failed' }
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          & (Join-Path $target 'CreatorLoop/CreatorLoop.exe') --ui-smoke
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted UI smoke failed' }
           $after = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($before -ne $after) { throw 'Release ZIP changed after smoke' }
           $manifest = [ordered]@{ app_version='0.1.0'; git_commit='${{ github.sha }}'; schema_from=0; schema_to=1; target='win-x64'; artifact_sha256=$before; tested_artifact=$true }

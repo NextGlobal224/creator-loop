@@ -18,6 +18,9 @@ def main() -> int:
     parser.add_argument(
         "--smoke", action="store_true", help="Create/open a DB and exit"
     )
+    parser.add_argument(
+        "--ui-smoke", action="store_true", help="Open the Library UI briefly and exit"
+    )
     args = parser.parse_args()
     root = data_root()
     ensure_data_root(root)
@@ -29,15 +32,19 @@ def main() -> int:
         print(f"Creator Loop {__version__}: schema OK at {db_path}")
         return 0
     try:
-        from PySide6.QtWidgets import QApplication, QLabel
+        from PySide6.QtWidgets import QApplication
     except ImportError:
         print("PySide6 is required for the desktop UI", file=sys.stderr)
         return 2
+    from .library_ui import LibraryWindow
+
     app = QApplication(sys.argv)
-    label = QLabel(f"Creator Loop {__version__}\nSchema V1 ready")
-    label.setWindowTitle("Creator Loop")
-    label.resize(360, 140)
-    label.show()
+    window = LibraryWindow(root)
+    window.show()
+    if args.ui_smoke:
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(200, app.quit)
     return app.exec()
 
 
