@@ -1,62 +1,37 @@
 # Bàn giao hiện tại — Gate 2 Library/Evidence
 
-**Ghi nhận:** 01/10/2026. Đây là trạng thái làm việc tại thời điểm ghi, cần đối chiếu lại với Git khi tiếp tục. [Biên bản Gate 1](../Creator_Loop_Gate_1_Status.md) được giữ làm lịch sử, không phản ánh tiến độ hiện tại.
+**Cập nhật:** 01/10/2026 (+07:00). Đây là ảnh chụp trạng thái; khi tiếp tục phải đối chiếu lại Git, source và CI. [Biên bản Gate 1](../Creator_Loop_Gate_1_Status.md) là lịch sử, không phải trạng thái Gate 2 hiện tại.
 
-## Mục tiêu và điều kiện hoàn thành
+## Mục tiêu và ràng buộc
 
-Theo [Data Architecture V1.1](Creator_Loop_Data_Architecture_V1_1.md), [CI/CD & Release Contract V1](Creator_Loop_CICD_Release_Contract_V1.md), [Layout Contract V1](Creator_Loop_Layout_Contract_V1.md) và [Master Prompt V2](Codex_Master_Prompt_V2.md), Gate 2 cần Library/Evidence cho Video, Image, Text: Asset là identity logic, nhiều Source có thể nối một Asset; original được giữ bất biến dưới data root, có `asset_files` và `processing_runs`; Evidence/version gắn đúng `anchor_file_id` và digest, locator có schema và mở lại đúng nguồn. `TIME_RANGE` dùng milliseconds, `IMAGE_REGION` dùng tọa độ chuẩn hóa, `TEXT_RANGE` dùng chỉ số Unicode code point trên snapshot NFC, `WHOLE_ASSET` chỉ dùng khi toàn nguồn liên quan. Giữ lịch sử version, phân biệt xử lý với review, giữ đúng nghĩa NULL và các ràng buộc SQLite/FK. Chỉ coi Gate 2 hoàn tất sau khi các phần áp dụng được triển khai, kiểm thử phù hợp qua local và required CI; một slice TEXT intake không đóng toàn Gate 2. Claim/review workflow và các gate sau không thuộc slice hiện tại.
+Gate 2 theo [Data Architecture V1.1](Creator_Loop_Data_Architecture_V1_1.md), [CI/CD & Release Contract V1](Creator_Loop_CICD_Release_Contract_V1.md), [Layout Contract V1](Creator_Loop_Layout_Contract_V1.md) và [Master Prompt V2](Codex_Master_Prompt_V2.md): Library/Evidence cho Video, Image, Text; original bất biến; Asset là identity logic, có thể nối nhiều Source; `asset_files`/`processing_runs`; Evidence Version neo đúng file/digest, locator có schema và mở lại đúng nguồn. Giữ version history, phân biệt xử lý với review, bảo toàn nghĩa NULL và bất biến SQLite/FK. **Toàn Gate 2 chưa hoàn tất.**
 
-## Git và slice đang làm
+Phiên thiết lập A2 hoàn thiện `AGENTS.md`, `docs/HANDOFF.md`, `docs/CODEX_WORKFLOW.md`; phiên chat kế tiếp xác minh và sửa ghi chú CI trong README. Phiên lưu mốc này chỉ commit bốn tài liệu đó sau review/kiểm tra; không sửa code sản phẩm, push hoặc merge PR.
 
-- Branch: `gate2-text-original-intake`.
-- Commit nền, cũng là `main` và `origin/main` tại lúc kiểm tra: `1f0f32973e03b3b89ae18013a5291aa8d2ba3437` (merge PR #4, original integrity verifier).
-- **Mốc code đã local validation:** `25ea4e40e38204cfce4c8427e96eb74297c35708` — commit 1, chỉ gồm `app/creator_loop/library.py`, `app/creator_loop/text_intake.py`, `app/creator_loop/windows_owned_file.py`, `tests/test_text_intake.py`. Local validation bên dưới áp dụng cho đúng nội dung code/test của commit này.
-- `AGENTS.md` và `docs/HANDOFF.md` được lưu trong commit tài liệu riêng (commit 2). Hash commit tài liệu và HEAD hiện hành lấy từ Git; tài liệu này không tự ghi hash commit chứa chính nó. Hai file này là hướng dẫn/bàn giao, không phải thay đổi code/test.
-- Hai commit chỉ lưu cục bộ trên branch; chưa push, chưa tạo PR. Required CI chưa xác nhận.
-- Slice được duyệt: intake vật lý TEXT original, giữ byte gốc, tạo đích độc quyền, đăng ký Asset/ORIGINAL trong transaction, rollback chỉ xóa file được sở hữu qua Windows handle. Không đổi schema, UI, Evidence reopening, Video/Image hay Gate 3.
+## Git và công việc sản phẩm hiện tại
 
-## Đã làm và bằng chứng trong phiên
+- Repo: `D:\Danang City Plus\FanPageNew\Vibecode\creator-loop-repo`. Branch `gate2-text-original-intake`; **mốc code trước commit tài liệu** `99ff244b6da145de63b490d423998fa5bf16b5a3`. Tra HEAD/commit tài liệu hiện hành bằng Git; handoff không tự ghi hash commit chứa chính nó. `main` và `origin/main` trong local repo ở `1f0f32973e03b3b89ae18013a5291aa8d2ba3437` khi đối chiếu.
+- Ba commit của branch sau `main` trước khi lưu mốc tài liệu này: `25ea4e4` triển khai TEXT original intake và test; `aa206d4` thêm hướng dẫn/bàn giao; `99ff244` sửa typing Windows để mypy chạy đa nền tảng. Trước commit tài liệu, local HEAD khớp `origin/gate2-text-original-intake` và head SHA của [PR #5](https://github.com/NextGlobal224/creator-loop/pull/5). PR #5 **OPEN**, hướng vào `main`, trạng thái `CLEAN`/`MERGEABLE` theo `gh pr view` ngày 01/10/2026.
+- Trước A2, không có staged/unstaged tracked changes; thư mục nguồn `Codex-Kit-v2/` là untracked có sẵn. Trong A2 chỉ sửa `AGENTS.md`, `docs/HANDOFF.md` và thêm `docs/CODEX_WORKFLOW.md`; giữ nguyên thư mục kit.
+- Đầu phiên chat mới ngày 01/10/2026, Git vẫn ở branch/HEAD trên; local `origin/gate2-text-original-intake` cùng SHA, `main` và `origin/main` vẫn ở `1f0f329`. Worktree có `AGENTS.md`, `docs/HANDOFF.md` modified và `Codex-Kit-v2/`, `docs/CODEX_WORKFLOW.md` untracked từ trước; không có staged changes. Phiên này sửa thêm `README.md` và cập nhật hai tài liệu bàn giao/nghiệm thu, không chạm code hoặc thư mục kit.
+- Mốc tài liệu được lưu sau mốc code `99ff244`, chỉ gồm `AGENTS.md`, `README.md`, `docs/HANDOFF.md`, `docs/CODEX_WORKFLOW.md`. Thư mục kit/ZIP và thay đổi khác không được stage; chưa push hoặc merge PR. Bằng chứng nghiệm thu bộ hướng dẫn ở [CODEX_WORKFLOW.md](CODEX_WORKFLOW.md), độc lập với required checks/release gate sản phẩm.
+- Slice sản phẩm đang xét: nhập vật lý TEXT original, giữ byte gốc, tạo đích độc quyền, đăng ký Asset/ORIGINAL trong transaction, rollback chỉ xóa file đang sở hữu qua Windows handle. Chưa mở rộng slice này sang schema, UI, Evidence reopening, Video/Image hoặc Gate 3.
 
-- `library.py` cho phép hoãn commit của `create_asset_file` để transaction của intake bao cả Asset và ORIGINAL.
-- TEXT intake đọc source ở chế độ nhị phân, tạo đích bằng `CreateFileW(CREATE_NEW)` với share mode 0; giữ một handle qua copy, đọc lại byte để tính SHA-256/size và quyết định commit/rollback. Lỗi đăng ký dùng `SetFileInformationByHandle(FileDispositionInfo)` trên handle đang giữ; không có fallback xóa theo pathname trong production. Lỗi cleanup giữ orphan và báo lỗi. Đã thêm vòng lặp write-all; write không tiến triển làm intake thất bại.
-- Tám test TEXT intake tập trung **PASS 8/8 sau sửa short-write** bằng `$env:PYTHONPATH = 'app'; python -m unittest discover -s tests -p test_text_intake.py -v`. Gồm short write hoàn tất với byte chính xác, write dừng tiến triển không để bản ghi DB hợp lệ, và test Windows bằng process thứ hai: rename bị từ chối mã 32, replace bị từ chối mã 5.
-- Kết quả 8/8 tập trung phía trên thuộc lần kiểm tra trước; đợt validation sau sửa định dạng bên dưới là căn cứ cho mốc code đã commit.
+## Bằng chứng và giới hạn
 
-## Validation và review ngày 01/10/2026
+| Mốc/kiểm tra | Nguồn và kết quả | Phạm vi |
+|---|---|---|
+| Local validation trước commit sửa typing | Handoff trước ghi `ruff check`, `ruff format --check`, `mypy`, `compileall` PASS; full unittest 63 test: 62 PASS, 1 SKIP. | Áp dụng cho code/test ở `25ea4e4`, **không tự xác minh** thay đổi `99ff244`. Ca `test_symlink_escape_is_rejected` bị skip vì Windows thiếu quyền tạo symlink (`WinError 1314`). |
+| Sửa typing ở mốc code | `git show 99ff244`: chỉ `app/creator_loop/windows_owned_file.py`, thêm nhánh kiểu theo `sys.platform` và chặn gọi Windows handle trên nền tảng khác. | Đã đọc diff; không suy ra test local PASS cho commit này từ lần chạy trước. |
+| CI trên PR #5 | `gh pr view 5 --repo NextGlobal224/creator-loop --json headRefOid,statusCheckRollup,...`: head `99ff244`; `fast-schema-domain`, `security-dependencies-workflow`, `windows-artifact` đều `SUCCESS` trong [run 36884109471](https://github.com/NextGlobal224/creator-loop/actions/runs/36884109471). `publish-release` `SKIPPED`, đúng nhánh PR. | Xác nhận ba job CI trên đúng commit. Chưa xác nhận ba job đã được gắn **required** trong ruleset; chưa có kiểm tra hiệu năng Windows 8 GB hoặc release gate. |
+| Kiểm tra lại CI và README trong chat mới | `origin` trỏ đến `NextGlobal224/creator-loop`; `.github/workflows/ci.yml` cấu hình `windows-artifact` trên `windows-2022`. `gh pr view 5` ngày 01/10/2026 xác nhận PR vẫn OPEN/CLEAN/MERGEABLE, head `99ff244`, ba job PR `SUCCESS`, `publish-release` `SKIPPED`. Đã sửa hai câu hiện trạng cũ trong `README.md` về GitHub/Windows runner và GitHub-hosted security job, trỏ đến đúng PR/run. | Đây là bằng chứng CI cho head đã nêu, không xác nhận ruleset required checks, release gate hoặc máy Windows 8 GB. Không đổi các mốc lịch sử/contract. |
+| Kiểm tra tài liệu trong chat mới | Đã đọc diff `README.md` và `docs/HANDOFF.md`, phần bảng mới của `docs/CODEX_WORKFLOW.md`; `git diff --check` PASS cho file tracked. Quét khoảng trắng cuối dòng và link Markdown tương đối của ba file: không phát hiện lỗi. `git status` chỉ có `AGENTS.md` modified từ A2, ba tài liệu liên quan của phiên này và `Codex-Kit-v2/` untracked từ trước. | `CODEX_WORKFLOW.md` còn untracked nên không nằm trong `git diff --check`; đã quét riêng. Không chạy test ứng dụng vì không sửa code/config thực thi. |
+| Thiết lập A2 | Prompt và bốn file nguồn ở `Codex-Kit-v2/Codex-Kit-v2/`; README, `pyproject.toml`, `requirements-release.txt`, `.github/workflows/ci.yml` và bốn contract đã đọc. Đã kiểm `git diff --check` (PASS cho tracked docs), không có khoảng trắng cuối dòng trong ba tài liệu và không có link tương đối bị thiếu. | Không chạy lại full test ứng dụng vì phiên này không đổi code hay hành vi công cụ. File workflow mới chưa được `git diff --check` bao phủ vì còn untracked; đã kiểm riêng khoảng trắng và link. |
 
-Đã chạy đủ các lệnh liệt kê trong handoff trước đó trên branch `gate2-text-original-intake`, trước khi tạo commit code. Khi đó HEAD là `1f0f32973e03b3b89ae18013a5291aa8d2ba3437` (cùng commit với `main` và `origin/main`). Không sửa code/test trong đợt kiểm tra này.
-
-| Lệnh | Kết quả lần này |
-|---|---|
-| `ruff check app tests scripts` | PASS |
-| `ruff format --check app tests scripts` | **FAIL**: `tests/test_text_intake.py:162` và `:188` cần xuống dòng lời gọi `patch.object`; 1 file cần format, 25 file đã đúng. |
-| `mypy app/creator_loop` | PASS, 15 source files. |
-| `python -m compileall -q app tests` | PASS. |
-| `$env:PYTHONPATH = 'app'; python -m unittest discover -s tests -v` | PASS, 63 test: 62 qua, 1 skip. Tám test TEXT intake đều qua; test Windows xác nhận rename bị từ chối mã 32 và replace mã 5. |
-| `$env:PYTHONPATH = 'app'; python -m unittest discover -s tests -p test_originals.py -v` | PASS, 12 test: 11 qua, 1 skip. |
-| `git diff --check` | PASS; chỉ bao phủ thay đổi tracked. |
-| `git status --short` | Chạy thành công; tại thời điểm đó `library.py` modified, ba file code/test mới và hai file tài liệu untracked. |
-
-Test bị skip trong cả hai lần unittest là `test_symlink_escape_is_rejected`: tài khoản Windows hiện tại không có quyền tạo symlink (`WinError 1314`). Không có lệnh nào trong danh sách chưa chạy. Required CI chưa được chạy/xác nhận cho commit code.
-
-Review đã đọc diff `library.py` và toàn bộ ba file code/test untracked. `create_asset` không tự commit; `create_asset_file(..., commit=False)` giữ Asset và ORIGINAL trong cùng transaction. Intake đọc/ghi byte nhị phân, xử lý short write, flush/fsync rồi đọc lại từ handle để tính digest/size. Tạo đích độc quyền và rollback qua handle đang giữ; các test kiểm việc giữ file có sẵn, lỗi ghi/DB, orphan khi disposition thất bại, và chặn rename/replace từ process khác. Chưa thấy lỗi logic cụ thể khác trong phạm vi review này. Lỗi format ở hai vị trí trên là kết quả lịch sử của lần kiểm tra trước; đã sửa và kiểm lại bên dưới. `git diff --check` không kiểm được ba file untracked; đã đọc trực tiếp và Ruff có bao phủ chúng.
-
-## Sau sửa định dạng ngày 01/10/2026
-
-Chỉ xuống dòng hai lời gọi `patch.object` tại `tests/test_text_intake.py:162` và vị trí trước đó ở `:188` (nay dịch dòng); không đổi biểu thức, assertion, dữ liệu kiểm thử hoặc điều kiện skip. Đã review hai hunk trước/sau sửa; thay đổi chỉ là định dạng. Không sửa code production.
-
-| Kiểm tra trên bản sau sửa | Kết quả |
-|---|---|
-| `ruff format --check app tests scripts` | **PASS**, 26 file đúng định dạng; lỗi trước đã hết. |
-| `ruff check app tests scripts` | PASS. |
-| `mypy app/creator_loop` | PASS, 15 source files. |
-| `python -m compileall -q app tests` | PASS. |
-| `$env:PYTHONPATH = 'app'; python -m unittest discover -s tests -v` | PASS, 63 test: 62 qua, 1 **SKIP**. Tám test TEXT intake qua; Windows rename bị từ chối mã 32, replace mã 5. |
-| `git diff --check` | PASS cho thay đổi tracked; file test untracked được bao phủ bởi Ruff. |
-
-Test vẫn **SKIP**: `test_symlink_escape_is_rejected` vì tài khoản Windows không có quyền tạo symlink (`WinError 1314`). Không chạy lặp riêng `test_originals.py`: 12 test của file này đã nằm trong full discovery lần này; lần chạy riêng trước sửa có 11 qua, 1 skip và không được dùng làm kết quả mới. Sau validation chỉ stage và commit đúng bốn file code/test, không sửa code thêm. Required CI trên PR, workflow security và Windows artifact chưa được chạy/xác nhận cho commit code. Commit tài liệu không yêu cầu chạy lại test ứng dụng vì không đổi code/test.
+Thứ tự ưu tiên trong `AGENTS.md` khớp file contract thực tế: Data Architecture V1.1 → CI/CD & Release Contract V1 → Layout Contract V1 → Master Prompt V2. Các contract này không bị sửa trong A2. Không dùng trạng thái CI của PR để tuyên bố toàn Gate 2 hoặc release đã hoàn tất.
 
 ## Việc tiếp theo
 
-1. Khi tiếp tục, đối chiếu branch, HEAD và worktree với Git; sau đó quyết định push/tạo PR cho **slice TEXT original intake** theo chỉ đạo tiếp theo. Cần required CI trên PR trước khi coi slice được xác nhận đầy đủ; test symlink vẫn cần môi trường Windows có quyền tạo symlink để kiểm được nhánh đó.
-2. Audit riêng các khoảng trống Library/Evidence của Video, Image, Text và việc mở lại Evidence/locator trước khi chọn slice kế tiếp. **Toàn bộ Gate 2 chưa hoàn tất** chỉ vì slice TEXT intake qua local validation.
+1. Trước thao tác sản phẩm tiếp theo, đối chiếu lại branch/HEAD/worktree, PR #5 và required checks/ruleset. Review slice TEXT intake trên PR; chỉ kết luận slice đạt gate PR khi các điều kiện thực tế được xác nhận. Kiểm lại nhánh symlink trên Windows có quyền tạo symlink nếu cần bằng chứng đầy đủ cho ca đó.
+2. Audit phần còn thiếu của Library/Evidence cho Video, Image, Text và việc mở lại locator đúng original/derived anchor; chọn một slice nhỏ tiếp theo theo contract. Claim/review workflow và release vẫn là việc sau.
+3. Với bộ hướng dẫn Codex: nghiệm thu thiết lập/hành vi đã có bằng chứng trong [CODEX_WORKFLOW.md](CODEX_WORKFLOW.md). Các chức năng IDE/skill riêng chưa thử vẫn ghi rõ; tiếp tục ghi dữ liệu từ task tương đương trước khi tính hiệu quả. Gate 2 vẫn chưa hoàn tất.

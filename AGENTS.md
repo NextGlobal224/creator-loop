@@ -1,6 +1,6 @@
 # Hướng dẫn làm việc — Creator Loop
 
-Đọc [Codex Master Prompt V2](docs/Codex_Master_Prompt_V2.md). Giữ nguyên thứ tự ưu tiên đã chốt:
+Khi nhiệm vụ đụng đến luật domain, CI/release hoặc layout, đọc phần liên quan của các contract dưới đây. Giữ thứ tự ưu tiên đã chốt:
 
 1. [Creator_Loop_Data_Architecture_V1_1.md](docs/Creator_Loop_Data_Architecture_V1_1.md) — luật domain, dữ liệu và bất biến.
 2. [Creator_Loop_CICD_Release_Contract_V1.md](docs/Creator_Loop_CICD_Release_Contract_V1.md) — CI, build, update, migration và recovery.
@@ -13,3 +13,4 @@ Nếu tài liệu xung đột, dừng phần công việc phụ thuộc, nêu r�
 - Đọc source theo nhiệm vụ; mở rộng phạm vi đọc khi cần kiểm tra ảnh hưởng và bất biến liên quan.
 - Chạy kiểm tra phù hợp với thay đổi và các yêu cầu validation của repo/CI. Kết quả kiểm tra cũ không xác minh code đã thay đổi sau đó.
 - Làm theo từng gate/PR nhỏ có test và tài liệu phù hợp. Cập nhật handoff tại mốc quan trọng hoặc trước khi chuyển phiên, ghi rõ việc còn thiếu và kết quả chưa xác nhận.
+- Với việc nhỏ, đọc và kiểm tra đúng phạm vi; không mặc định chạy toàn bộ test ứng dụng chỉ vì sửa tài liệu. Lệnh và cách bàn giao nằm ở [docs/CODEX_WORKFLOW.md](docs/CODEX_WORKFLOW.md).
