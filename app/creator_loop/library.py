@@ -122,6 +122,7 @@ class LibraryRepository:
         parent_file_id: str | None,
         processing_run_id: str | None,
         created_at: str,
+        commit: bool = True,
     ) -> None:
         self.db.execute(
             """
@@ -152,7 +153,8 @@ class LibraryRepository:
                 created_at,
             ),
         )
-        self.db.commit()
+        if commit:
+            self.db.commit()
 
     def create_processing_run(
         self,
