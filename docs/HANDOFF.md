@@ -2,6 +2,14 @@
 
 **Cập nhật:** 01/10/2026 (+07:00). Đây là ảnh chụp trạng thái; khi tiếp tục phải đối chiếu lại Git, source và CI. [Biên bản Gate 1](../Creator_Loop_Gate_1_Status.md) là lịch sử, không phải trạng thái Gate 2 hiện tại.
 
+## Trạng thái mới nhất
+
+- `main`/`origin/main` ở merge commit `8337d47` của [PR #5](https://github.com/NextGlobal224/creator-loop/pull/5). PR đã **MERGED** ngày 01/10/2026; head `82eac16`, ba required checks `fast-schema-domain`, `security-dependencies-workflow`, `windows-artifact` đều `SUCCESS` trong [run 36894651760](https://github.com/NextGlobal224/creator-loop/actions/runs/36894651760), `publish-release` `SKIPPED` theo nhánh PR. Branch protection `main` đòi ba context này, `strict=true`, `enforce_admins=true` khi kiểm qua GitHub API; release gate chưa chạy.
+- Branch làm việc kế tiếp: `gate2-evidence-anchor-reopen`, từ `8337d47`. `Codex-Kit-v2/` là untracked có sẵn và được giữ nguyên. Slice hiện tại thêm resolver cho Evidence Version: chỉ trả anchor đã ghi khi đường dẫn, size/hash và locator hợp lệ; TEXT trả đoạn NFC. Local Python 3.12: Ruff lint/format, mypy, compileall và workflow policy PASS; unittest 69 ca: 68 PASS, 1 SKIP (symlink `WinError 1314`). Link Markdown/whitespace của hai tài liệu cập nhật PASS. Cần review diff, commit/PR và required CI trên head mới. Chưa có viewer mở đoạn video/vùng ảnh, nên Gate 2 vẫn **đang triển khai**.
+- Máy nghiệm thu 8 GB là máy hiện tại theo người dùng: Dell XPS 15 9550, Windows 10 Pro x64 build 19045, RAM vật lý 8,429,834,240 byte. Engine/model sẽ chỉ dùng cục bộ, chưa phân phối; đường dẫn/phiên bản/license và test engine thật chưa xác nhận. Xem [ma trận nghiệm thu V1](PRODUCT_ACCEPTANCE.md) để đối chiếu 24 yêu cầu và điều kiện hoàn thành.
+
+Các mục bên dưới lưu mốc trước khi merge PR #5 để đối chiếu lịch sử; thông tin branch/PR OPEN trong đó không còn là trạng thái hiện hành.
+
 ## Mục tiêu và ràng buộc
 
 Gate 2 theo [Data Architecture V1.1](Creator_Loop_Data_Architecture_V1_1.md), [CI/CD & Release Contract V1](Creator_Loop_CICD_Release_Contract_V1.md), [Layout Contract V1](Creator_Loop_Layout_Contract_V1.md) và [Master Prompt V2](Codex_Master_Prompt_V2.md): Library/Evidence cho Video, Image, Text; original bất biến; Asset là identity logic, có thể nối nhiều Source; `asset_files`/`processing_runs`; Evidence Version neo đúng file/digest, locator có schema và mở lại đúng nguồn. Giữ version history, phân biệt xử lý với review, bảo toàn nghĩa NULL và bất biến SQLite/FK. **Toàn Gate 2 chưa hoàn tất.**
@@ -35,6 +43,6 @@ Thứ tự ưu tiên trong `AGENTS.md` khớp file contract thực tế: Data Ar
 
 ## Việc tiếp theo
 
-1. Lưu và push phần cập nhật tài liệu CI lên PR #5; xác nhận ba required checks chạy trên head mới trước khi merge theo branch protection. Kiểm lại nhánh symlink trên Windows có quyền tạo symlink nếu cần bằng chứng đầy đủ cho ca đó.
-2. Audit phần còn thiếu của Library/Evidence cho Video, Image, Text và việc mở lại locator đúng original/derived anchor; chọn một slice nhỏ tiếp theo theo contract. Claim/review workflow và release vẫn là việc sau.
-3. Với bộ hướng dẫn Codex: nghiệm thu thiết lập/hành vi đã có bằng chứng trong [CODEX_WORKFLOW.md](CODEX_WORKFLOW.md). Các chức năng IDE/skill riêng chưa thử vẫn ghi rõ; tiếp tục ghi dữ liệu từ task tương đương trước khi tính hiệu quả. Gate 2 vẫn chưa hoàn tất.
+1. Hoàn tất diff slice Evidence resolver; commit/PR nhỏ, xác nhận ba required checks trên đúng head rồi merge theo branch protection nếu đạt.
+2. Tiếp tục Gate 2 bằng luồng nhập Video/Image và mở Evidence ở đúng đoạn/vùng trong ứng dụng; giữ original/dẫn xuất và version đúng contract. Test symlink Windows còn SKIP vì máy hiện tại thiếu quyền tạo symlink (`WinError 1314`).
+3. Khi có UI/engine phù hợp, lấy đường dẫn/phiên bản/nguồn engine và model cục bộ để chạy nghiệm thu thật trên máy 8 GB. Gate 3–5 và release vẫn chưa hoàn tất. Các mục IDE chưa thử của bộ hướng dẫn giữ trạng thái trong [CODEX_WORKFLOW.md](CODEX_WORKFLOW.md).
