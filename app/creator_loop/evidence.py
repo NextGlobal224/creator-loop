@@ -161,7 +161,28 @@ class EvidenceRepository:
         if version.version_no != current + 1:
             raise ValueError("Evidence version must be the next version")
 
-        validate_locator(version.locator_type, version.locator_data)
+        anchor = self.db.execute(
+            """
+            SELECT asset_id, duration_ms
+            FROM asset_files
+            WHERE file_id = ?
+            """,
+            (version.anchor_file_id,),
+        ).fetchone()
+
+        if anchor is None:
+            raise ValueError("Anchor file does not exist")
+
+        anchor_asset_id, duration_ms = anchor
+
+        if anchor_asset_id != version.asset_id:
+            raise ValueError("Anchor file belongs to another Asset")
+
+        validate_locator(
+            version.locator_type,
+            version.locator_data,
+            duration_ms=duration_ms,
+        )
 
         try:
             self.db.execute(
