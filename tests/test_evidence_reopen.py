@@ -112,7 +112,7 @@ class EvidenceReopenTests(unittest.TestCase):
         reopened = reopen_evidence_version(self.db, "version-1", self.root)
 
         self.assertEqual(reopened.anchor_file_id, "file-text")
-        self.assertEqual(reopened.anchor_path, path)
+        self.assertEqual(reopened.anchor_path, path.resolve())
         self.assertEqual(reopened.text_excerpt, "Café")
         self.assertEqual(reopened.locator_type, "TEXT_RANGE")
 
@@ -137,7 +137,7 @@ class EvidenceReopenTests(unittest.TestCase):
         )
 
         reopened = reopen_evidence_version(self.db, "version-1", self.root)
-        self.assertEqual(reopened.anchor_path, derived)
+        self.assertEqual(reopened.anchor_path, derived.resolve())
         self.assertEqual(reopened.locator["start_ms"], 1000)
 
         derived.unlink()
