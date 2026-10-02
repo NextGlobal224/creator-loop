@@ -68,6 +68,12 @@ from creator_loop.video_evidence import (
     reopen_video_evidence,
 )
 from creator_loop.video_evidence_ui import VideoEvidenceDialog, VideoRangeView
+from creator_loop.whole_evidence import WholeSource
+from creator_loop.whole_evidence_ui import (
+    WholeEvidenceDialog,
+    WholeEvidenceView,
+    WholeEvidenceWorker,
+)
 
 
 class OriginalImportWorker(QThread):
@@ -547,6 +553,7 @@ class LibraryWindow(QMainWindow):
         self._image_result: object | None = None
         self._video_result: object | None = None
         self._audio_result: object | None = None
+        self._whole_result: object | None = None
         self.setWindowTitle("Creator Loop — Library")
         self.resize(1000, 700)
 
@@ -648,6 +655,20 @@ class LibraryWindow(QMainWindow):
         video_actions.addWidget(review_evidence, 0, 3, 2, 1)
         layout.addLayout(video_actions)
 
+        whole_actions = QHBoxLayout()
+        for action, label in (
+            ("load", "Tạo Evidence toàn nguồn"),
+            ("reopen", "Mở Evidence toàn nguồn"),
+            ("load-correction", "Sửa Evidence toàn nguồn"),
+        ):
+            button = QPushButton(label)
+            button.clicked.connect(
+                lambda _checked=False, a=action: self.choose_whole_evidence(a)
+            )
+            self._buttons.append(button)
+            whole_actions.addWidget(button)
+        layout.addLayout(whole_actions)
+
         self.evidence_table = QTableWidget(0, 4)
         self.evidence_table.setHorizontalHeaderLabels(
             ("Evidence", "Đoạn đã lưu", "Version", "Review")
@@ -719,6 +740,7 @@ class LibraryWindow(QMainWindow):
                 "IMAGE_REGION": "Image thumbnail" if row[6] == "THUMBNAIL" else "Image",
                 "TEXT_RANGE": "Text",
                 "TIME_RANGE": "Audio" if row[5] == "audio" else "Video",
+                "WHOLE_ASSET": f"Toàn nguồn {row[6]}",
             }.get(str(row[4]), str(row[4]))
             item = QTableWidgetItem(f"{row[1]} ({evidence_kind})")
             item.setData(Qt.ItemDataRole.UserRole, row[0])
@@ -791,6 +813,111 @@ class LibraryWindow(QMainWindow):
             TextEvidenceWorker("load", str(file_id), self.root),
             "Đang xác minh snapshot TEXT…",
         )
+
+    def choose_whole_evidence(self, action: str) -> None:
+        if self._worker is not None:
+            return
+        if action == "load":
+            row = self.table.currentRow()
+            if row < 0:
+                QMessageBox.information(
+                    self, "Chọn nguồn", "Chọn một original trong Library."
+                )
+                return
+            identifier = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        elif action in ("reopen", "load-correction"):
+            row = self.evidence_table.currentRow()
+            if (
+                row < 0
+                or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+                != "WHOLE_ASSET"
+            ):
+                QMessageBox.information(
+                    self, "Chọn Evidence", "Chọn một Evidence toàn nguồn."
+                )
+                return
+            identifier = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        else:
+            raise ValueError("Unknown whole-source UI action")
+        self._start_whole_worker(
+            WholeEvidenceWorker(action, str(identifier), self.root)
+        )
+
+    def _start_whole_worker(self, worker: WholeEvidenceWorker) -> None:
+        self._whole_result = None
+        worker.result.connect(self._store_whole_result)
+        worker.failed.connect(self._on_failed)
+        self._start_worker(
+            worker,
+            "Đang xác minh toàn nguồn…",
+            lambda: self._finish_whole(worker.action, worker.identifier),
+        )
+
+    def _store_whole_result(self, result: object) -> None:
+        self._whole_result = result
+
+    def _finish_whole(self, action: str, identifier: str) -> None:
+        result, self._whole_result = self._whole_result, None
+        if result is None:
+            return
+        if action in ("create", "correct"):
+            try:
+                self.reload()
+            except Exception as exc:
+                self._on_failed(
+                    f"Đã ghi Evidence nhưng không thể tải lại Library: {exc}"
+                )
+                return
+            if action == "correct":
+                _version, stale = cast(tuple[str, int], result)
+                self.status.setText(
+                    f"Đã sửa toàn nguồn; {stale} Claim Version cần review."
+                )
+            else:
+                self.status.setText("Evidence toàn nguồn đã tạo, đang chờ review.")
+            return
+        content, source = cast(tuple[str, WholeSource], result)
+        if action == "reopen":
+            WholeEvidenceView(content, source).exec()
+            return
+        if action == "load-correction" and source.media_type == "TEXT":
+            snapshot = source.text_snapshot or ""
+            dialog = TextEvidenceDialog(
+                snapshot, correction=True, start=0, end=len(snapshot)
+            )
+            if dialog.exec() == TextEvidenceDialog.DialogCode.Accepted:
+                self._start_evidence_worker(
+                    TextEvidenceWorker(
+                        "correct",
+                        identifier,
+                        self.root,
+                        start=dialog.start.value(),
+                        end=dialog.end.value(),
+                        actor=dialog.actor.text(),
+                        reason=dialog.reason.text(),
+                    ),
+                    "Đang lưu đoạn TEXT đã sửa…",
+                )
+            return
+        whole_dialog = WholeEvidenceDialog(
+            source, content=content, correction=action == "load-correction"
+        )
+        if whole_dialog.exec() == WholeEvidenceDialog.DialogCode.Accepted:
+            self._start_whole_worker(
+                WholeEvidenceWorker(
+                    "correct" if action == "load-correction" else "create",
+                    identifier,
+                    self.root,
+                    content=(
+                        source.text_snapshot
+                        if source.media_type == "TEXT"
+                        else whole_dialog.content.toPlainText()
+                    ),
+                    actor=whole_dialog.actor.text(),
+                    reason=whole_dialog.reason.text(),
+                    confirmed=whole_dialog.confirmed.isChecked(),
+                )
+            )
 
     def choose_project(self) -> None:
         if self._worker is not None:
