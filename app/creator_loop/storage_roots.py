@@ -1,0 +1,172 @@
+"""Registered media roots are coordination metadata, never domain identities."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from contextlib import closing
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from uuid import uuid4
+
+from creator_loop.database import _connect_write
+from creator_loop.storage_volumes import volume_identity
+from creator_loop.transactions import atomic_transaction
+
+
+class StorageRootError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class StorageRoot:
+    root_id: str
+    path: str
+    volume_id: str
+
+
+def _manifest_path(data_root: Path) -> Path:
+    canonical = Path(data_root).resolve(strict=True)
+    manifests = canonical / "manifests"
+    if not manifests.resolve().is_relative_to(canonical):
+        raise StorageRootError("Unsafe storage manifest folder")
+    path = manifests / "storage-roots.json"
+    if path.is_symlink():
+        raise StorageRootError("Unsafe storage manifest file")
+    return path
+
+
+def _load(path: Path) -> dict[str, object]:
+    try:
+        raw = path.read_bytes()
+        if len(raw) > 1024 * 1024:
+            raise StorageRootError("Storage manifest exceeds metadata budget")
+        payload = json.loads(raw.decode("utf-8"))
+        if (
+            not isinstance(payload, dict)
+            or payload.get("manifest_version") != 1
+            or not isinstance(payload.get("data_root_id"), str)
+            or re.fullmatch(r"[0-9a-f]{32}", payload["data_root_id"]) is None
+            or type(payload.get("schema_version")) is not int
+            or not isinstance(payload.get("storage_roots"), list)
+        ):
+            raise StorageRootError("Invalid storage manifest")
+        ids: set[str] = set()
+        paths: set[str] = set()
+        for entry in payload["storage_roots"]:
+            if (
+                not isinstance(entry, dict)
+                or set(entry) != {"root_id", "path", "volume_id"}
+                or any(
+                    not isinstance(value, str) or not value for value in entry.values()
+                )
+                or re.fullmatch(r"[0-9a-f]{32}", entry["root_id"]) is None
+                or not Path(entry["path"]).is_absolute()
+                or entry["root_id"] in ids
+                or os.path.normcase(entry["path"]) in paths
+            ):
+                raise StorageRootError("Invalid or duplicate storage root")
+            ids.add(entry["root_id"])
+            paths.add(os.path.normcase(entry["path"]))
+        return payload
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise StorageRootError("Storage manifest unavailable or malformed") from exc
+
+
+def _roots(payload: dict[str, object]) -> list[StorageRoot]:
+    # _load validates all fields before this conversion.
+    entries = payload["storage_roots"]
+    if not isinstance(entries, list):
+        raise StorageRootError("Invalid storage roots")
+    return [StorageRoot(**entry) for entry in entries]
+
+
+def list_storage_roots(data_root: Path) -> list[StorageRoot]:
+    """List registration history even while a media volume is unavailable."""
+    path = _manifest_path(data_root)
+    if not path.exists():
+        return []
+    return _roots(_load(path))
+
+
+def resolve_registered_root(data_root: Path, root_id: str) -> Path:
+    if re.fullmatch(r"[0-9a-f]{32}", root_id) is None:
+        raise StorageRootError("Invalid registered root ID")
+    root = next(
+        (root for root in list_storage_roots(data_root) if root.root_id == root_id),
+        None,
+    )
+    if root is None:
+        raise StorageRootError("Storage root is not registered")
+    try:
+        path = Path(root.path).resolve(strict=True)
+        if not path.is_dir() or str(path) != root.path:
+            raise StorageRootError("Registered root path has changed")
+        if volume_identity(path) != root.volume_id:
+            raise StorageRootError("Registered storage volume has changed")
+    except OSError as exc:
+        raise StorageRootError("Registered storage volume unavailable") from exc
+    return path
+
+
+def register_storage_root(data_root: Path, media_root: Path) -> StorageRoot:
+    """Register an existing local folder without moving files or granting deletion.
+
+    Serialize manifest writers with the existing user DB's write lock, then
+    replace the manifest atomically. The manifest is allowed to outlive a DB
+    rollback: registration alone changes no Asset/file/Evidence relation.
+    """
+    canonical = Path(data_root).resolve(strict=True)
+    candidate = Path(media_root).resolve(strict=True)
+    if not candidate.is_dir():
+        raise StorageRootError("Storage root must be an existing directory")
+    if candidate.is_relative_to(canonical) or canonical.is_relative_to(candidate):
+        raise StorageRootError(
+            "Registered storage root must be separate from user data"
+        )
+    observed_volume = volume_identity(candidate)
+    db_path = canonical / "creator_loop.sqlite3"
+    if not db_path.is_file():
+        raise StorageRootError("User database must exist before registration")
+    with closing(_connect_write(db_path)) as db, atomic_transaction(db):
+        path = _manifest_path(canonical)
+        payload = (
+            _load(path)
+            if path.exists()
+            else {
+                "manifest_version": 1,
+                "data_root_id": uuid4().hex,
+                "schema_version": db.execute("PRAGMA user_version").fetchone()[0],
+                "storage_roots": [],
+            }
+        )
+        roots = _roots(payload)
+        for root in roots:
+            if os.path.normcase(root.path) == os.path.normcase(str(candidate)):
+                resolve_registered_root(canonical, root.root_id)
+                return root
+            registered = Path(root.path)
+            if candidate.is_relative_to(registered) or registered.is_relative_to(
+                candidate
+            ):
+                raise StorageRootError("Registered storage roots must not overlap")
+        if volume_identity(candidate) != observed_volume:
+            raise StorageRootError("Storage volume changed during registration")
+        root = StorageRoot(uuid4().hex, str(candidate), observed_volume)
+        payload["storage_roots"] = [asdict(item) for item in [*roots, root]]
+        payload["schema_version"] = db.execute("PRAGMA user_version").fetchone()[0]
+        path.parent.mkdir(exist_ok=True)
+        temporary = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
+        created = False
+        try:
+            with temporary.open("x", encoding="utf-8") as stream:
+                created = True
+                json.dump(payload, stream, ensure_ascii=False, indent=2)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            if created:
+                temporary.unlink(missing_ok=True)
+    return root

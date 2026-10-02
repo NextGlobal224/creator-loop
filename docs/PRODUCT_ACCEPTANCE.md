@@ -57,9 +57,9 @@ Giữ ID và điều kiện nghiệm thu ở bảng trên. Trạng thái dưới
 | Module | Yêu cầu | Trạng thái | Bằng chứng | Còn thiếu | Phụ thuộc |
 |---|---|---|---|---|---|
 | Gate 1 / Windows app | 01 — local desktop 8 GB | ĐANG LÀM | E1/E2; máy đích đã xác định | Budget tài nguyên, tác vụ nặng thật | Engine/model, Gate 5 |
-| Gate 2 / Library, Layout | 02 — storage/ownership/volume | ĐANG LÀM | E6: resolver merge, volume identity source có hai test thật và full suite PASS với1SKIP; CI volume còn chờ | Registered root, relocation, mất/gắn volume, updater ownership | Volume identity, lock writer |
+| Gate 2 / Library, Layout | 02 — storage/ownership/volume | ĐANG LÀM | E6; PR #38 head `7006442` ba required SUCCESS, merge `e5bcda2`. Registered-root: sửa fixture lỗi, manifest/volume/no-fallback/original+derived reopen/collision/concurrency tests; full207/206/1 và static PASS local Windows, CI mới còn chờ; log trong HANDOFF | CI registered-root; UI root/relocation, rút/gắn volume vật lý, updater ownership | Volume identity, lock writer |
 | Gate 1 / Data & migration | 03 — SQLite/invariant/migration | ĐANG LÀM | E1/E4: schema 1→2, backup, FK và citation seal tests | Invariant Draft/selection, mọi migration/recovery cuối | Gate 3, Gate 5 |
-| Gate 1 / CI | 04 — required CI thật | CHƯA XÁC MINH | E6 xác minh PR #37/enforcement; code volume/runner mới chưa CI | CI HEAD bàn giao mới | PR volume/runner |
+| Gate 1 / CI | 04 — required CI thật | CHƯA XÁC MINH | E6 xác minh PR #37/enforcement; PR #38 head `7006442` có ba job SUCCESS, release SKIPPED; không áp dụng cho WIP registered-root | Required CI trên code bàn giao tiếp theo/cuối cùng; không suy enforcement từ job xanh | PR registered-root; contract CI |
 | Gate 2 / Library | 05 — Source/Asset N:M | ĐANG LÀM | E4 PR #11/#12; E1 suite | Di chuyển file vẫn giữ identity/quan hệ | 02 |
 | Gate 2 / Library | 06 — ORIGINAL ba media | ĐANG LÀM | E1/E4: import/ownership/digest/Qt | Codec preflight đầy đủ tại intake | Media decoder/preflight |
 | Gate 2 / Library | 07 — derived/task/run | ĐANG LÀM | E4 thumbnail thật; E1 | Task còn lại, cancel/provenance thật | Engine lifecycle/component |
