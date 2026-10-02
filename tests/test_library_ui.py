@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import tempfile
 import time
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,8 +17,10 @@ if os.name == "nt":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from creator_loop.library_ui import LibraryWindow
+        from creator_loop.source_ui import SourceDialog
         from creator_loop.text_evidence_ui import TextEvidenceDialog
         from creator_loop.text_intake import intake_text_original
+        from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QApplication, QFileDialog
     except ImportError:
         QApplication = None
@@ -113,3 +117,69 @@ class LibraryUiTests(unittest.TestCase):
         dialog.end.setValue(5)
         app.processEvents()
         self.assertEqual(dialog.preview.text(), "Café")
+
+    def test_source_is_attached_and_reused_across_assets(self) -> None:
+        assert QApplication is not None
+        app = QApplication.instance() or QApplication([])
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name) / "dữ liệu Source"
+        root.mkdir()
+        db_path = root / "creator_loop.sqlite3"
+        initialize(db_path)
+        for name in ("Một.txt", "Hai.txt"):
+            source = Path(self.temp.name) / name
+            source.write_text(name, encoding="utf-8")
+            intake_text_original(source, root=root)
+        window = LibraryWindow(root)
+        self.addCleanup(window.close)
+        window.show()
+        window.table.selectRow(0)
+
+        def create_web_source(dialog: SourceDialog) -> object:
+            dialog.platform.setText("WEB")
+            dialog.url.setText("https://example.invalid/post")
+            dialog.rights.setCurrentText("REFERENCE_ONLY")
+            dialog.relationship.setCurrentText("REFERENCE")
+            return SourceDialog.DialogCode.Accepted
+
+        with patch.object(SourceDialog, "exec", create_web_source):
+            window.choose_source()
+            self._wait_for_worker(app, window)
+        with closing(sqlite3.connect(db_path)) as db:
+            source_id = db.execute("SELECT source_id FROM sources").fetchone()[0]
+        window.table.selectRow(1)
+
+        def attach_existing(dialog: SourceDialog) -> object:
+            dialog.mode.setCurrentIndex(1)
+            self.assertEqual(dialog.existing.currentData(), source_id)
+            dialog.relationship.setCurrentText("REFERENCE")
+            return SourceDialog.DialogCode.Accepted
+
+        with patch.object(SourceDialog, "exec", attach_existing):
+            window.choose_source()
+            self._wait_for_worker(app, window)
+        window.table.selectRow(0)
+
+        def add_second_source(dialog: SourceDialog) -> object:
+            dialog.platform.setText("LOCAL")
+            return SourceDialog.DialogCode.Accepted
+
+        with patch.object(SourceDialog, "exec", add_second_source):
+            window.choose_source()
+            self._wait_for_worker(app, window)
+        with closing(sqlite3.connect(db_path)) as db:
+            links = db.execute(
+                "SELECT source_id,asset_id FROM source_assets ORDER BY asset_id"
+            ).fetchall()
+            local_source = db.execute(
+                "SELECT canonical_url,external_id,publisher_name,rights_status "
+                "FROM sources WHERE platform='LOCAL'"
+            ).fetchone()
+        self.assertEqual(len(links), 3)
+        self.assertEqual(sum(row[0] == source_id for row in links), 2)
+        self.assertEqual(local_source, (None, None, None, "UNKNOWN"))
+        second_asset_id = window.table.item(1, 1).data(Qt.ItemDataRole.UserRole)
+        details = SourceDialog(root, str(second_asset_id), "Hai.txt")
+        self.addCleanup(details.close)
+        self.assertEqual(details.links.rowCount(), 1)

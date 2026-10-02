@@ -24,6 +24,12 @@ from PySide6.QtWidgets import (
 from creator_loop.database import _connect_write, open_readonly
 from creator_loop.evidence_reopen import reopen_evidence_version
 from creator_loop.media_intake import intake_image_original, intake_video_original
+from creator_loop.source_association import (
+    SourceDetails,
+    create_source_for_asset,
+    link_existing_source,
+)
+from creator_loop.source_ui import SourceDialog
 from creator_loop.text_evidence import create_text_evidence, read_verified_text_snapshot
 from creator_loop.text_evidence_ui import TextEvidenceDialog
 from creator_loop.text_intake import intake_text_original
@@ -110,6 +116,48 @@ class TextEvidenceWorker(QThread):
             self.failed.emit(f"Không thể xử lý Evidence: {exc}")
 
 
+class SourceWorker(QThread):
+    linked = Signal(str)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        root: Path,
+        asset_id: str,
+        relationship_type: str,
+        details: SourceDetails,
+        existing_source_id: str | None,
+    ) -> None:
+        super().__init__()
+        self.root = root
+        self.asset_id = asset_id
+        self.relationship_type = relationship_type
+        self.details = details
+        self.existing_source_id = existing_source_id
+
+    def run(self) -> None:
+        try:
+            with closing(_connect_write(self.root / "creator_loop.sqlite3")) as db:
+                if self.existing_source_id is None:
+                    source_id = create_source_for_asset(
+                        db,
+                        asset_id=self.asset_id,
+                        details=self.details,
+                        relationship_type=self.relationship_type,
+                    )
+                else:
+                    source_id = self.existing_source_id
+                    link_existing_source(
+                        db,
+                        source_id=source_id,
+                        asset_id=self.asset_id,
+                        relationship_type=self.relationship_type,
+                    )
+            self.linked.emit(source_id)
+        except Exception as exc:
+            self.failed.emit(f"Không thể gắn Source: {exc}")
+
+
 class LibraryWindow(QMainWindow):
     def __init__(self, root: Path) -> None:
         super().__init__()
@@ -145,6 +193,10 @@ class LibraryWindow(QMainWindow):
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table)
         evidence_actions = QHBoxLayout()
+        attach_source = QPushButton("Nguồn của Asset")
+        attach_source.clicked.connect(self.choose_source)
+        self._buttons.append(attach_source)
+        evidence_actions.addWidget(attach_source)
         create_evidence = QPushButton("Tạo Evidence Text")
         create_evidence.clicked.connect(self.choose_text_evidence)
         self._buttons.append(create_evidence)
@@ -174,7 +226,7 @@ class LibraryWindow(QMainWindow):
         with closing(open_readonly(self.root / "creator_loop.sqlite3")) as db:
             rows = db.execute(
                 """SELECT a.media_type, a.display_name, f.mime_type,
-                          f.byte_size, f.file_id
+                          f.byte_size, f.file_id, a.asset_id
                    FROM assets a JOIN asset_files f ON f.asset_id = a.asset_id
                    WHERE f.role = 'ORIGINAL' AND a.deleted_at IS NULL
                    ORDER BY a.created_at DESC, f.created_at DESC, f.file_id DESC"""
@@ -195,6 +247,7 @@ class LibraryWindow(QMainWindow):
                     row_index, column_index, QTableWidgetItem(str(value))
                 )
             self.table.item(row_index, 0).setData(Qt.ItemDataRole.UserRole, row[4])
+            self.table.item(row_index, 1).setData(Qt.ItemDataRole.UserRole, row[5])
         self.evidence_table.setRowCount(len(evidence_rows))
         for row_index, row in enumerate(evidence_rows):
             item = QTableWidgetItem(str(row[1]))
@@ -258,6 +311,31 @@ class LibraryWindow(QMainWindow):
             "Đang xác minh snapshot TEXT…",
         )
 
+    def choose_source(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.information(
+                self, "Chọn Asset", "Chọn một original trong Library."
+            )
+            return
+        item = self.table.item(row, 1)
+        asset_id = str(item.data(Qt.ItemDataRole.UserRole))
+        dialog = SourceDialog(self.root, asset_id, item.text())
+        if dialog.exec() != SourceDialog.DialogCode.Accepted:
+            return
+        worker = SourceWorker(
+            self.root,
+            asset_id,
+            dialog.relationship.currentText(),
+            dialog.details(),
+            dialog.source_id(),
+        )
+        worker.linked.connect(self._on_source_linked)
+        worker.failed.connect(self._on_failed)
+        self._start_worker(worker, "Đang gắn Source…")
+
     def reopen_selected_text_evidence(self) -> None:
         if self._worker is not None:
             return
@@ -298,6 +376,9 @@ class LibraryWindow(QMainWindow):
 
     def _on_imported(self, _asset_id: str) -> None:
         self.reload()
+
+    def _on_source_linked(self, _source_id: str) -> None:
+        self.status.setText("Source đã gắn vào Asset.")
 
     def _on_failed(self, message: str) -> None:
         self.status.setText(message)
