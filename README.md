@@ -23,7 +23,7 @@ python -m creator_loop --smoke
 
 Desktop UI requires `pip install PySide6==6.10.2`. The app stores user data outside installation by default, under `%LOCALAPPDATA%\CreatorLoop` on Windows. `CREATOR_LOOP_DATA_ROOT` overrides this for test/portable use.
 
-To open the current Library UI, run `python -m creator_loop` with `PYTHONPATH=app`. The three import buttons accept TEXT, MP4 video, and PNG/JPEG images. The app copies bytes into the user-data originals store and lists the imported files. Format detection checks stored signatures; broad codec compatibility and formal Evidence review are later Gate 2 work.
+To open the current Library UI, run `python -m creator_loop` with `PYTHONPATH=app`. The three import buttons accept TEXT, MP4 video, and PNG/JPEG images. The app copies bytes into the user-data originals store and lists the imported files. Format detection checks stored signatures; broad codec compatibility and Evidence review in the UI are later Gate 2 work.
 
 For a TEXT original, select its row and choose **Tạo Evidence Text**. Enter start/end positions on the NFC text snapshot and inspect the excerpt preview before saving. Select the saved Evidence row and choose **Mở Evidence Text** to verify and display that exact excerpt again. To correct the latest TEXT Evidence Version, select it and choose **Sửa Evidence Text**; enter a new range, actor and reason. The old version remains in the table and can still be reopened. The status shows how many Claim Versions still refer to an older version and need review. The initial create/reopen UI slice passed the required CI checks in PR #10; the correction UI passed the required checks in PR #20.
 
@@ -35,7 +35,9 @@ For an MP4 original with a decodable video track, choose **Tạo Evidence Video*
 
 Select an IMAGE original and choose **Tạo thumbnail Image** to generate a PNG derivative with its own processing run. The task table shows each run's status and derived file path; a failed run stays visible without changing the original. Other media processing tasks and cancellation are later Gate 2 work.
 
-To create Evidence from a generated thumbnail, select its successful task row and choose **Evidence từ thumbnail**. Select a region in the decoded thumbnail; the saved Evidence anchors that derived file. Reopening verifies the thumbnail's own digest, even if the original later becomes unavailable. The service passed required CI in PR #23; this UI action is under CI review.
+To create Evidence from a generated thumbnail, select its successful task row and choose **Evidence từ thumbnail**. Select a region in the decoded thumbnail; the saved Evidence anchors that derived file. Reopening verifies the thumbnail's own digest, even if the original later becomes unavailable. The service and UI passed required CI in PR #23 and PR #24 respectively.
+
+The Evidence review service on the current branch appends ACCEPT, REJECT, REQUEST_CHANGES and REOPEN events for the latest Evidence Version. ACCEPT verifies the saved anchor again; the current review action is derived from event history. The review UI is still missing.
 
 ## CI and release
 
