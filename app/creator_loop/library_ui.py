@@ -21,6 +21,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from creator_loop.audio_evidence import (
+    DecodedAudioSegment,
+    create_audio_evidence,
+    decode_audio_segment,
+    reopen_audio_evidence,
+)
+from creator_loop.audio_evidence_ui import AudioEvidenceDialog, AudioRangeView
 from creator_loop.database import _connect_write, open_readonly
 from creator_loop.evidence_correction import (
     claim_versions_needing_review,
@@ -298,6 +305,65 @@ class VideoEvidenceWorker(QThread):
             self.failed.emit(f"Không thể xử lý Evidence video: {exc}")
 
 
+class AudioEvidenceWorker(QThread):
+    result = Signal(object)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        action: str,
+        identifier: str,
+        root: Path,
+        *,
+        start_ms: int = 0,
+        end_ms: int = 0,
+        content: str = "",
+        actor: str = "",
+        evidence_type: str = "SPEECH",
+    ) -> None:
+        super().__init__()
+        self.action = action
+        self.identifier = identifier
+        self.root = root
+        self.start_ms = start_ms
+        self.end_ms = end_ms
+        self.content = content
+        self.actor = actor
+        self.evidence_type = evidence_type
+
+    def run(self) -> None:
+        db_path = self.root / "creator_loop.sqlite3"
+        try:
+            if self.action == "load":
+                with closing(open_readonly(db_path)) as db:
+                    _asset_id, decoded = decode_audio_segment(
+                        db, self.identifier, self.root, start_ms=0, end_ms=1
+                    )
+                self.result.emit(decoded)
+            elif self.action == "create":
+                with closing(_connect_write(db_path)) as db:
+                    version = create_audio_evidence(
+                        db,
+                        file_id=self.identifier,
+                        data_root=self.root,
+                        start_ms=self.start_ms,
+                        end_ms=self.end_ms,
+                        content=self.content,
+                        actor=self.actor,
+                        evidence_type=self.evidence_type,
+                    )
+                self.result.emit(version.evidence_version_id)
+            elif self.action == "reopen":
+                with closing(open_readonly(db_path)) as db:
+                    self.result.emit(
+                        reopen_audio_evidence(db, self.identifier, self.root)
+                    )
+            else:
+                raise ValueError("Unknown audio Evidence action")
+        except Exception as exc:
+            self.failed.emit(f"Không thể xử lý Evidence audio: {exc}")
+
+
 class SourceWorker(QThread):
     linked = Signal(str)
     failed = Signal(str)
@@ -348,6 +414,7 @@ class LibraryWindow(QMainWindow):
         self._evidence_result: object | None = None
         self._image_result: object | None = None
         self._video_result: object | None = None
+        self._audio_result: object | None = None
         self.setWindowTitle("Creator Loop — Library")
         self.resize(1000, 700)
 
@@ -415,6 +482,14 @@ class LibraryWindow(QMainWindow):
         reopen_video.clicked.connect(self.reopen_selected_video_evidence)
         self._buttons.append(reopen_video)
         video_actions.addWidget(reopen_video)
+        create_audio = QPushButton("Tạo Evidence Audio")
+        create_audio.clicked.connect(self.choose_audio_evidence)
+        self._buttons.append(create_audio)
+        video_actions.addWidget(create_audio)
+        reopen_audio = QPushButton("Mở Evidence Audio")
+        reopen_audio.clicked.connect(self.reopen_selected_audio_evidence)
+        self._buttons.append(reopen_audio)
+        video_actions.addWidget(reopen_audio)
         layout.addLayout(video_actions)
 
         self.evidence_table = QTableWidget(0, 3)
@@ -451,7 +526,8 @@ class LibraryWindow(QMainWindow):
             ).fetchall()
             evidence_rows = db.execute(
                 """SELECT v.evidence_version_id, a.display_name, v.content,
-                          v.version_no, v.locator_type
+                          v.version_no, v.locator_type,
+                          json_extract(v.locator_data,'$.track')
                    FROM evidence_versions v
                    JOIN evidences e ON e.evidence_id = v.evidence_id
                    JOIN assets a ON a.asset_id = e.asset_id
@@ -479,13 +555,14 @@ class LibraryWindow(QMainWindow):
             evidence_kind = {
                 "IMAGE_REGION": "Image",
                 "TEXT_RANGE": "Text",
-                "TIME_RANGE": "Video",
+                "TIME_RANGE": "Audio" if row[5] == "audio" else "Video",
             }.get(str(row[4]), str(row[4]))
             item = QTableWidgetItem(f"{row[1]} ({evidence_kind})")
             item.setData(Qt.ItemDataRole.UserRole, row[0])
             self.evidence_table.setItem(row_index, 0, item)
             content_item = QTableWidgetItem(str(row[2]))
-            content_item.setData(Qt.ItemDataRole.UserRole, row[4])
+            locator_tag = f"TIME_RANGE:{row[5]}" if row[4] == "TIME_RANGE" else row[4]
+            content_item.setData(Qt.ItemDataRole.UserRole, locator_tag)
             self.evidence_table.setItem(row_index, 1, content_item)
             self.evidence_table.setItem(row_index, 2, QTableWidgetItem(str(row[3])))
         self.run_table.setRowCount(len(run_rows))
@@ -640,6 +717,32 @@ class LibraryWindow(QMainWindow):
             "Đang giải mã video gốc…",
         )
 
+    def _start_audio_worker(self, worker: AudioEvidenceWorker, message: str) -> None:
+        self._audio_result = None
+        worker.result.connect(self._store_audio_result)
+        worker.failed.connect(self._on_failed)
+        self._start_worker(
+            worker,
+            message,
+            lambda: self._finish_audio(worker.action, worker.identifier),
+        )
+
+    def _store_audio_result(self, result: object) -> None:
+        self._audio_result = result
+
+    def choose_audio_evidence(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.table.currentRow()
+        if row < 0 or self.table.item(row, 0).text() != "VIDEO":
+            QMessageBox.information(self, "Chọn Video", "Chọn một original MP4.")
+            return
+        file_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        self._start_audio_worker(
+            AudioEvidenceWorker("load", str(file_id), self.root),
+            "Đang xác minh audio track…",
+        )
+
     def _on_thumbnail_completed(self, _run_id: str) -> None:
         self.reload()
         self.status.setText("Thumbnail và run đã được ghi.")
@@ -706,7 +809,7 @@ class LibraryWindow(QMainWindow):
         if (
             row < 0
             or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
-            != "TIME_RANGE"
+            != "TIME_RANGE:video"
         ):
             QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Video.")
             return
@@ -714,6 +817,23 @@ class LibraryWindow(QMainWindow):
         self._start_video_worker(
             VideoEvidenceWorker("reopen", str(version_id), self.root),
             "Đang xác minh đoạn video…",
+        )
+
+    def reopen_selected_audio_evidence(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.evidence_table.currentRow()
+        if (
+            row < 0
+            or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            != "TIME_RANGE:audio"
+        ):
+            QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Audio.")
+            return
+        version_id = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        self._start_audio_worker(
+            AudioEvidenceWorker("reopen", str(version_id), self.root),
+            "Đang xác minh đoạn audio…",
         )
 
     def _finish_video(self, action: str, identifier: str) -> None:
@@ -744,6 +864,36 @@ class LibraryWindow(QMainWindow):
                 tuple[str, DecodedVideoFrame, int, int], result
             )
             VideoRangeView(content, decoded, start_ms, end_ms).exec()
+
+    def _finish_audio(self, action: str, identifier: str) -> None:
+        result = self._audio_result
+        self._audio_result = None
+        if result is None:
+            return
+        if action == "load":
+            dialog = AudioEvidenceDialog(cast(DecodedAudioSegment, result))
+            if dialog.exec() == AudioEvidenceDialog.DialogCode.Accepted:
+                self._start_audio_worker(
+                    AudioEvidenceWorker(
+                        "create",
+                        identifier,
+                        self.root,
+                        start_ms=dialog.start.value(),
+                        end_ms=dialog.end.value(),
+                        content=dialog.content.text(),
+                        actor=dialog.actor.text(),
+                        evidence_type=str(dialog.kind.currentData()),
+                    ),
+                    "Đang ghi Evidence audio…",
+                )
+        elif action == "create":
+            self.reload()
+            self.status.setText("Evidence Audio đã được tạo.")
+        elif action == "reopen":
+            content, decoded, start_ms, end_ms = cast(
+                tuple[str, DecodedAudioSegment, int, int], result
+            )
+            AudioRangeView(content, decoded, start_ms, end_ms).exec()
 
     def _finish_image(self, action: str, identifier: str) -> None:
         result = self._image_result
