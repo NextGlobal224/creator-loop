@@ -16,6 +16,7 @@ from creator_loop.database import initialize
 if os.name == "nt":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
+        from creator_loop.audio_evidence_ui import AudioEvidenceDialog, AudioRangeView
         from creator_loop.image_evidence_ui import ImageEvidenceDialog, ImageRegionView
         from creator_loop.library_ui import LibraryWindow
         from creator_loop.media_intake import (
@@ -418,4 +419,59 @@ class LibraryUiTests(unittest.TestCase):
             window.reopen_selected_video_evidence()
             self._wait_for_worker(app, window)
         self.assertEqual(opened[0][:2], (600, 800))
+        self.assertEqual(Path(opened[0][2]).resolve(), stored.resolve())
+
+    def test_create_and_reopen_audio_range_from_ui(self) -> None:
+        assert QApplication is not None
+        app = QApplication.instance() or QApplication([])
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name) / "dữ liệu Audio UI"
+        root.mkdir()
+        initialize(root / "creator_loop.sqlite3")
+        fixture = Path(__file__).parent / "fixtures" / "video-with-tone.mp4"
+        imported = intake_video_original(fixture, root=root)
+        stored = root.joinpath(*imported.storage_key.split("/"))
+        window = LibraryWindow(root)
+        self.addCleanup(window.close)
+        window.show()
+        window.table.selectRow(0)
+
+        def select_range(dialog: AudioEvidenceDialog) -> object:
+            dialog.start.setValue(200)
+            dialog.end.setValue(600)
+            dialog.kind.setCurrentIndex(1)
+            dialog.content.setText("Âm tổng hợp 440 Hz")
+            self.assertTrue(
+                dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+            )
+            dialog.segment.stop()
+            return AudioEvidenceDialog.DialogCode.Accepted
+
+        with patch.object(AudioEvidenceDialog, "exec", select_range):
+            window.choose_audio_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(window.evidence_table.rowCount(), 1)
+        self.assertIn("Audio", window.evidence_table.item(0, 0).text())
+        window.evidence_table.selectRow(0)
+        with patch("creator_loop.library_ui.QMessageBox.information") as wrong_track:
+            window.reopen_selected_video_evidence()
+        wrong_track.assert_called_once()
+        opened: list[tuple[int, int, str]] = []
+
+        def inspect_range(dialog: AudioRangeView) -> object:
+            opened.append(
+                (
+                    dialog.segment.start_ms,
+                    dialog.segment.end_ms,
+                    dialog.segment.player.source().toLocalFile(),
+                )
+            )
+            dialog.segment.stop()
+            return AudioRangeView.DialogCode.Accepted
+
+        with patch.object(AudioRangeView, "exec", inspect_range):
+            window.reopen_selected_audio_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(opened[0][:2], (200, 600))
         self.assertEqual(Path(opened[0][2]).resolve(), stored.resolve())
