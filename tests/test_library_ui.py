@@ -18,10 +18,14 @@ if os.name == "nt":
     try:
         from creator_loop.image_evidence_ui import ImageEvidenceDialog, ImageRegionView
         from creator_loop.library_ui import LibraryWindow
-        from creator_loop.media_intake import intake_image_original
+        from creator_loop.media_intake import (
+            intake_image_original,
+            intake_video_original,
+        )
         from creator_loop.source_ui import SourceDialog
         from creator_loop.text_evidence_ui import TextEvidenceDialog
         from creator_loop.text_intake import intake_text_original
+        from creator_loop.video_evidence_ui import VideoEvidenceDialog, VideoRangeView
         from PySide6.QtCore import Qt
         from PySide6.QtGui import QColor, QImage
         from PySide6.QtWidgets import QApplication, QDialogButtonBox, QFileDialog
@@ -283,3 +287,72 @@ class LibraryUiTests(unittest.TestCase):
                 ).fetchone()[0],
                 1,
             )
+
+    def test_create_and_reopen_video_range_from_ui(self) -> None:
+        assert QApplication is not None
+        app = QApplication.instance() or QApplication([])
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name) / "dữ liệu Video UI"
+        root.mkdir()
+        initialize(root / "creator_loop.sqlite3")
+        fixture = Path(__file__).parent / "fixtures" / "video-red-blue.mp4"
+        imported = intake_video_original(fixture, root=root)
+        stored = root.joinpath(*imported.storage_key.split("/"))
+        window = LibraryWindow(root)
+        self.addCleanup(window.close)
+        window.show()
+        window.table.selectRow(0)
+
+        def select_range(dialog: VideoEvidenceDialog) -> object:
+            dialog.start.setValue(600)
+            dialog.end.setValue(800)
+            dialog.content.setText("Khung xanh")
+            self.assertTrue(
+                dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+            )
+            return VideoEvidenceDialog.DialogCode.Accepted
+
+        with patch.object(VideoEvidenceDialog, "exec", select_range):
+            window.choose_video_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(window.evidence_table.rowCount(), 1)
+        self.assertIn("Video", window.evidence_table.item(0, 0).text())
+        window.evidence_table.selectRow(0)
+        opened: list[tuple[int, int, str]] = []
+
+        def inspect_range(dialog: VideoRangeView) -> object:
+            opened.append(
+                (
+                    dialog.segment.start_ms,
+                    dialog.segment.end_ms,
+                    dialog.segment.player.source().toLocalFile(),
+                )
+            )
+            colors: list[str] = []
+
+            def capture(frame: object) -> None:
+                if frame.isValid():
+                    pixel = frame.toImage().pixelColor(0, 0)
+                    colors.append(pixel.name())
+
+            dialog.segment.video.videoSink().videoFrameChanged.connect(capture)
+            dialog.segment.play()
+            deadline = time.monotonic() + 2
+            while (
+                not any(QColor(color).blue() > QColor(color).red() for color in colors)
+                and time.monotonic() < deadline
+            ):
+                app.processEvents()
+                time.sleep(0.01)
+            self.assertTrue(
+                any(QColor(color).blue() > QColor(color).red() for color in colors)
+            )
+            dialog.done(0)
+            return VideoRangeView.DialogCode.Accepted
+
+        with patch.object(VideoRangeView, "exec", inspect_range):
+            window.reopen_selected_video_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(opened[0][:2], (600, 800))
+        self.assertEqual(Path(opened[0][2]).resolve(), stored.resolve())

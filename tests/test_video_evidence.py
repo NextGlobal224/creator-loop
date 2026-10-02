@@ -53,10 +53,11 @@ class VideoEvidenceTests(unittest.TestCase):
             content="Khung hình xanh",
             actor="creator",
         )
-        content, decoded = reopen_video_evidence(
+        content, decoded, start_ms, end_ms = reopen_video_evidence(
             self.db, version.evidence_version_id, self.root
         )
         self.assertEqual(content, "Khung hình xanh")
+        self.assertEqual((start_ms, end_ms), (600, 800))
         self.assertEqual(version.anchor_file_id, self.imported.file_id)
         self.assertGreaterEqual(decoded.duration_ms, 800)
         self.assertGreaterEqual(decoded.frame_time_ms, 600)
