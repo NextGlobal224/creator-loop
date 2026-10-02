@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from contextlib import closing
 from pathlib import Path
-from typing import Callable
+from typing import Callable, cast
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QImage
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -23,6 +23,12 @@ from PySide6.QtWidgets import (
 
 from creator_loop.database import _connect_write, open_readonly
 from creator_loop.evidence_reopen import reopen_evidence_version
+from creator_loop.image_evidence import (
+    create_image_evidence,
+    read_verified_image,
+    reopen_image_region,
+)
+from creator_loop.image_evidence_ui import ImageEvidenceDialog, ImageRegionView
 from creator_loop.media_intake import intake_image_original, intake_video_original
 from creator_loop.source_association import (
     SourceDetails,
@@ -116,6 +122,61 @@ class TextEvidenceWorker(QThread):
             self.failed.emit(f"Không thể xử lý Evidence: {exc}")
 
 
+class ImageEvidenceWorker(QThread):
+    result = Signal(object)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        action: str,
+        identifier: str,
+        root: Path,
+        *,
+        region: dict[str, float] | None = None,
+        content: str = "",
+        actor: str = "",
+    ) -> None:
+        super().__init__()
+        self.action = action
+        self.identifier = identifier
+        self.root = root
+        self.region = region
+        self.content = content
+        self.actor = actor
+
+    def run(self) -> None:
+        try:
+            db_path = self.root / "creator_loop.sqlite3"
+            if self.action == "load":
+                with closing(open_readonly(db_path)) as db:
+                    _asset_id, image = read_verified_image(
+                        db, self.identifier, self.root
+                    )
+                self.result.emit(image)
+            elif self.action == "create":
+                if self.region is None:
+                    raise ValueError("Image region is required")
+                with closing(_connect_write(db_path)) as db:
+                    version = create_image_evidence(
+                        db,
+                        file_id=self.identifier,
+                        data_root=self.root,
+                        region=self.region,
+                        content=self.content,
+                        actor=self.actor,
+                    )
+                self.result.emit(version.evidence_version_id)
+            elif self.action == "reopen":
+                with closing(open_readonly(db_path)) as db:
+                    self.result.emit(
+                        reopen_image_region(db, self.identifier, self.root)
+                    )
+            else:
+                raise ValueError("Unknown image Evidence action")
+        except Exception as exc:
+            self.failed.emit(f"Không thể xử lý Evidence ảnh: {exc}")
+
+
 class SourceWorker(QThread):
     linked = Signal(str)
     failed = Signal(str)
@@ -164,6 +225,7 @@ class LibraryWindow(QMainWindow):
         self.root = root
         self._worker: QThread | None = None
         self._evidence_result: object | None = None
+        self._image_result: object | None = None
         self.setWindowTitle("Creator Loop — Library")
         self.resize(900, 540)
 
@@ -201,10 +263,18 @@ class LibraryWindow(QMainWindow):
         create_evidence.clicked.connect(self.choose_text_evidence)
         self._buttons.append(create_evidence)
         evidence_actions.addWidget(create_evidence)
+        create_image = QPushButton("Tạo Evidence Image")
+        create_image.clicked.connect(self.choose_image_evidence)
+        self._buttons.append(create_image)
+        evidence_actions.addWidget(create_image)
         reopen_evidence = QPushButton("Mở Evidence Text")
         reopen_evidence.clicked.connect(self.reopen_selected_text_evidence)
         self._buttons.append(reopen_evidence)
         evidence_actions.addWidget(reopen_evidence)
+        reopen_image = QPushButton("Mở Evidence Image")
+        reopen_image.clicked.connect(self.reopen_selected_image_evidence)
+        self._buttons.append(reopen_image)
+        evidence_actions.addWidget(reopen_image)
         layout.addLayout(evidence_actions)
 
         self.evidence_table = QTableWidget(0, 3)
@@ -233,11 +303,11 @@ class LibraryWindow(QMainWindow):
             ).fetchall()
             evidence_rows = db.execute(
                 """SELECT v.evidence_version_id, a.display_name, v.content,
-                          v.version_no
+                          v.version_no, e.evidence_type
                    FROM evidence_versions v
                    JOIN evidences e ON e.evidence_id = v.evidence_id
                    JOIN assets a ON a.asset_id = e.asset_id
-                   WHERE e.evidence_type = 'DIRECT_TEXT' AND e.deleted_at IS NULL
+                   WHERE e.deleted_at IS NULL
                    ORDER BY v.created_at DESC, v.evidence_version_id DESC"""
             ).fetchall()
         self.table.setRowCount(len(rows))
@@ -250,10 +320,16 @@ class LibraryWindow(QMainWindow):
             self.table.item(row_index, 1).setData(Qt.ItemDataRole.UserRole, row[5])
         self.evidence_table.setRowCount(len(evidence_rows))
         for row_index, row in enumerate(evidence_rows):
-            item = QTableWidgetItem(str(row[1]))
+            evidence_kind = {
+                "VISUAL_OBSERVATION": "Image",
+                "DIRECT_TEXT": "Text",
+            }.get(str(row[4]), str(row[4]))
+            item = QTableWidgetItem(f"{row[1]} ({evidence_kind})")
             item.setData(Qt.ItemDataRole.UserRole, row[0])
             self.evidence_table.setItem(row_index, 0, item)
-            self.evidence_table.setItem(row_index, 1, QTableWidgetItem(str(row[2])))
+            content_item = QTableWidgetItem(str(row[2]))
+            content_item.setData(Qt.ItemDataRole.UserRole, row[4])
+            self.evidence_table.setItem(row_index, 1, content_item)
             self.evidence_table.setItem(row_index, 2, QTableWidgetItem(str(row[3])))
         self.status.setText(f"{len(rows)} original(s)")
 
@@ -336,11 +412,41 @@ class LibraryWindow(QMainWindow):
         worker.failed.connect(self._on_failed)
         self._start_worker(worker, "Đang gắn Source…")
 
+    def _start_image_worker(self, worker: ImageEvidenceWorker, message: str) -> None:
+        self._image_result = None
+        worker.result.connect(self._store_image_result)
+        worker.failed.connect(self._on_failed)
+        self._start_worker(
+            worker,
+            message,
+            lambda: self._finish_image(worker.action, worker.identifier),
+        )
+
+    def _store_image_result(self, result: object) -> None:
+        self._image_result = result
+
+    def choose_image_evidence(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.table.currentRow()
+        if row < 0 or self.table.item(row, 0).text() != "IMAGE":
+            QMessageBox.information(self, "Chọn Image", "Chọn một original IMAGE.")
+            return
+        file_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        self._start_image_worker(
+            ImageEvidenceWorker("load", str(file_id), self.root),
+            "Đang xác minh ảnh gốc…",
+        )
+
     def reopen_selected_text_evidence(self) -> None:
         if self._worker is not None:
             return
         row = self.evidence_table.currentRow()
-        if row < 0:
+        if (
+            row < 0
+            or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            != "DIRECT_TEXT"
+        ):
             QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Text.")
             return
         version_id = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
@@ -348,6 +454,49 @@ class LibraryWindow(QMainWindow):
             TextEvidenceWorker("reopen", str(version_id), self.root),
             "Đang xác minh Evidence…",
         )
+
+    def reopen_selected_image_evidence(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.evidence_table.currentRow()
+        if (
+            row < 0
+            or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            != "VISUAL_OBSERVATION"
+        ):
+            QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Image.")
+            return
+        version_id = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        self._start_image_worker(
+            ImageEvidenceWorker("reopen", str(version_id), self.root),
+            "Đang xác minh vùng ảnh…",
+        )
+
+    def _finish_image(self, action: str, identifier: str) -> None:
+        result = self._image_result
+        self._image_result = None
+        if result is None:
+            return
+        if action == "load":
+            dialog = ImageEvidenceDialog(cast(QImage, result))
+            if dialog.exec() == ImageEvidenceDialog.DialogCode.Accepted:
+                self._start_image_worker(
+                    ImageEvidenceWorker(
+                        "create",
+                        identifier,
+                        self.root,
+                        region=dialog.region(),
+                        content=dialog.content.text(),
+                        actor=dialog.actor.text(),
+                    ),
+                    "Đang ghi Evidence ảnh…",
+                )
+        elif action == "create":
+            self.reload()
+            self.status.setText("Evidence Image đã được tạo.")
+        elif action == "reopen":
+            content, crop = cast(tuple[str, QImage], result)
+            ImageRegionView(content, crop).exec()
 
     def _finish_evidence(self, action: str, identifier: str) -> None:
         result = self._evidence_result

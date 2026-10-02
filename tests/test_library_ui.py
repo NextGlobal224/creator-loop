@@ -16,12 +16,15 @@ from creator_loop.database import initialize
 if os.name == "nt":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
+        from creator_loop.image_evidence_ui import ImageEvidenceDialog, ImageRegionView
         from creator_loop.library_ui import LibraryWindow
+        from creator_loop.media_intake import intake_image_original
         from creator_loop.source_ui import SourceDialog
         from creator_loop.text_evidence_ui import TextEvidenceDialog
         from creator_loop.text_intake import intake_text_original
         from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QApplication, QFileDialog
+        from PySide6.QtGui import QColor, QImage
+        from PySide6.QtWidgets import QApplication, QDialogButtonBox, QFileDialog
     except ImportError:
         QApplication = None
 else:
@@ -183,3 +186,52 @@ class LibraryUiTests(unittest.TestCase):
         details = SourceDialog(root, str(second_asset_id), "Hai.txt")
         self.addCleanup(details.close)
         self.assertEqual(details.links.rowCount(), 1)
+
+    def test_create_and_reopen_image_region_from_ui(self) -> None:
+        assert QApplication is not None
+        app = QApplication.instance() or QApplication([])
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name) / "dữ liệu Image"
+        root.mkdir()
+        initialize(root / "creator_loop.sqlite3")
+        source = Path(self.temp.name) / "Ảnh màu.png"
+        image = QImage(4, 4, QImage.Format.Format_RGB32)
+        image.fill(QColor("red"))
+        for y in range(2, 4):
+            for x in range(2, 4):
+                image.setPixelColor(x, y, QColor("blue"))
+        self.assertTrue(image.save(str(source)))
+        intake_image_original(source, root=root)
+        window = LibraryWindow(root)
+        self.addCleanup(window.close)
+        window.show()
+        window.table.selectRow(0)
+
+        def select_blue_region(dialog: ImageEvidenceDialog) -> object:
+            dialog.coords["x"].setValue(0.5)
+            dialog.coords["y"].setValue(0.5)
+            dialog.coords["width"].setValue(0.5)
+            dialog.coords["height"].setValue(0.5)
+            dialog.content.setText("Góc xanh")
+            self.assertTrue(
+                dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+            )
+            return ImageEvidenceDialog.DialogCode.Accepted
+
+        with patch.object(ImageEvidenceDialog, "exec", select_blue_region):
+            window.choose_image_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(window.evidence_table.rowCount(), 1)
+        self.assertEqual(window.evidence_table.item(0, 1).text(), "Góc xanh")
+        window.evidence_table.selectRow(0)
+        viewed: list[str] = []
+
+        def inspect_region(dialog: ImageRegionView) -> object:
+            viewed.append(dialog.region_view.pixmap().toImage().pixelColor(0, 0).name())
+            return ImageRegionView.DialogCode.Accepted
+
+        with patch.object(ImageRegionView, "exec", inspect_region):
+            window.reopen_selected_image_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(viewed, [QColor("blue").name()])
