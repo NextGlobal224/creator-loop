@@ -302,6 +302,7 @@ class WholeEvidenceUiTests(unittest.TestCase):
         self.assertTrue(any(c.red() > c.blue() for c in colors))
         self.assertTrue(any(c.blue() > c.red() for c in colors))
         self.assertGreater(sum(samples), 0)
+        self.assertEqual(player.mediaStatus(), QMediaPlayer.MediaStatus.EndOfMedia)
         view.reject()
         self.assertTrue(player.source().isEmpty())
         self.assertEqual(
