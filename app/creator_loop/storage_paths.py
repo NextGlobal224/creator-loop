@@ -5,7 +5,11 @@ from __future__ import annotations
 from pathlib import Path, PureWindowsPath
 from typing import Literal
 
-from creator_loop.storage_roots import StorageRootError, resolve_registered_root
+from creator_loop.storage_roots import (
+    StorageRootError,
+    default_storage_root_id,
+    resolve_registered_root,
+)
 
 PathFailure = Literal["unsafe_path", "unavailable_file"]
 
@@ -63,3 +67,25 @@ def resolve_storage_path(data_root: Path, role: str, storage_key: str) -> Path:
     ):
         raise StoragePathError("unsafe_path")
     return candidate
+
+
+def new_storage_destination(data_root: Path, role: str, name: str) -> tuple[str, Path]:
+    """Prepare a safe destination for future media, never fallback on volume failure."""
+    if "/" in name or not name:
+        raise StoragePathError("unsafe_path")
+    default = default_storage_root_id(data_root)
+    folder = "originals" if role == "ORIGINAL" else "derived"
+    key = (
+        f"storage/{folder}/{name}"
+        if default is None
+        else f"registered/{default}/{folder}/{name}"
+    )
+    destination = resolve_storage_path(data_root, role, key)
+    if default is None:
+        # Do not recreate a missing data root or registered media root.
+        (Path(data_root).resolve(strict=True) / "storage").mkdir(exist_ok=True)
+    destination.parent.mkdir(exist_ok=True)
+    # Validate again after directory creation, including volume identity.
+    if resolve_storage_path(data_root, role, key) != destination:
+        raise StoragePathError("unsafe_path")
+    return key, destination

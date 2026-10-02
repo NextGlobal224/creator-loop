@@ -39,7 +39,8 @@ def _manifest_path(data_root: Path) -> Path:
 
 def _load(path: Path) -> dict[str, object]:
     try:
-        raw = path.read_bytes()
+        with path.open("rb") as stream:
+            raw = stream.read(1024 * 1024 + 1)
         if len(raw) > 1024 * 1024:
             raise StorageRootError("Storage manifest exceeds metadata budget")
         payload = json.loads(raw.decode("utf-8"))
@@ -69,6 +70,9 @@ def _load(path: Path) -> dict[str, object]:
                 raise StorageRootError("Invalid or duplicate storage root")
             ids.add(entry["root_id"])
             paths.add(os.path.normcase(entry["path"]))
+        default = payload.get("default_storage_root_id")
+        if default is not None and (not isinstance(default, str) or default not in ids):
+            raise StorageRootError("Invalid default storage root")
         return payload
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise StorageRootError("Storage manifest unavailable or malformed") from exc
@@ -88,6 +92,49 @@ def list_storage_roots(data_root: Path) -> list[StorageRoot]:
     if not path.exists():
         return []
     return _roots(_load(path))
+
+
+def default_storage_root_id(data_root: Path) -> str | None:
+    """Read the preference without silently resolving an unavailable root."""
+    path = _manifest_path(data_root)
+    if not path.exists():
+        return None
+    default = _load(path).get("default_storage_root_id")
+    return default if isinstance(default, str) else None
+
+
+def _write_manifest(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(exist_ok=True)
+    temporary = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
+    created = False
+    try:
+        with temporary.open("x", encoding="utf-8") as stream:
+            created = True
+            json.dump(payload, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if created:
+            temporary.unlink(missing_ok=True)
+
+
+def set_default_storage_root(data_root: Path, root_id: str | None) -> None:
+    """Choose future destinations; existing file keys and registrations stay intact."""
+    canonical = Path(data_root).resolve(strict=True)
+    db_path = canonical / "creator_loop.sqlite3"
+    if not db_path.is_file():
+        raise StorageRootError("User database must exist")
+    with closing(_connect_write(db_path)) as db, atomic_transaction(db):
+        path = _manifest_path(canonical)
+        if not path.exists() and root_id is None:
+            return
+        payload = _load(path)
+        if root_id is not None:
+            resolve_registered_root(canonical, root_id)
+        payload["default_storage_root_id"] = root_id
+        payload["schema_version"] = db.execute("PRAGMA user_version").fetchone()[0]
+        _write_manifest(path, payload)
 
 
 def resolve_registered_root(data_root: Path, root_id: str) -> Path:
@@ -156,17 +203,5 @@ def register_storage_root(data_root: Path, media_root: Path) -> StorageRoot:
         root = StorageRoot(uuid4().hex, str(candidate), observed_volume)
         payload["storage_roots"] = [asdict(item) for item in [*roots, root]]
         payload["schema_version"] = db.execute("PRAGMA user_version").fetchone()[0]
-        path.parent.mkdir(exist_ok=True)
-        temporary = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
-        created = False
-        try:
-            with temporary.open("x", encoding="utf-8") as stream:
-                created = True
-                json.dump(payload, stream, ensure_ascii=False, indent=2)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, path)
-        finally:
-            if created:
-                temporary.unlink(missing_ok=True)
+        _write_manifest(path, payload)
     return root

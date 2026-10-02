@@ -16,6 +16,7 @@ from creator_loop.database import _connect_write
 from creator_loop.library import Asset, LibraryRepository
 from creator_loop.originals import READ_CHUNK_SIZE
 from creator_loop.paths import data_root
+from creator_loop.storage_paths import new_storage_destination, resolve_storage_path
 from creator_loop.windows_owned_file import OwnedWindowsFile
 
 
@@ -73,19 +74,10 @@ def _intake_original(
         raise ValueError("Source filename cannot be stored as an original")
 
     root = (data_root() if root is None else Path(root)).resolve()
-    originals_root = root / "storage" / "originals"
-    for parent in (root / "storage", originals_root):
-        if parent.exists() and not parent.resolve().is_relative_to(root):
-            raise ValueError("Originals storage escapes the data root")
-    originals_root.mkdir(parents=True, exist_ok=True)
-    if not originals_root.resolve().is_relative_to(root):
-        raise ValueError("Originals storage escapes the data root")
-
     asset_id = _new_id()
     file_id = _new_id()
     stored_name = f"{file_id}-{original_name}"
-    destination = originals_root / stored_name
-    storage_key = f"storage/originals/{stored_name}"
+    storage_key, destination = new_storage_destination(root, "ORIGINAL", stored_name)
     db_path = root / "creator_loop.sqlite3"
     owned: OwnedWindowsFile | None = None
     committed = False
@@ -117,6 +109,10 @@ def _intake_original(
         db = _connect_write(db_path)
         try:
             db.execute("BEGIN IMMEDIATE")
+            if resolve_storage_path(root, "ORIGINAL", storage_key) != destination:
+                raise ValueError(
+                    "Original storage location changed before registration"
+                )
             repo = LibraryRepository(db)
             repo.create_asset(
                 Asset(asset_id, media_type, original_name, timestamp, None)
