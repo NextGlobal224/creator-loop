@@ -25,6 +25,7 @@ class DecodedVideoFrame:
     duration_ms: int
     frame_time_ms: int
     image: QImage
+    anchor_path: Path
 
 
 def _timestamp() -> str:
@@ -96,7 +97,9 @@ def decode_video_frame(
             for frame_time, image in frames:
                 if frame_time >= start_ms:
                     verify_original_file(db, file_id, data_root)
-                    return str(asset_id), DecodedVideoFrame(duration, frame_time, image)
+                    return str(asset_id), DecodedVideoFrame(
+                        duration, frame_time, image, path
+                    )
             time.sleep(0.01)
         raise TimeoutError("Video decoder did not produce a frame at the locator")
     finally:
@@ -155,7 +158,7 @@ def create_video_evidence(
 
 def reopen_video_evidence(
     db: sqlite3.Connection, version_id: str, data_root: Path
-) -> tuple[str, DecodedVideoFrame]:
+) -> tuple[str, DecodedVideoFrame, int, int]:
     reopened = reopen_evidence_version(db, version_id, data_root)
     if reopened.locator_type != "TIME_RANGE" or reopened.locator["track"] != "video":
         raise ValueError("Selected Evidence is not a video time range")
@@ -174,4 +177,4 @@ def reopen_video_evidence(
         "SELECT content FROM evidence_versions WHERE evidence_version_id=?",
         (version_id,),
     ).fetchone()
-    return str(row[0]), decoded
+    return str(row[0]), decoded, start_ms, end_ms

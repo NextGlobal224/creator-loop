@@ -40,6 +40,13 @@ from creator_loop.source_ui import SourceDialog
 from creator_loop.text_evidence import create_text_evidence, read_verified_text_snapshot
 from creator_loop.text_evidence_ui import TextEvidenceDialog
 from creator_loop.text_intake import intake_text_original
+from creator_loop.video_evidence import (
+    DecodedVideoFrame,
+    create_video_evidence,
+    decode_video_frame,
+    reopen_video_evidence,
+)
+from creator_loop.video_evidence_ui import VideoEvidenceDialog, VideoRangeView
 
 
 class OriginalImportWorker(QThread):
@@ -195,6 +202,62 @@ class ThumbnailWorker(QThread):
             self.failed.emit(f"Không thể tạo thumbnail: {exc}")
 
 
+class VideoEvidenceWorker(QThread):
+    result = Signal(object)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        action: str,
+        identifier: str,
+        root: Path,
+        *,
+        start_ms: int = 0,
+        end_ms: int = 0,
+        content: str = "",
+        actor: str = "",
+    ) -> None:
+        super().__init__()
+        self.action = action
+        self.identifier = identifier
+        self.root = root
+        self.start_ms = start_ms
+        self.end_ms = end_ms
+        self.content = content
+        self.actor = actor
+
+    def run(self) -> None:
+        db_path = self.root / "creator_loop.sqlite3"
+        try:
+            if self.action == "load":
+                with closing(open_readonly(db_path)) as db:
+                    _asset_id, decoded = decode_video_frame(
+                        db, self.identifier, self.root, start_ms=0
+                    )
+                self.result.emit(decoded)
+            elif self.action == "create":
+                with closing(_connect_write(db_path)) as db:
+                    version = create_video_evidence(
+                        db,
+                        file_id=self.identifier,
+                        data_root=self.root,
+                        start_ms=self.start_ms,
+                        end_ms=self.end_ms,
+                        content=self.content,
+                        actor=self.actor,
+                    )
+                self.result.emit(version.evidence_version_id)
+            elif self.action == "reopen":
+                with closing(open_readonly(db_path)) as db:
+                    self.result.emit(
+                        reopen_video_evidence(db, self.identifier, self.root)
+                    )
+            else:
+                raise ValueError("Unknown video Evidence action")
+        except Exception as exc:
+            self.failed.emit(f"Không thể xử lý Evidence video: {exc}")
+
+
 class SourceWorker(QThread):
     linked = Signal(str)
     failed = Signal(str)
@@ -244,6 +307,7 @@ class LibraryWindow(QMainWindow):
         self._worker: QThread | None = None
         self._evidence_result: object | None = None
         self._image_result: object | None = None
+        self._video_result: object | None = None
         self.setWindowTitle("Creator Loop — Library")
         self.resize(1000, 700)
 
@@ -298,6 +362,16 @@ class LibraryWindow(QMainWindow):
         self._buttons.append(reopen_image)
         evidence_actions.addWidget(reopen_image)
         layout.addLayout(evidence_actions)
+        video_actions = QHBoxLayout()
+        create_video = QPushButton("Tạo Evidence Video")
+        create_video.clicked.connect(self.choose_video_evidence)
+        self._buttons.append(create_video)
+        video_actions.addWidget(create_video)
+        reopen_video = QPushButton("Mở Evidence Video")
+        reopen_video.clicked.connect(self.reopen_selected_video_evidence)
+        self._buttons.append(reopen_video)
+        video_actions.addWidget(reopen_video)
+        layout.addLayout(video_actions)
 
         self.evidence_table = QTableWidget(0, 3)
         self.evidence_table.setHorizontalHeaderLabels(
@@ -333,7 +407,7 @@ class LibraryWindow(QMainWindow):
             ).fetchall()
             evidence_rows = db.execute(
                 """SELECT v.evidence_version_id, a.display_name, v.content,
-                          v.version_no, e.evidence_type
+                          v.version_no, v.locator_type
                    FROM evidence_versions v
                    JOIN evidences e ON e.evidence_id = v.evidence_id
                    JOIN assets a ON a.asset_id = e.asset_id
@@ -359,8 +433,9 @@ class LibraryWindow(QMainWindow):
         self.evidence_table.setRowCount(len(evidence_rows))
         for row_index, row in enumerate(evidence_rows):
             evidence_kind = {
-                "VISUAL_OBSERVATION": "Image",
-                "DIRECT_TEXT": "Text",
+                "IMAGE_REGION": "Image",
+                "TEXT_RANGE": "Text",
+                "TIME_RANGE": "Video",
             }.get(str(row[4]), str(row[4]))
             item = QTableWidgetItem(f"{row[1]} ({evidence_kind})")
             item.setData(Qt.ItemDataRole.UserRole, row[0])
@@ -495,6 +570,32 @@ class LibraryWindow(QMainWindow):
         worker.failed.connect(self._on_thumbnail_failed)
         self._start_worker(worker, "Đang tạo thumbnail…")
 
+    def _start_video_worker(self, worker: VideoEvidenceWorker, message: str) -> None:
+        self._video_result = None
+        worker.result.connect(self._store_video_result)
+        worker.failed.connect(self._on_failed)
+        self._start_worker(
+            worker,
+            message,
+            lambda: self._finish_video(worker.action, worker.identifier),
+        )
+
+    def _store_video_result(self, result: object) -> None:
+        self._video_result = result
+
+    def choose_video_evidence(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.table.currentRow()
+        if row < 0 or self.table.item(row, 0).text() != "VIDEO":
+            QMessageBox.information(self, "Chọn Video", "Chọn một original VIDEO.")
+            return
+        file_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        self._start_video_worker(
+            VideoEvidenceWorker("load", str(file_id), self.root),
+            "Đang giải mã video gốc…",
+        )
+
     def _on_thumbnail_completed(self, _run_id: str) -> None:
         self.reload()
         self.status.setText("Thumbnail và run đã được ghi.")
@@ -510,7 +611,7 @@ class LibraryWindow(QMainWindow):
         if (
             row < 0
             or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
-            != "DIRECT_TEXT"
+            != "TEXT_RANGE"
         ):
             QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Text.")
             return
@@ -527,7 +628,7 @@ class LibraryWindow(QMainWindow):
         if (
             row < 0
             or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
-            != "VISUAL_OBSERVATION"
+            != "IMAGE_REGION"
         ):
             QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Image.")
             return
@@ -536,6 +637,52 @@ class LibraryWindow(QMainWindow):
             ImageEvidenceWorker("reopen", str(version_id), self.root),
             "Đang xác minh vùng ảnh…",
         )
+
+    def reopen_selected_video_evidence(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.evidence_table.currentRow()
+        if (
+            row < 0
+            or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            != "TIME_RANGE"
+        ):
+            QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Video.")
+            return
+        version_id = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        self._start_video_worker(
+            VideoEvidenceWorker("reopen", str(version_id), self.root),
+            "Đang xác minh đoạn video…",
+        )
+
+    def _finish_video(self, action: str, identifier: str) -> None:
+        result = self._video_result
+        self._video_result = None
+        if result is None:
+            return
+        if action == "load":
+            dialog = VideoEvidenceDialog(cast(DecodedVideoFrame, result))
+            if dialog.exec() == VideoEvidenceDialog.DialogCode.Accepted:
+                self._start_video_worker(
+                    VideoEvidenceWorker(
+                        "create",
+                        identifier,
+                        self.root,
+                        start_ms=dialog.start.value(),
+                        end_ms=dialog.end.value(),
+                        content=dialog.content.text(),
+                        actor=dialog.actor.text(),
+                    ),
+                    "Đang ghi Evidence video…",
+                )
+        elif action == "create":
+            self.reload()
+            self.status.setText("Evidence Video đã được tạo.")
+        elif action == "reopen":
+            content, decoded, start_ms, end_ms = cast(
+                tuple[str, DecodedVideoFrame, int, int], result
+            )
+            VideoRangeView(content, decoded, start_ms, end_ms).exec()
 
     def _finish_image(self, action: str, identifier: str) -> None:
         result = self._image_result
