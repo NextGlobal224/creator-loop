@@ -4,8 +4,8 @@
 
 ## Trạng thái mới nhất
 
-- `main`/`origin/main` ở merge commit `82408f3` của [PR #14](https://github.com/NextGlobal224/creator-loop/pull/14), đã **MERGED** lúc 02:04 UTC ngày 02/10/2026. Head `80f225f` có ba required checks `fast-schema-domain`, `security-dependencies-workflow`, `windows-artifact` đều `SUCCESS` trong [run 36953783669](https://github.com/NextGlobal224/creator-loop/actions/runs/36953783669); `publish-release` `SKIPPED` đúng nhánh PR. Branch protection `main` đòi ba context này, `strict=true`; release gate chưa chạy. PR #5–#13 đã merge trước đó.
-- Branch hiện tại `gate2-image-thumbnail-run`, từ `82408f3`. `Codex-Kit-v2/` vẫn untracked và nguyên vẹn. Pipeline tạo thumbnail PNG thật từ IMAGE original đã kiểm digest, giữ file gốc, ghi THUMBNAIL cùng parent và processing run SUCCEEDED/FAILED; test local ảnh thật, original đổi byte và collision không overwrite. Ruff lint/format, mypy, compileall, workflow policy và link tài liệu PASS; unittest 91 ca: 90 PASS, 1 SKIP (symlink `WinError 1314`). Chưa có PR/CI cho slice này. Gate 2 vẫn **đang triển khai**.
+- `main`/`origin/main` ở merge commit `e893900` của [PR #15](https://github.com/NextGlobal224/creator-loop/pull/15), đã **MERGED** lúc 02:11 UTC ngày 02/10/2026. Head `22f6ca0` có ba required checks `fast-schema-domain`, `security-dependencies-workflow`, `windows-artifact` đều `SUCCESS` trong [run 36954352725](https://github.com/NextGlobal224/creator-loop/actions/runs/36954352725); `publish-release` `SKIPPED` đúng nhánh PR. Branch protection `main` đòi ba context này, `strict=true`; release gate chưa chạy. PR #5–#14 đã merge trước đó.
+- Branch hiện tại `gate2-thumbnail-ui`, từ `e893900`. `Codex-Kit-v2/` vẫn untracked và nguyên vẹn. UI tạo thumbnail trên worker và hiển thị run theo task, gồm SUCCEEDED/FAILED và đường dẫn file dẫn xuất; Qt test local 6 ca PASS. Ruff lint/format, mypy, compileall, workflow policy và link tài liệu PASS; unittest 92 ca: 91 PASS, 1 SKIP (symlink `WinError 1314`). CI cho slice UI chưa chạy. Gate 2 vẫn **đang triển khai**.
 - Máy nghiệm thu 8 GB là máy hiện tại theo người dùng: Dell XPS 15 9550, Windows 10 Pro x64 build 19045, RAM vật lý 8,429,834,240 byte. Engine/model sẽ chỉ dùng cục bộ, chưa phân phối; đường dẫn/phiên bản/license và test engine thật chưa xác nhận. Xem [ma trận nghiệm thu V1](PRODUCT_ACCEPTANCE.md) để đối chiếu 24 yêu cầu và điều kiện hoàn thành.
 
 Các mục bên dưới lưu mốc trước khi merge PR #5 để đối chiếu lịch sử; thông tin branch/PR OPEN trong đó không còn là trạng thái hiện hành. PR #6 head đầu `41b64e4` từng FAIL Windows test do so sánh đường dẫn TEMP 8.3; commit `0031bbd` sửa kỳ vọng sang canonical `Path.resolve()` và run mới đạt cả ba check.
@@ -43,6 +43,6 @@ Thứ tự ưu tiên trong `AGENTS.md` khớp file contract thực tế: Data Ar
 
 ## Việc tiếp theo
 
-1. Chạy full validation, review diff và tạo PR cho thumbnail/run ảnh, xác nhận ba required checks trên đúng head rồi merge nếu đạt; tiếp theo nối task vào UI.
+1. Chạy full validation, review diff và tạo PR cho UI thumbnail/run, xác nhận ba required checks trên đúng head rồi merge nếu đạt.
 2. Tiếp tục Gate 2 bằng mở Video Evidence đúng đoạn và các derived/run còn lại, kiểm codec bằng decoder/engine thích hợp. Giữ original/dẫn xuất và version đúng contract. Test symlink Windows còn SKIP vì máy hiện tại thiếu quyền tạo symlink (`WinError 1314`).
 3. Khi có UI/engine phù hợp, lấy đường dẫn/phiên bản/nguồn engine và model cục bộ để chạy nghiệm thu thật trên máy 8 GB. Gate 3–5 và release vẫn chưa hoàn tất. Các mục IDE chưa thử của bộ hướng dẫn giữ trạng thái trong [CODEX_WORKFLOW.md](CODEX_WORKFLOW.md).

@@ -31,6 +31,8 @@ Select an original and choose **Nguồn của Asset** to inspect its linked Sour
 
 For a PNG/JPEG original, choose **Tạo Evidence Image**. Set normalized X/Y/width/height coordinates, inspect the cropped preview and enter the observation. Select its Evidence row and choose **Mở Evidence Image** to verify the recorded original digest and reopen that region. Image decoding uses the bundled Qt runtime; images above 40 MiB or 80 million pixels are outside the current local decode budget.
 
+Select an IMAGE original and choose **Tạo thumbnail Image** to generate a PNG derivative with its own processing run. The task table shows each run's status and derived file path; a failed run stays visible without changing the original. Other media processing tasks and cancellation are later Gate 2 work.
+
 ## CI and release
 
 The `fast-schema-domain`, `security-dependencies-workflow`, and `windows-artifact` jobs are the intended required PR checks. Repository branch protection or a ruleset must enforce them; workflow YAML alone cannot enforce merging rules. On 2026-10-01, `main` branch protection required all three checks with `strict=true`, as verified through the GitHub API. A tag `v*` reachable from `main` runs the Windows build, extracts and smokes the exact ZIP, then publishes those tested bytes. [PR #5](https://github.com/NextGlobal224/creator-loop/pull/5) ran all three PR jobs successfully on head `99ff244`, including `windows-artifact` on the configured `windows-2022` runner ([CI run](https://github.com/NextGlobal224/creator-loop/actions/runs/36884109471)). The tag release gate remains unverified.
@@ -39,7 +41,7 @@ The `fast-schema-domain`, `security-dependencies-workflow`, and `windows-artifac
 
 ## Boundaries
 
-The Library UI imports and lists originals, links Sources and opens TEXT and IMAGE_REGION Evidence. It does not yet open video at an Evidence locator, launch engines, publish posts or update installations. Package creation is implemented as a small domain transaction to test atomicity and fingerprint rules; a full publishing workflow is not yet present.
+The Library UI imports and lists originals, links Sources, generates image thumbnails and opens TEXT and IMAGE_REGION Evidence. It does not yet open video at an Evidence locator, launch external media/model engines, publish posts or update installations. Package creation is implemented as a small domain transaction to test atomicity and fingerprint rules; a full publishing workflow is not yet present.
 
 The public application read path is `open_readonly()`. Publication writes go through `PublicationRepository`; `_connect_write()` is an internal adapter reserved for repositories, migrations and tests. This is an application boundary, not a sandbox against someone opening the SQLite file directly. Direct SQL may create an unsealed staging row, which cannot be approved.
 

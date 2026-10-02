@@ -235,3 +235,51 @@ class LibraryUiTests(unittest.TestCase):
             window.reopen_selected_image_evidence()
             self._wait_for_worker(app, window)
         self.assertEqual(viewed, [QColor("blue").name()])
+
+    def test_thumbnail_run_status_is_visible_per_task(self) -> None:
+        assert QApplication is not None
+        app = QApplication.instance() or QApplication([])
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name) / "dữ liệu task"
+        root.mkdir()
+        db_path = root / "creator_loop.sqlite3"
+        initialize(db_path)
+        source = Path(self.temp.name) / "Ảnh task.png"
+        image = QImage(8, 4, QImage.Format.Format_RGB32)
+        image.fill(QColor("green"))
+        self.assertTrue(image.save(str(source)))
+        imported = intake_image_original(source, root=root)
+        stored = root.joinpath(*imported.storage_key.split("/"))
+        window = LibraryWindow(root)
+        self.addCleanup(window.close)
+        window.show()
+        window.table.selectRow(0)
+        window.choose_image_thumbnail()
+        self._wait_for_worker(app, window)
+        self.assertEqual(window.run_table.rowCount(), 1)
+        self.assertEqual(window.run_table.item(0, 1).text(), "IMAGE_THUMBNAIL")
+        self.assertEqual(window.run_table.item(0, 2).text(), "SUCCEEDED")
+        self.assertTrue(
+            window.run_table.item(0, 3).text().startswith("storage/derived/")
+        )
+
+        changed = bytearray(stored.read_bytes())
+        changed[-1] ^= 1
+        stored.write_bytes(changed)
+        window.table.selectRow(0)
+        with patch("creator_loop.library_ui.QMessageBox.warning"):
+            window.choose_image_thumbnail()
+            self._wait_for_worker(app, window)
+        self.assertEqual(window.run_table.rowCount(), 2)
+        self.assertEqual(
+            {window.run_table.item(row, 2).text() for row in range(2)},
+            {"SUCCEEDED", "FAILED"},
+        )
+        with closing(sqlite3.connect(db_path)) as db:
+            self.assertEqual(
+                db.execute(
+                    "SELECT count(*) FROM asset_files WHERE role='THUMBNAIL'"
+                ).fetchone()[0],
+                1,
+            )
