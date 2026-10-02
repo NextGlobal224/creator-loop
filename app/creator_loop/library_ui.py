@@ -34,6 +34,12 @@ from creator_loop.evidence_correction import (
     correct_text_evidence,
 )
 from creator_loop.evidence_reopen import reopen_evidence_version
+from creator_loop.evidence_review import (
+    ReviewAction,
+    current_evidence_review,
+    record_evidence_review,
+)
+from creator_loop.evidence_review_ui import EvidenceReviewDialog
 from creator_loop.image_evidence import (
     create_image_evidence,
     read_verified_image,
@@ -364,6 +370,42 @@ class AudioEvidenceWorker(QThread):
             self.failed.emit(f"Không thể xử lý Evidence audio: {exc}")
 
 
+class EvidenceReviewWorker(QThread):
+    completed = Signal(str)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        version_id: str,
+        root: Path,
+        action: ReviewAction,
+        actor: str,
+        reason: str,
+    ) -> None:
+        super().__init__()
+        self.version_id = version_id
+        self.root = root
+        self.action = action
+        self.actor = actor
+        self.reason = reason
+
+    def run(self) -> None:
+        try:
+            with closing(_connect_write(self.root / "creator_loop.sqlite3")) as db:
+                record_evidence_review(
+                    db,
+                    evidence_version_id=self.version_id,
+                    data_root=self.root,
+                    action=self.action,
+                    actor=self.actor,
+                    reason=self.reason,
+                )
+                state = current_evidence_review(db, self.version_id)
+            self.completed.emit(state)
+        except Exception as exc:
+            self.failed.emit(f"Không thể review Evidence: {exc}")
+
+
 class SourceWorker(QThread):
     linked = Signal(str)
     failed = Signal(str)
@@ -494,11 +536,15 @@ class LibraryWindow(QMainWindow):
         reopen_audio.clicked.connect(self.reopen_selected_audio_evidence)
         self._buttons.append(reopen_audio)
         video_actions.addWidget(reopen_audio)
+        review_evidence = QPushButton("Review Evidence")
+        review_evidence.clicked.connect(self.choose_evidence_review)
+        self._buttons.append(review_evidence)
+        video_actions.addWidget(review_evidence)
         layout.addLayout(video_actions)
 
-        self.evidence_table = QTableWidget(0, 3)
+        self.evidence_table = QTableWidget(0, 4)
         self.evidence_table.setHorizontalHeaderLabels(
-            ("Evidence", "Đoạn đã lưu", "Version")
+            ("Evidence", "Đoạn đã lưu", "Version", "Review")
         )
         self.evidence_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.evidence_table.setSelectionBehavior(
@@ -531,7 +577,10 @@ class LibraryWindow(QMainWindow):
             evidence_rows = db.execute(
                 """SELECT v.evidence_version_id, a.display_name, v.content,
                           v.version_no, v.locator_type,
-                          json_extract(v.locator_data,'$.track'),f.role
+                          json_extract(v.locator_data,'$.track'),f.role,
+                          COALESCE((SELECT action FROM review_events re
+                                    WHERE re.evidence_version_id=v.evidence_version_id
+                                    ORDER BY re.rowid DESC LIMIT 1),'PENDING')
                    FROM evidence_versions v
                    JOIN evidences e ON e.evidence_id = v.evidence_id
                    JOIN assets a ON a.asset_id = e.asset_id
@@ -573,6 +622,7 @@ class LibraryWindow(QMainWindow):
             content_item.setData(Qt.ItemDataRole.UserRole, locator_tag)
             self.evidence_table.setItem(row_index, 1, content_item)
             self.evidence_table.setItem(row_index, 2, QTableWidgetItem(str(row[3])))
+            self.evidence_table.setItem(row_index, 3, QTableWidgetItem(str(row[7])))
         self.run_table.setRowCount(len(run_rows))
         for row_index, row in enumerate(run_rows):
             for column_index, value in enumerate(row[:4]):
@@ -868,6 +918,34 @@ class LibraryWindow(QMainWindow):
             AudioEvidenceWorker("reopen", str(version_id), self.root),
             "Đang xác minh đoạn audio…",
         )
+
+    def choose_evidence_review(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.evidence_table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Version.")
+            return
+        version_id = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        content = self.evidence_table.item(row, 1).text()
+        state = self.evidence_table.item(row, 3).text()
+        dialog = EvidenceReviewDialog(content, state)
+        if dialog.exec() != EvidenceReviewDialog.DialogCode.Accepted:
+            return
+        worker = EvidenceReviewWorker(
+            str(version_id),
+            self.root,
+            cast(ReviewAction, dialog.action.currentData()),
+            dialog.actor.text(),
+            dialog.reason.text(),
+        )
+        worker.completed.connect(self._on_evidence_reviewed)
+        worker.failed.connect(self._on_failed)
+        self._start_worker(worker, "Đang ghi review Evidence…")
+
+    def _on_evidence_reviewed(self, state: str) -> None:
+        self.reload()
+        self.status.setText(f"Đã ghi review Evidence: {state}.")
 
     def _finish_video(self, action: str, identifier: str) -> None:
         result = self._video_result

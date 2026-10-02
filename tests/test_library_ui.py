@@ -17,6 +17,7 @@ if os.name == "nt":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from creator_loop.audio_evidence_ui import AudioEvidenceDialog, AudioRangeView
+        from creator_loop.evidence_review_ui import EvidenceReviewDialog
         from creator_loop.image_evidence_ui import ImageEvidenceDialog, ImageRegionView
         from creator_loop.image_thumbnail import create_image_thumbnail
         from creator_loop.library_ui import LibraryWindow
@@ -116,6 +117,72 @@ class LibraryUiTests(unittest.TestCase):
             window.reopen_selected_text_evidence()
             self._wait_for_worker(app, window)
         self.assertEqual(shown.call_args.args[2], "Café")
+
+    def test_review_selected_evidence_from_ui_keeps_event_history(self) -> None:
+        assert QApplication is not None
+        app = QApplication.instance() or QApplication([])
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name) / "dữ liệu review UI"
+        root.mkdir()
+        db_path = root / "creator_loop.sqlite3"
+        initialize(db_path)
+        source = Path(self.temp.name) / "Bản gốc.txt"
+        source.write_text("Café ở Huế", encoding="utf-8")
+        intake_text_original(source, root=root)
+        window = LibraryWindow(root)
+        self.addCleanup(window.close)
+        window.show()
+        window.table.selectRow(0)
+
+        def select_excerpt(dialog: TextEvidenceDialog) -> object:
+            dialog.start.setValue(0)
+            dialog.end.setValue(4)
+            return TextEvidenceDialog.DialogCode.Accepted
+
+        with patch.object(TextEvidenceDialog, "exec", select_excerpt):
+            window.choose_text_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(window.evidence_table.item(0, 3).text(), "PENDING")
+        window.evidence_table.selectRow(0)
+
+        def accept(dialog: EvidenceReviewDialog) -> object:
+            self.assertEqual(dialog.action.currentData(), "ACCEPT")
+            self.assertTrue(
+                dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+            )
+            return EvidenceReviewDialog.DialogCode.Accepted
+
+        with patch.object(EvidenceReviewDialog, "exec", accept):
+            window.choose_evidence_review()
+            self._wait_for_worker(app, window)
+        self.assertEqual(window.evidence_table.item(0, 3).text(), "ACCEPT")
+        window.evidence_table.selectRow(0)
+
+        def reject(dialog: EvidenceReviewDialog) -> object:
+            self.assertEqual(dialog.action.currentData(), "ACCEPT")
+            dialog.action.setCurrentIndex(1)
+            self.assertFalse(
+                dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+            )
+            dialog.reason.setText("Nguồn cần sửa")
+            self.assertTrue(
+                dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+            )
+            return EvidenceReviewDialog.DialogCode.Accepted
+
+        with patch.object(EvidenceReviewDialog, "exec", reject):
+            window.choose_evidence_review()
+            self._wait_for_worker(app, window)
+        self.assertEqual(window.evidence_table.item(0, 3).text(), "REJECT")
+        with closing(sqlite3.connect(db_path)) as db:
+            events = db.execute(
+                "SELECT action,actor_id,reason FROM review_events ORDER BY rowid"
+            ).fetchall()
+        self.assertEqual(
+            events,
+            [("ACCEPT", "reviewer", None), ("REJECT", "reviewer", "Nguồn cần sửa")],
+        )
 
     def test_text_range_dialog_uses_unicode_code_points(self) -> None:
         assert QApplication is not None
