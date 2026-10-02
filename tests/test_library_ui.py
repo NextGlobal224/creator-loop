@@ -18,6 +18,7 @@ if os.name == "nt":
     try:
         from creator_loop.audio_evidence_ui import AudioEvidenceDialog, AudioRangeView
         from creator_loop.image_evidence_ui import ImageEvidenceDialog, ImageRegionView
+        from creator_loop.image_thumbnail import create_image_thumbnail
         from creator_loop.library_ui import LibraryWindow
         from creator_loop.media_intake import (
             intake_image_original,
@@ -292,6 +293,59 @@ class LibraryUiTests(unittest.TestCase):
             self._wait_for_worker(app, window)
         self.assertEqual(window.evidence_table.rowCount(), 1)
         self.assertEqual(window.evidence_table.item(0, 1).text(), "Góc xanh")
+        window.evidence_table.selectRow(0)
+        viewed: list[str] = []
+
+        def inspect_region(dialog: ImageRegionView) -> object:
+            viewed.append(dialog.region_view.pixmap().toImage().pixelColor(0, 0).name())
+            return ImageRegionView.DialogCode.Accepted
+
+        with patch.object(ImageRegionView, "exec", inspect_region):
+            window.reopen_selected_image_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(viewed, [QColor("blue").name()])
+
+    def test_create_image_evidence_from_selected_thumbnail_run(self) -> None:
+        assert QApplication is not None
+        app = QApplication.instance() or QApplication([])
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name) / "dữ liệu Evidence thumbnail"
+        root.mkdir()
+        db_path = root / "creator_loop.sqlite3"
+        initialize(db_path)
+        source = Path(self.temp.name) / "Ảnh gốc.png"
+        image = QImage(4, 4, QImage.Format.Format_RGB32)
+        image.fill(QColor("red"))
+        for y in range(2, 4):
+            for x in range(2, 4):
+                image.setPixelColor(x, y, QColor("blue"))
+        self.assertTrue(image.save(str(source)))
+        imported = intake_image_original(source, root=root)
+        thumbnail = create_image_thumbnail(imported.file_id, data_root=root, max_edge=2)
+        window = LibraryWindow(root)
+        self.addCleanup(window.close)
+        window.show()
+        window.run_table.selectRow(0)
+
+        def select_region(dialog: ImageEvidenceDialog) -> object:
+            dialog.coords["x"].setValue(0.5)
+            dialog.coords["y"].setValue(0.5)
+            dialog.coords["width"].setValue(0.5)
+            dialog.coords["height"].setValue(0.5)
+            dialog.content.setText("Xanh trên thumbnail")
+            return ImageEvidenceDialog.DialogCode.Accepted
+
+        with patch.object(ImageEvidenceDialog, "exec", select_region):
+            window.choose_thumbnail_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(window.evidence_table.rowCount(), 1)
+        self.assertIn("Image thumbnail", window.evidence_table.item(0, 0).text())
+        with closing(sqlite3.connect(db_path)) as db:
+            anchor = db.execute(
+                "SELECT anchor_file_id FROM evidence_versions"
+            ).fetchone()[0]
+        self.assertEqual(anchor, thumbnail.file_id)
         window.evidence_table.selectRow(0)
         viewed: list[str] = []
 

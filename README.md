@@ -35,7 +35,7 @@ For an MP4 original with a decodable video track, choose **Tạo Evidence Video*
 
 Select an IMAGE original and choose **Tạo thumbnail Image** to generate a PNG derivative with its own processing run. The task table shows each run's status and derived file path; a failed run stays visible without changing the original. Other media processing tasks and cancellation are later Gate 2 work.
 
-The image Evidence service on the current branch can anchor an `IMAGE_REGION` to a thumbnail file ID when its parent and successful processing run have valid lineage. Reopening verifies the thumbnail's own digest, even if the original later becomes unavailable. Selecting a derived file for Evidence in the UI is still missing.
+To create Evidence from a generated thumbnail, select its successful task row and choose **Evidence từ thumbnail**. Select a region in the decoded thumbnail; the saved Evidence anchors that derived file. Reopening verifies the thumbnail's own digest, even if the original later becomes unavailable. The service passed required CI in PR #23; this UI action is under CI review.
 
 ## CI and release
 
