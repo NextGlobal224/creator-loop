@@ -40,6 +40,49 @@
 | 23 | Test thực máy Windows mục tiêu 8 GB với engine/model thật, Video/Image/Text, thiếu RAM/đĩa, cancel/crash và thời gian khởi động. | Người dùng xác nhận máy hiện tại là máy đích; đã quan sát Dell XPS 15 9550, Windows 10 Pro x64 build 19045, RAM vật lý 8,429,834,240 byte. Chưa chạy test release hoặc xác định engine/model thật. | Ghi máy/build, dữ liệu mẫu, số đo tài nguyên/thời gian và kết quả từng tình huống; hosted runner không thay bằng chứng này. |
 | 24 | Hướng dẫn người dùng, release notes, backup/restore/update; phát hành có kiểm soát từ `main` sau required CI và release gate. | README hiện là hướng dẫn bootstrap/dev; chưa có release V1. | Có bản chạy/build truy xuất được cùng checksum/manifest, hướng dẫn cài/dùng/khôi phục; tag từ `main`, chỉ publish bytes đã test và ghi bằng chứng CI/release. |
 
+## Kiểm kê tiến độ theo module — checkpoint 02/10/2026
+
+Giữ ID và điều kiện nghiệm thu ở bảng trên. Trạng thái dưới đây áp dụng cho **toàn yêu cầu**, không chỉ slice đã có code. `ĐÃ XÁC MINH` chỉ dùng khi đủ bằng chứng cho phạm vi nêu rõ; không đồng nghĩa nghiệm thu release. Lượt kiểm kê này không chạy test sản phẩm.
+
+**Bằng chứng dùng trong bảng:**
+
+- **E1:** local Windows 10 x64 build 19045, Python 3.12.10/PySide6 6.10.2; trước commit `65c7192`, code resolver tương ứng HEAD đã chạy full suite 197 ca: 196 PASS, 1 SKIP quyền symlink; Ruff lint/format, mypy, compileall và workflow policy PASS. Không áp dụng cho hai file volume untracked hoặc tài liệu mới.
+- **E2:** WHOLE_ASSET UI head `e8c1158`, 8 Qt test PASS sau sửa lỗi CRLF; full suite 197/196/1. [PR #36](https://github.com/NextGlobal224/creator-loop/pull/36), [run 37007372128](https://github.com/NextGlobal224/creator-loop/actions/runs/37007372128): ba check SUCCESS, release SKIPPED; merge `d3c71d9`. Đây là source/CI artifact smoke, chưa phải end-to-end release V1.
+- **E3:** Project UI head `d337d82`, 6 Qt + 1 Library integration PASS; full suite 177/176/1, review độc lập không blocker; PR #34 merge `bbe809c`, run 37005746595 ba check SUCCESS.
+- **E4:** bằng chứng slice lịch sử ở bảng 24 yêu cầu phía trên; E1 chạy lại suite đang có trên code resolver, không tự bổ sung kiểm tra luồng/release còn thiếu.
+- **E5:** PR #37 mở trên head `65c71921530aa9684aec8bc7c1d0c37036cad50b`; CI/merge hiện tại **CHƯA XÁC MINH**. Truy vấn GitHub lượt này thất bại do mạng sandbox. API protection lần thành công gần nhất trước merge PR #35 yêu cầu đúng `fast-schema-domain`, `security-dependencies-workflow`, `windows-artifact`, `strict=true`; YAML không thay bằng chứng enforcement hiện tại.
+
+- **E6 (checkpoint tiếp theo):** PR #37 đã xác minh/merge `d5d8c97`, run37008006814 ba required SUCCESS, API protection đúng ba context/strict=true. Branch `gate2-storage-volume-preflight`: hai test volume GUID thật PASS, typing Windows/Linux PASS; full code hiện tại qua runner300s 199/198/1, exit0, có Qt thật và log; static gates PASS. PR/CI volume mới chưa có kết quả. E6 thay phần PR #37 chưa xác minh trong E5; không nghiệm thu registered root/relocation/release.
+
+| Module | Yêu cầu | Trạng thái | Bằng chứng | Còn thiếu | Phụ thuộc |
+|---|---|---|---|---|---|
+| Gate 1 / Windows app | 01 — local desktop 8 GB | ĐANG LÀM | E1/E2; máy đích đã xác định | Budget tài nguyên, tác vụ nặng thật | Engine/model, Gate 5 |
+| Gate 2 / Library, Layout | 02 — storage/ownership/volume | ĐANG LÀM | E6: resolver merge, volume identity source có hai test thật và full suite PASS với1SKIP; CI volume còn chờ | Registered root, relocation, mất/gắn volume, updater ownership | Volume identity, lock writer |
+| Gate 1 / Data & migration | 03 — SQLite/invariant/migration | ĐANG LÀM | E1/E4: schema 1→2, backup, FK và citation seal tests | Invariant Draft/selection, mọi migration/recovery cuối | Gate 3, Gate 5 |
+| Gate 1 / CI | 04 — required CI thật | CHƯA XÁC MINH | E6 xác minh PR #37/enforcement; code volume/runner mới chưa CI | CI HEAD bàn giao mới | PR volume/runner |
+| Gate 2 / Library | 05 — Source/Asset N:M | ĐANG LÀM | E4 PR #11/#12; E1 suite | Di chuyển file vẫn giữ identity/quan hệ | 02 |
+| Gate 2 / Library | 06 — ORIGINAL ba media | ĐANG LÀM | E1/E4: import/ownership/digest/Qt | Codec preflight đầy đủ tại intake | Media decoder/preflight |
+| Gate 2 / Library | 07 — derived/task/run | ĐANG LÀM | E4 thumbnail thật; E1 | Task còn lại, cancel/provenance thật | Engine lifecycle/component |
+| Gate 2 / Evidence | 08 — version/four locators | ĐANG LÀM | Slice source ĐÃ XÁC MINH qua E1/E2/E4: TEXT/IMAGE/TIME/WHOLE, negative/history tests trên media hỗ trợ hiện có | Nghiệm thu exact artifact cuối; không suy ra codec rộng hơn | 06, 22/23 |
+| Gate 2 / Evidence | 09 — reopen exact anchor | ĐANG LÀM | Slice source ĐÃ XÁC MINH qua E1/E2/E4: original/thumbnail, digest/missing, đoạn/vùng/fullsource | Kiểm registered volume sau relocation, artifact cuối | 02, 22 |
+| Gate 3 / Knowledge | 10 — Claim/citation/stale | ĐANG LÀM | E1/E4 PR #27 service/seal, projection stale | Claim UI/review; ngưỡng factual publish chưa quyết định | Evidence review; quyết định biên tập |
+| Gate 2–3 / Review | 11 — review version/event | ĐANG LÀM | E1/E2/E4: Evidence review/correction | Claim/Draft review | 10, 13 |
+| Gate 3 / Creator | 12 — Project/reference/rights | ĐANG LÀM | E3 và E1: exact references/archive | Quyền REUSE_MEDIA trước Package | 15/16; rights provenance |
+| Gate 3 / Creator | 13 — Draft/assertion/A+B | CHƯA LÀM | Schema nền; chưa có service/UI/flow evidence | Version/parent DAG, citation/offset, NEEDS_SOURCE | 10/11/12; migration |
+| Gate 3 / Creator | 14 — selection A/B/C | CHƯA LÀM | Schema nền, chưa có luồng | Tập ứng viên, membership/Project, history | 13 |
+| Gate 4 / Publication | 15 — Package/seal/fingerprint | ĐANG LÀM | E1/E4: repository và test nền | Luồng tạo Package, text/media đổi thật | 12/13/14 |
+| Gate 4 / Publication | 16 — approval/revoke/Post | ĐANG LÀM | E4 schema/trigger; E1 nền tests | Publish service/UI, race/revoke/rights end-to-end | 10/15, ngưỡng SUPPORTS |
+| Gate 4 / Observation | 17 — metric append-only | CHƯA LÀM | Schema/trigger nền, chưa có collector/flow | Post measurement/provenance/unit/NULL tests thực | 16 |
+| Gate 2–4 / Windows UI | 18 — full product flow | ĐANG LÀM | E1/E2/E3: Library/Evidence/Project | Claim→Observation, đóng app và reopen artifact cuối | 10–17, 22 |
+| Gate 5 / Worker lifecycle | 19 — owned/cancel/crash | ĐANG LÀM | E4 primitives/fake tests; E1 | Lifecycle engine thật, recovery/timeout đầy đủ | 20 |
+| Gate 5 / Components | 20 — local engine/model | BỊ CHẶN | User chốt local-only; chưa có path/version/license | Nhận engine/model cụ thể, preflight/provenance/activation | Dữ kiện người dùng; independent work tiếp tục được |
+| Gate 5 / Update/recovery | 21 — lock/backup/migrate/restore | ĐANG LÀM | E1/E4: Backup API/schema 1→2 | Exclusive app lock, stage/health/media refs/restore UI | 02/03/19 |
+| Gate 5 / Build | 22 — exact artifact/manifest | ĐANG LÀM | E2 CI Windows ZIP extract/smoke | Final artifact/manifest/runtime/upgrade flow | 18/19/20/21 |
+| Gate 5 / Real machine | 23 — acceptance 8 GB thật | BỊ CHẶN | Máy đích quan sát; chưa có release measurements | Engine/model, thiếu RAM/đĩa/cancel/crash/startup | 20/22; không lấy hosted runner thay thế |
+| Gate 5 / Release | 24 — guide/tag/release | CHƯA LÀM | README dev/slice guide; release job SKIPPED E2 | Hướng dẫn release/recovery, tag main, đúng tested bytes | Tất cả yêu cầu bắt buộc/Gate 5 |
+
+Timeout cấp tiến trình và log đã có [runner Windows](../scripts/run_test_with_timeout.ps1), probe4s xác minh dừng cây owned và giữ process ngoài Job, native normal exit7 giữ mã/stdout/stderr. E6 đã chạy full suite199 ca có Qt thật qua runner; chưa kiểm runner trên CI. Xem lệnh/bằng chứng và lịch sử test kẹt trong [HANDOFF](HANDOFF.md). Việc chuẩn bị runner không thay trạng thái nghiệm thu cuối 24 yêu cầu; chưa có số liệu usage tiết kiệm.
+
 ## Để sau V1 hoặc không thuộc phạm vi
 
 | Nội dung | Ranh giới đã chốt |

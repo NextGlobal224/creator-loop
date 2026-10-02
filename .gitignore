@@ -17,3 +17,4 @@ logs/
 runtime/
 .env
 *.zip
+.local-test-logs/
