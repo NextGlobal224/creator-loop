@@ -17,6 +17,19 @@ Với Creator Loop, giữ thứ tự luật đã chốt: [Data Architecture V1.1
 
 ## 2. Ba mẫu giao việc hằng ngày
 
+### Chạy test Windows có timeout và log
+
+Runner local giữ exit code, trả124 khi timeout và125 khi wrapper lỗi; mỗi lượt lưu stdout/stderr và metadata dưới `.local-test-logs/` (ignored). Job Object chỉ cleanup cây process của lượt chạy. Chọn timeout theo phạm vi test; log có thể chứa dữ liệu fixture, không commit/upload dữ liệu người dùng.
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+$env:QT_QPA_PLATFORM = 'offscreen'
+& .\scripts\run_test_with_timeout.ps1 -Executable .\.venv\Scripts\python.exe `
+  -TimeoutSeconds 120 -CommandArgs @('-m','unittest','discover','-s','tests','-p','test_storage_volumes.py','-q')
+```
+
+Đọc `result.json` và `output.log` của lượt vừa chạy; không suy PASS từ việc tool trả session. Runner ưu tiên Python/test native; encoded PowerShell có vấn đề stderr CLIXML và quoting, không dùng cho raw stderr shell. Probe timeout/ownership và full suite199 ca có Qt thật đã chạy qua runner trên Windows local; runner trên CI chưa kiểm. Lưu bằng chứng theo code/môi trường trong HANDOFF.
+
 ### Task mới
 
 ```text
