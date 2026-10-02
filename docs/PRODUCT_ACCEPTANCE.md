@@ -1,6 +1,6 @@
 # Ma trận nghiệm thu Creator Loop V1
 
-**Trạng thái 02/10/2026:** đang triển khai. Bảng này theo dõi việc thực hiện, không thay đổi luật trong [Data Architecture V1.1](Creator_Loop_Data_Architecture_V1_1.md), [CI/CD & Release Contract V1](Creator_Loop_CICD_Release_Contract_V1.md), [Layout Contract V1](Creator_Loop_Layout_Contract_V1.md), [Master Prompt V2](Codex_Master_Prompt_V2.md) hoặc [Gate 0 Decision Record](Creator_Loop_Gate_0_Decision_Record.md). Khi trạng thái Git, CI hoặc bản chạy đổi, cập nhật bằng chứng theo đúng commit/artifact.
+**Trạng thái 03/10/2026:** đang triển khai. Bảng này theo dõi việc thực hiện, không thay đổi luật trong [Data Architecture V1.1](Creator_Loop_Data_Architecture_V1_1.md), [CI/CD & Release Contract V1](Creator_Loop_CICD_Release_Contract_V1.md), [Layout Contract V1](Creator_Loop_Layout_Contract_V1.md), [Master Prompt V2](Codex_Master_Prompt_V2.md) hoặc [Gate 0 Decision Record](Creator_Loop_Gate_0_Decision_Record.md). Khi trạng thái Git, CI hoặc bản chạy đổi, cập nhật bằng chứng theo đúng commit/artifact.
 
 ## Mốc bắt buộc
 
@@ -65,15 +65,15 @@ Giữ ID và điều kiện nghiệm thu ở bảng trên. Trạng thái dưới
 | Gate 2 / Library | 07 — derived/task/run | ĐANG LÀM | E4 thumbnail thật; E1 | Task còn lại, cancel/provenance thật | Engine lifecycle/component |
 | Gate 2 / Evidence | 08 — version/four locators | ĐANG LÀM | Slice source ĐÃ XÁC MINH qua E1/E2/E4: TEXT/IMAGE/TIME/WHOLE, negative/history tests trên media hỗ trợ hiện có | Nghiệm thu exact artifact cuối; không suy ra codec rộng hơn | 06, 22/23 |
 | Gate 2 / Evidence | 09 — reopen exact anchor | ĐANG LÀM | Slice source ĐÃ XÁC MINH qua E1/E2/E4: original/thumbnail, digest/missing, đoạn/vùng/fullsource | Kiểm registered volume sau relocation, artifact cuối | 02, 22 |
-| Gate 3 / Knowledge | 10 — Claim/citation/stale | ĐANG LÀM | E1/E4 PR #27 seal/stale; service Claim review/correction mới, focused18/full243 (242 PASS,1 SKIP) local, static/smoke PASS; CI mới chờ, log trong HANDOFF | Claim UI; ngưỡng factual publish chưa quyết định; exact artifact cuối | Evidence review; quyết định biên tập |
-| Gate 2–3 / Review | 11 — review version/event | ĐANG LÀM | Evidence review/correction E1/E2/E4; Claim service atomic CORRECT/current review/caller transaction/anchor checks đạt local full243, CI mới chờ | Claim UI, Draft review; final flow | 10, 13 |
+| Gate 3 / Knowledge | 10 — Claim/citation/stale | ĐANG LÀM | #27 seal/stale; #45 service review/correction merge `db8ae47`, head `a0bfec4` ba required SUCCESS; UI exact citation/history/stale/reopen8 Qt + full251/250/1/static PASS local, CI UI chờ; HANDOFF | Ngưỡng factual publish chưa quyết định; required CI UI/exact artifact cuối | Evidence review; quyết định biên tập |
+| Gate 2–3 / Review | 11 — review version/event | ĐANG LÀM | Evidence E1/E2/E4; Claim service #45 required PASS/merge; Claim UI review/correction/history/anchor errors qua8 Qt/full251 local, CI UI chờ | Draft review; required CI UI/final flow | 10, 13 |
 | Gate 3 / Creator | 12 — Project/reference/rights | ĐANG LÀM | E3 và E1: exact references/archive | Quyền REUSE_MEDIA trước Package | 15/16; rights provenance |
 | Gate 3 / Creator | 13 — Draft/assertion/A+B | CHƯA LÀM | Schema nền; chưa có service/UI/flow evidence | Version/parent DAG, citation/offset, NEEDS_SOURCE | 10/11/12; migration |
 | Gate 3 / Creator | 14 — selection A/B/C | CHƯA LÀM | Schema nền, chưa có luồng | Tập ứng viên, membership/Project, history | 13 |
 | Gate 4 / Publication | 15 — Package/seal/fingerprint | ĐANG LÀM | E1/E4: repository và test nền | Luồng tạo Package, text/media đổi thật | 12/13/14 |
 | Gate 4 / Publication | 16 — approval/revoke/Post | ĐANG LÀM | E4 schema/trigger; E1 nền tests | Publish service/UI, race/revoke/rights end-to-end | 10/15, ngưỡng SUPPORTS |
 | Gate 4 / Observation | 17 — metric append-only | CHƯA LÀM | Schema/trigger nền, chưa có collector/flow | Post measurement/provenance/unit/NULL tests thực | 16 |
-| Gate 2–4 / Windows UI | 18 — full product flow | ĐANG LÀM | E1/E2/E3: Library/Evidence/Project | Claim→Observation, đóng app và reopen artifact cuối | 10–17, 22 |
+| Gate 2–4 / Windows UI | 18 — full product flow | ĐANG LÀM | E1/E2/E3 Library/Evidence/Project; Claim create/correct/review/exact old citation từ Library8 Qt, full251 local/static PASS, CI Claim UI chờ | Draft→Observation, đóng app và reopen artifact cuối | 10–17, 22 |
 | Gate 5 / Worker lifecycle | 19 — owned/cancel/crash | ĐANG LÀM | E4 primitives/fake tests; E1 | Lifecycle engine thật, recovery/timeout đầy đủ | 20 |
 | Gate 5 / Components | 20 — local engine/model | BỊ CHẶN | User chốt local-only; chưa có path/version/license | Nhận engine/model cụ thể, preflight/provenance/activation | Dữ kiện người dùng; independent work tiếp tục được |
 | Gate 5 / Update/recovery | 21 — lock/backup/migrate/restore | ĐANG LÀM | E1/E4: Backup API/schema 1→2 | Exclusive app lock, stage/health/media refs/restore UI | 02/03/19 |
