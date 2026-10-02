@@ -25,6 +25,7 @@ if os.name == "nt":
             intake_image_original,
             intake_video_original,
         )
+        from creator_loop.project_ui import ProjectDialog
         from creator_loop.source_ui import SourceDialog
         from creator_loop.text_evidence_ui import TextEvidenceDialog
         from creator_loop.text_intake import intake_text_original
@@ -50,6 +51,38 @@ class LibraryUiTests(unittest.TestCase):
             app.processEvents()
             time.sleep(0.01)
         self.assertIsNone(window._worker)
+
+    def test_projects_open_from_library_and_persist_after_dialog_close(self) -> None:
+        assert QApplication is not None
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            initialize(root / "creator_loop.sqlite3")
+            window = LibraryWindow(root)
+            self.addCleanup(window.close)
+            project_ids: list[str] = []
+
+            def create_project(dialog: ProjectDialog) -> int:
+                self.assertEqual(dialog.root, root)
+                dialog.title.setText("Dự án từ Library 📝")
+                dialog.create_button.click()
+                deadline = time.monotonic() + 10
+                while dialog._worker is not None and time.monotonic() < deadline:
+                    app.processEvents()
+                    time.sleep(0.01)
+                self.assertIsNone(dialog._worker)
+                project_ids.append(dialog.selected_project_id() or "")
+                dialog.close()
+                return ProjectDialog.DialogCode.Rejected
+
+            button = next(b for b in window._buttons if b.text() == "Projects")
+            with patch.object(ProjectDialog, "exec", create_project):
+                button.click()
+            self.assertTrue(project_ids[0])
+            reopened = ProjectDialog(root)
+            self.addCleanup(reopened.close)
+            self.assertEqual(reopened.selected_project_id(), project_ids[0])
+            self.assertIn("Dự án từ Library", reopened.project.currentText())
 
     def test_three_original_types_appear_after_worker_import(self) -> None:
         assert QApplication is not None

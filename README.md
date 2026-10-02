@@ -45,7 +45,7 @@ Select an Evidence Version and use its **Mở Evidence** button to compare the s
 
 The Claim service creates Claim Versions with exact SUPPORTS, CONTRADICTS and CONTEXT links to Evidence Versions. A sealed version preserves its statement and citations; corrections append a later version. Its support projection counts current ACCEPT links and stale links after Evidence correction; it does not approve publication. Claim UI and the editorial support threshold are still open.
 
-The Project service creates, lists and archives workspaces, and records references to exactly one Asset, Source or sealed Claim Version with RESEARCH, QUOTE or REUSE_MEDIA intent. References keep the selected Claim Version and remain readable after archiving. REUSE_MEDIA does not grant publication rights. Project UI is the next milestone.
+Choose **Projects** in Library to create or select a workspace. Choose Asset, Source or Claim Version and RESEARCH, QUOTE or REUSE_MEDIA, then add the reference. The labels show the exact ID and Claim Version; unknown Source metadata stays explicit. **Lưu trữ Project** preserves the references and switches on the archived view. Archived Projects can be read but cannot receive new references. REUSE_MEDIA records intent and does not grant publication rights. Writes run in a worker; wait for completion before closing the dialog.
 
 ## CI and release
 
