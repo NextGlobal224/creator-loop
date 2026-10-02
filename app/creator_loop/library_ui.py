@@ -30,6 +30,7 @@ from creator_loop.audio_evidence import (
 )
 from creator_loop.audio_evidence_ui import AudioEvidenceDialog, AudioRangeView
 from creator_loop.claim_ui import ClaimDialog
+from creator_loop.creator_ui import CreatorDialog
 from creator_loop.database import _connect_write, open_readonly
 from creator_loop.evidence_correction import (
     claim_versions_needing_review,
@@ -588,6 +589,10 @@ class LibraryWindow(QMainWindow):
         claims.clicked.connect(self.choose_claim)
         self._buttons.append(claims)
         actions.addWidget(claims)
+        creator = QPushButton("Creator")
+        creator.clicked.connect(self.choose_creator)
+        self._buttons.append(creator)
+        actions.addWidget(creator)
         storage = QPushButton("Kho media")
         storage.clicked.connect(self.choose_storage)
         self._buttons.append(storage)
@@ -950,6 +955,21 @@ class LibraryWindow(QMainWindow):
         dialog = ClaimDialog(self.root)
         dialog.evidence_requested.connect(self.open_claim_evidence)
         dialog.exec()
+
+    def choose_creator(self) -> None:
+        if self._worker is not None:
+            return
+        dialog = CreatorDialog(self.root)
+        dialog.claim_requested.connect(self.open_draft_claim)
+        dialog.exec()
+
+    def open_draft_claim(self, version_id: str) -> None:
+        if self._worker is not None:
+            return
+        dialog = ClaimDialog(self.root)
+        dialog.evidence_requested.connect(self.open_claim_evidence)
+        if dialog.reload(version_id):
+            dialog.exec()
 
     def open_claim_evidence(self, version_id: str) -> None:
         if self._worker is not None:
