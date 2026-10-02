@@ -26,6 +26,8 @@ class VideoSegmentWidget(QWidget):
         super().__init__()
         self.start_ms = 0
         self.end_ms = decoded.duration_ms
+        self.duration_ms = decoded.duration_ms
+        self._stopping = False
         layout = QVBoxLayout(self)
         poster = QLabel()
         poster.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -54,15 +56,23 @@ class VideoSegmentWidget(QWidget):
         self.end_ms = end_ms
 
     def play(self) -> None:
+        self._stopping = False
         self.player.pause()
         self.player.setPosition(self.start_ms)
         self.player.play()
 
     def _stop_at_end(self, position: int) -> None:
-        if position >= self.end_ms:
+        # Let full-source playback reach EndOfMedia naturally. Do not reenter
+        # pause from position callbacks while Qt is stopping its media threads.
+        if (
+            not self._stopping
+            and self.end_ms < self.duration_ms
+            and position >= self.end_ms
+        ):
             self.player.pause()
 
     def stop(self) -> None:
+        self._stopping = True
         self.player.stop()
         self.player.setSource(QUrl())
 
