@@ -200,6 +200,29 @@ class RelocationTests(unittest.TestCase):
             self.source.read_bytes(),
         )
 
+    def test_cancel_before_commit_rolls_back_keys_and_owned_copies(self) -> None:
+        before = self.keys()
+        with self.assertRaises(InterruptedError):
+            relocate_asset_files(
+                self.root,
+                [self.imported.file_id],
+                self.registered.root_id,
+                cancelled=lambda: True,
+            )
+        self.assertEqual(self.keys(), before)
+        self.assertEqual(list(self.target.iterdir()), [])
+        checks = iter((False, False, False, False, True))
+        with self.assertRaises(InterruptedError):
+            relocate_asset_files(
+                self.root,
+                [self.imported.file_id],
+                self.registered.root_id,
+                cancelled=lambda: next(checks),
+            )
+        self.assertEqual(self.keys(), before)
+        self.assertEqual(list((self.target / "originals").iterdir()), [])
+        self.assertTrue(self.source.exists())
+
     def test_write_lock_is_held_during_copy(self) -> None:
         entered = threading.Event()
         release = threading.Event()

@@ -57,6 +57,7 @@ from creator_loop.source_association import (
     link_existing_source,
 )
 from creator_loop.source_ui import SourceDialog
+from creator_loop.storage_ui import StorageDialog
 from creator_loop.text_evidence import create_text_evidence, read_verified_text_snapshot
 from creator_loop.text_evidence_ui import TextEvidenceDialog
 from creator_loop.text_intake import intake_text_original
@@ -582,6 +583,10 @@ class LibraryWindow(QMainWindow):
         projects.clicked.connect(self.choose_project)
         self._buttons.append(projects)
         actions.addWidget(projects)
+        storage = QPushButton("Kho media")
+        storage.clicked.connect(self.choose_storage)
+        self._buttons.append(storage)
+        actions.addWidget(storage)
         layout.addLayout(actions)
 
         self.table = QTableWidget(0, 4)
@@ -918,6 +923,16 @@ class LibraryWindow(QMainWindow):
                     confirmed=whole_dialog.confirmed.isChecked(),
                 )
             )
+
+    def choose_storage(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.table.currentRow()
+        asset_id = ""
+        if row >= 0:
+            asset_id = str(self.table.item(row, 1).data(Qt.ItemDataRole.UserRole))
+        StorageDialog(self.root, asset_id).exec()
+        self.reload()
 
     def choose_project(self) -> None:
         if self._worker is not None:
