@@ -167,3 +167,50 @@ class EvidenceReviewTests(unittest.TestCase):
         self.assertEqual(
             self.db.execute("SELECT count(*) FROM review_events").fetchone()[0], 0
         )
+
+    def test_review_preserves_pending_caller_writes_on_failure_and_success(
+        self,
+    ) -> None:
+        self.db.execute(
+            "INSERT INTO projects(project_id,title,status,created_at) VALUES(?,?,?,?)",
+            ("caller-project", "Caller work", "ACTIVE", "2026-10-02T00:00:00Z"),
+        )
+        self.db.execute(
+            """CREATE TEMP TRIGGER reject_review BEFORE INSERT ON review_events
+               BEGIN SELECT RAISE(ABORT,'review blocked'); END"""
+        )
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "review blocked"):
+            self._review("ACCEPT")
+        with self.assertRaisesRegex(ValueError, "Live Evidence Version"):
+            record_evidence_review(
+                self.db,
+                evidence_version_id="missing",
+                data_root=self.root,
+                action="ACCEPT",
+                actor="reviewer",
+            )
+        self.assertTrue(self.db.in_transaction)
+        self.assertEqual(
+            self.db.execute("SELECT count(*) FROM projects").fetchone()[0], 1
+        )
+        self.assertEqual(
+            self.db.execute("SELECT count(*) FROM review_events").fetchone()[0], 0
+        )
+        self.db.execute("DROP TRIGGER reject_review")
+        self._review("ACCEPT")
+        other = sqlite3.connect(self.root / "creator_loop.sqlite3")
+        self.addCleanup(other.close)
+        self.assertTrue(self.db.in_transaction)
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM projects").fetchone()[0], 0
+        )
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM review_events").fetchone()[0], 0
+        )
+        self.db.commit()
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM projects").fetchone()[0], 1
+        )
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM review_events").fetchone()[0], 1
+        )

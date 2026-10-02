@@ -4,6 +4,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from creator_loop.locator import validate_locator
+from creator_loop.transactions import atomic_transaction
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,14 @@ class EvidenceRepository:
         evidence: Evidence,
         version: EvidenceVersion,
     ) -> None:
+        with atomic_transaction(self.db):
+            self._create_with_version(evidence, version)
+
+    def _create_with_version(
+        self,
+        evidence: Evidence,
+        version: EvidenceVersion,
+    ) -> None:
         if version.evidence_id != evidence.evidence_id:
             raise ValueError("Evidence version belongs to another Evidence")
 
@@ -69,68 +78,65 @@ class EvidenceRepository:
             duration_ms=duration_ms,
         )
 
-        try:
-            self.db.execute(
-                """
-                INSERT INTO evidences (
-                    evidence_id,
-                    asset_id,
-                    evidence_type,
-                    created_at,
-                    deleted_at
-                )
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    evidence.evidence_id,
-                    evidence.asset_id,
-                    evidence.evidence_type,
-                    evidence.created_at,
-                    evidence.deleted_at,
-                ),
+        self.db.execute(
+            """
+            INSERT INTO evidences (
+                evidence_id,
+                asset_id,
+                evidence_type,
+                created_at,
+                deleted_at
             )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                evidence.evidence_id,
+                evidence.asset_id,
+                evidence.evidence_type,
+                evidence.created_at,
+                evidence.deleted_at,
+            ),
+        )
 
-            self.db.execute(
-                """
-                INSERT INTO evidence_versions (
-                    evidence_version_id,
-                    evidence_id,
-                    asset_id,
-                    version_no,
-                    anchor_file_id,
-                    content,
-                    locator_type,
-                    locator_data,
-                    producer_type,
-                    processing_run_id,
-                    created_by,
-                    created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    version.evidence_version_id,
-                    version.evidence_id,
-                    version.asset_id,
-                    version.version_no,
-                    version.anchor_file_id,
-                    version.content,
-                    version.locator_type,
-                    version.locator_data,
-                    version.producer_type,
-                    version.processing_run_id,
-                    version.created_by,
-                    version.created_at,
-                ),
+        self.db.execute(
+            """
+            INSERT INTO evidence_versions (
+                evidence_version_id,
+                evidence_id,
+                asset_id,
+                version_no,
+                anchor_file_id,
+                content,
+                locator_type,
+                locator_data,
+                producer_type,
+                processing_run_id,
+                created_by,
+                created_at
             )
-
-            self.db.commit()
-
-        except Exception:
-            self.db.rollback()
-            raise
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                version.evidence_version_id,
+                version.evidence_id,
+                version.asset_id,
+                version.version_no,
+                version.anchor_file_id,
+                version.content,
+                version.locator_type,
+                version.locator_data,
+                version.producer_type,
+                version.processing_run_id,
+                version.created_by,
+                version.created_at,
+            ),
+        )
 
     def append_version(self, version: EvidenceVersion) -> None:
+        with atomic_transaction(self.db):
+            self._append_version(version)
+
+    def _append_version(self, version: EvidenceVersion) -> None:
         row = self.db.execute(
             """
             SELECT asset_id
@@ -184,41 +190,36 @@ class EvidenceRepository:
             duration_ms=duration_ms,
         )
 
-        try:
-            self.db.execute(
-                """
-                INSERT INTO evidence_versions (
-                    evidence_version_id,
-                    evidence_id,
-                    asset_id,
-                    version_no,
-                    anchor_file_id,
-                    content,
-                    locator_type,
-                    locator_data,
-                    producer_type,
-                    processing_run_id,
-                    created_by,
-                    created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    version.evidence_version_id,
-                    version.evidence_id,
-                    version.asset_id,
-                    version.version_no,
-                    version.anchor_file_id,
-                    version.content,
-                    version.locator_type,
-                    version.locator_data,
-                    version.producer_type,
-                    version.processing_run_id,
-                    version.created_by,
-                    version.created_at,
-                ),
+        self.db.execute(
+            """
+            INSERT INTO evidence_versions (
+                evidence_version_id,
+                evidence_id,
+                asset_id,
+                version_no,
+                anchor_file_id,
+                content,
+                locator_type,
+                locator_data,
+                producer_type,
+                processing_run_id,
+                created_by,
+                created_at
             )
-            self.db.commit()
-        except Exception:
-            self.db.rollback()
-            raise
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                version.evidence_version_id,
+                version.evidence_id,
+                version.asset_id,
+                version.version_no,
+                version.anchor_file_id,
+                version.content,
+                version.locator_type,
+                version.locator_data,
+                version.producer_type,
+                version.processing_run_id,
+                version.created_by,
+                version.created_at,
+            ),
+        )

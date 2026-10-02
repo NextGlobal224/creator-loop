@@ -18,6 +18,7 @@ from creator_loop.evidence import Evidence, EvidenceRepository, EvidenceVersion
 from creator_loop.evidence_reopen import _anchor_path, reopen_evidence_version
 from creator_loop.locator import validate_locator
 from creator_loop.originals import verify_original_file
+from creator_loop.transactions import atomic_transaction
 
 
 @dataclass(frozen=True)
@@ -128,11 +129,6 @@ def create_video_evidence(
     validate_locator("TIME_RANGE", locator_data, duration_ms=decoded.duration_ms)
     if decoded.frame_time_ms >= end_ms:
         raise ValueError("No decoded video frame lies inside the selected range")
-    db.execute(
-        """UPDATE asset_files SET duration_ms=?,width_px=?,height_px=?
-           WHERE file_id=?""",
-        (decoded.duration_ms, decoded.image.width(), decoded.image.height(), file_id),
-    )
     timestamp = _timestamp()
     evidence_id = uuid4().hex
     version = EvidenceVersion(
@@ -149,10 +145,21 @@ def create_video_evidence(
         created_by=actor.strip(),
         created_at=timestamp,
     )
-    EvidenceRepository(db).create_with_version(
-        Evidence(evidence_id, asset_id, "VISUAL_OBSERVATION", timestamp, None),
-        version,
-    )
+    with atomic_transaction(db):
+        db.execute(
+            """UPDATE asset_files SET duration_ms=?,width_px=?,height_px=?
+               WHERE file_id=?""",
+            (
+                decoded.duration_ms,
+                decoded.image.width(),
+                decoded.image.height(),
+                file_id,
+            ),
+        )
+        EvidenceRepository(db).create_with_version(
+            Evidence(evidence_id, asset_id, "VISUAL_OBSERVATION", timestamp, None),
+            version,
+        )
     return version
 
 
