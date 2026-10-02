@@ -107,7 +107,7 @@ class RelocationTests(unittest.TestCase):
             )
             reopened = reopen_evidence_version(db, "v", self.root)
             self.assertEqual(reopened.anchor_path.read_bytes(), b"Derived anchor")
-            self.assertTrue(reopened.anchor_path.is_relative_to(self.target))
+            self.assertTrue(reopened.anchor_path.is_relative_to(self.target.resolve()))
             self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
         self.assertEqual(
             resolve_storage_path(
