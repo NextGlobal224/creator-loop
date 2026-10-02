@@ -45,6 +45,7 @@ from creator_loop.image_evidence import (
     read_verified_image,
     reopen_image_region,
 )
+from creator_loop.image_evidence_correction import correct_image_evidence
 from creator_loop.image_evidence_ui import ImageEvidenceDialog, ImageRegionView
 from creator_loop.image_thumbnail import create_image_thumbnail
 from creator_loop.media_intake import intake_image_original, intake_video_original
@@ -196,6 +197,7 @@ class ImageEvidenceWorker(QThread):
         region: dict[str, float] | None = None,
         content: str = "",
         actor: str = "",
+        reason: str = "",
     ) -> None:
         super().__init__()
         self.action = action
@@ -204,6 +206,7 @@ class ImageEvidenceWorker(QThread):
         self.region = region
         self.content = content
         self.actor = actor
+        self.reason = reason
 
     def run(self) -> None:
         try:
@@ -232,6 +235,40 @@ class ImageEvidenceWorker(QThread):
                     self.result.emit(
                         reopen_image_region(db, self.identifier, self.root)
                     )
+            elif self.action == "load-correction":
+                with closing(open_readonly(db_path)) as db:
+                    reopened = reopen_evidence_version(db, self.identifier, self.root)
+                    if reopened.locator_type != "IMAGE_REGION":
+                        raise ValueError("Selected Evidence is not an image region")
+                    _asset_id, image = read_verified_image(
+                        db, reopened.anchor_file_id, self.root
+                    )
+                    row = db.execute(
+                        "SELECT content FROM evidence_versions WHERE evidence_version_id=?",
+                        (self.identifier,),
+                    ).fetchone()
+                    if row is None:
+                        raise ValueError("Selected Evidence version does not exist")
+                self.result.emit(
+                    (image, cast(dict[str, float], reopened.locator), str(row[0]))
+                )
+            elif self.action == "correct":
+                if self.region is None:
+                    raise ValueError("Image region is required")
+                with closing(_connect_write(db_path)) as db:
+                    corrected = correct_image_evidence(
+                        db,
+                        evidence_version_id=self.identifier,
+                        data_root=self.root,
+                        region=self.region,
+                        content=self.content,
+                        actor=self.actor,
+                        reason=self.reason,
+                    )
+                    stale_claims = claim_versions_needing_review(
+                        db, corrected.evidence_id
+                    )
+                self.result.emit((corrected.new_version_id, len(stale_claims)))
             else:
                 raise ValueError("Unknown image Evidence action")
         except Exception as exc:
@@ -518,6 +555,10 @@ class LibraryWindow(QMainWindow):
         reopen_image.clicked.connect(self.reopen_selected_image_evidence)
         self._buttons.append(reopen_image)
         evidence_actions.addWidget(reopen_image)
+        correct_image = QPushButton("Sửa Evidence Image")
+        correct_image.clicked.connect(self.correct_selected_image_evidence)
+        self._buttons.append(correct_image)
+        evidence_actions.addWidget(correct_image)
         layout.addLayout(evidence_actions)
         video_actions = QHBoxLayout()
         create_video = QPushButton("Tạo Evidence Video")
@@ -885,6 +926,23 @@ class LibraryWindow(QMainWindow):
             "Đang xác minh vùng ảnh…",
         )
 
+    def correct_selected_image_evidence(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.evidence_table.currentRow()
+        if (
+            row < 0
+            or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            != "IMAGE_REGION"
+        ):
+            QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Image.")
+            return
+        version_id = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        self._start_image_worker(
+            ImageEvidenceWorker("load-correction", str(version_id), self.root),
+            "Đang xác minh Evidence ảnh để sửa…",
+        )
+
     def reopen_selected_video_evidence(self) -> None:
         if self._worker is not None:
             return
@@ -1031,6 +1089,30 @@ class LibraryWindow(QMainWindow):
         elif action == "reopen":
             content, crop = cast(tuple[str, QImage], result)
             ImageRegionView(content, crop).exec()
+        elif action == "load-correction":
+            image, region, content = cast(tuple[QImage, dict[str, float], str], result)
+            dialog = ImageEvidenceDialog(
+                image, correction=True, region=region, content=content
+            )
+            if dialog.exec() == ImageEvidenceDialog.DialogCode.Accepted:
+                self._start_image_worker(
+                    ImageEvidenceWorker(
+                        "correct",
+                        identifier,
+                        self.root,
+                        region=dialog.region(),
+                        content=dialog.content.text(),
+                        actor=dialog.actor.text(),
+                        reason=dialog.reason.text(),
+                    ),
+                    "Đang ghi Evidence ảnh Version mới…",
+                )
+        elif action == "correct":
+            _new_version_id, stale_count = cast(tuple[str, int], result)
+            self.reload()
+            self.status.setText(
+                f"Đã tạo Evidence Image Version mới; {stale_count} Claim Version cần xem lại."
+            )
 
     def _finish_evidence(self, action: str, identifier: str) -> None:
         result = self._evidence_result

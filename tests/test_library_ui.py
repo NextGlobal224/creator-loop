@@ -31,7 +31,11 @@ if os.name == "nt":
         from creator_loop.video_evidence_ui import VideoEvidenceDialog, VideoRangeView
         from PySide6.QtCore import Qt
         from PySide6.QtGui import QColor, QImage
-        from PySide6.QtWidgets import QApplication, QDialogButtonBox, QFileDialog
+        from PySide6.QtWidgets import (
+            QApplication,
+            QDialogButtonBox,
+            QFileDialog,
+        )
     except ImportError:
         QApplication = None
 else:
@@ -424,6 +428,120 @@ class LibraryUiTests(unittest.TestCase):
             window.reopen_selected_image_evidence()
             self._wait_for_worker(app, window)
         self.assertEqual(viewed, [QColor("blue").name()])
+
+    def test_correct_thumbnail_image_evidence_from_ui_preserves_anchor(self) -> None:
+        assert QApplication is not None
+        app = QApplication.instance() or QApplication([])
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name) / "dữ liệu sửa thumbnail"
+        root.mkdir()
+        db_path = root / "creator_loop.sqlite3"
+        initialize(db_path)
+        source = Path(self.temp.name) / "Ảnh đỏ xanh.png"
+        image = QImage(4, 4, QImage.Format.Format_RGB32)
+        image.fill(QColor("red"))
+        for y in range(2, 4):
+            for x in range(2, 4):
+                image.setPixelColor(x, y, QColor("blue"))
+        self.assertTrue(image.save(str(source)))
+        imported = intake_image_original(source, root=root)
+        thumbnail = create_image_thumbnail(imported.file_id, data_root=root, max_edge=2)
+        window = LibraryWindow(root)
+        self.addCleanup(window.close)
+        window.show()
+        window.run_table.selectRow(0)
+
+        def create(dialog: ImageEvidenceDialog) -> object:
+            dialog.coords["x"].setValue(0.5)
+            dialog.coords["y"].setValue(0.5)
+            dialog.coords["width"].setValue(0.5)
+            dialog.coords["height"].setValue(0.5)
+            dialog.content.setText("Xanh trên thumbnail")
+            return ImageEvidenceDialog.DialogCode.Accepted
+
+        with patch.object(ImageEvidenceDialog, "exec", create):
+            window.choose_thumbnail_evidence()
+            self._wait_for_worker(app, window)
+        old_id = window.evidence_table.item(0, 0).data(Qt.ItemDataRole.UserRole)
+        window.evidence_table.selectRow(0)
+
+        def correct(dialog: ImageEvidenceDialog) -> object:
+            self.assertTrue(dialog.correction)
+            self.assertEqual(dialog.content.text(), "Xanh trên thumbnail")
+            self.assertEqual(dialog.region()["x"], 0.5)
+            self.assertFalse(
+                dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+            )
+            dialog.coords["x"].setValue(0.0)
+            dialog.coords["y"].setValue(0.0)
+            dialog.content.setText("Đỏ trên thumbnail")
+            dialog.reason.setText("Sửa vùng quan sát")
+            self.assertTrue(
+                dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+            )
+            return ImageEvidenceDialog.DialogCode.Accepted
+
+        with patch.object(ImageEvidenceDialog, "exec", correct):
+            window.correct_selected_image_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(window.evidence_table.rowCount(), 2)
+        self.assertIn("0 Claim Version cần xem lại", window.status.text())
+        with closing(sqlite3.connect(db_path)) as db:
+            versions = db.execute(
+                """SELECT evidence_version_id,version_no,anchor_file_id,content
+                   FROM evidence_versions ORDER BY version_no"""
+            ).fetchall()
+            event = db.execute(
+                "SELECT evidence_version_id,action,reason FROM review_events"
+            ).fetchone()
+        self.assertEqual([row[1] for row in versions], [1, 2])
+        self.assertEqual({row[2] for row in versions}, {thumbnail.file_id})
+        self.assertEqual(
+            [row[3] for row in versions],
+            ["Xanh trên thumbnail", "Đỏ trên thumbnail"],
+        )
+        self.assertEqual(event, (old_id, "CORRECT", "Sửa vùng quan sát"))
+
+        shown: dict[int, str] = {}
+
+        def inspect(dialog: ImageRegionView) -> object:
+            shown[current_version] = (
+                dialog.region_view.pixmap().toImage().pixelColor(0, 0).name()
+            )
+            return ImageRegionView.DialogCode.Accepted
+
+        for row in range(2):
+            current_version = int(window.evidence_table.item(row, 2).text())
+            window.evidence_table.selectRow(row)
+            with patch.object(ImageRegionView, "exec", inspect):
+                window.reopen_selected_image_evidence()
+                self._wait_for_worker(app, window)
+        self.assertEqual(
+            shown,
+            {1: QColor("blue").name(), 2: QColor("red").name()},
+        )
+
+        old_row = next(
+            row for row in range(2) if window.evidence_table.item(row, 2).text() == "1"
+        )
+        window.evidence_table.selectRow(old_row)
+
+        def retry_old(dialog: ImageEvidenceDialog) -> object:
+            dialog.reason.setText("Thử lại")
+            return ImageEvidenceDialog.DialogCode.Accepted
+
+        with (
+            patch.object(ImageEvidenceDialog, "exec", retry_old),
+            patch("creator_loop.library_ui.QMessageBox.warning"),
+        ):
+            window.correct_selected_image_evidence()
+            self._wait_for_worker(app, window)
+        self.assertIn("latest Evidence Version", window.status.text())
+        with closing(sqlite3.connect(db_path)) as db:
+            self.assertEqual(
+                db.execute("SELECT count(*) FROM evidence_versions").fetchone()[0], 2
+            )
 
     def test_thumbnail_run_status_is_visible_per_task(self) -> None:
         assert QApplication is not None

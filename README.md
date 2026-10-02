@@ -31,7 +31,7 @@ Select an original and choose **Nguồn của Asset** to inspect its linked Sour
 
 For a PNG/JPEG original, choose **Tạo Evidence Image**. Set normalized X/Y/width/height coordinates, inspect the cropped preview and enter the observation. Select its Evidence row and choose **Mở Evidence Image** to verify the recorded original digest and reopen that region. Image decoding uses the bundled Qt runtime; images above 40 MiB or 80 million pixels are outside the current local decode budget.
 
-The IMAGE_REGION correction service can append a human version on the same verified original or thumbnail anchor and record a CORRECT review event. It leaves older versions and Claim links intact for review. The correction UI is pending.
+To correct an IMAGE_REGION Evidence Version, select its row and choose **Sửa Evidence Image**. Adjust the region or observation, enter the actor and reason, and inspect the crop preview. The new human version stays on the selected version's verified original or thumbnail anchor; the old version and Claim links remain available for review. Only the latest live version can be corrected.
 
 For an MP4 original with a decodable video track, choose **Tạo Evidence Video**. Set the start/end in milliseconds, play that segment and enter the observation. **Mở Evidence Video** verifies the same original and replays the saved range. For an MP4 with a decodable audio track, choose **Tạo Evidence Audio**, listen to the range, choose speech or other sound, and enter the human observation. **Mở Evidence Audio** verifies the recorded original and replays its saved range. The audio UI passed the required checks in PR #22; transcription is still missing.
 
