@@ -4,6 +4,13 @@
 
 ## Trạng thái mới nhất
 
+### Relocation service — 02/10/2026 (+07)
+
+- Branch `gate2-storage-relocation`, code nền `61395cf54599594c3cd6f49b4c051e87567a337d`: PR #39 merge 15:41:57 UTC; exact head `0b466e912b415009433ec6153b751913eaf6496a`, run37028275755 ba required SUCCESS, release SKIPPED. Protection vẫn là ba context strict/enforce_admins đã kiểm trước đó. Kit nguyên/untracked; không stage log.
+- `relocate_asset_files` dùng connection riêng, BEGIN IMMEDIATE giữ khóa writers trong copy/verify/đổi key cả tập file. Copy ORIGINAL/derived vào root đăng ký bằng handle Windows exclusive, fsync và kiểm digest/size nguồn + đích; chỉ đổi storage_key trong cùng transaction. Giữ file/Asset/Evidence ID, parent, history và toàn bộ nguồn cũ. Lỗi rollback giữ key cũ, chỉ discard handle file mới do lượt này tạo; target collision không ghi đè/xóa. Commit phản hồi lỗi sau khi đã thành công được kiểm lại read-only: giữ bytes đã được DB tham chiếu. Crash có thể để lại bản copy chưa tham chiếu; chưa có tự dọn orphan, không tự xóa file theo tên.
+- Bảy regression relocation trên Windows gồm original+derived/reopen/history, lỗi file thứ hai rollback, nguồn bị sửa, collision, volume mất, write lock cạnh tranh và ambiguous commit. Full suite đúng code này **214 ca / 213 PASS / 1 SKIP symlink Windows**, unittest39.610s, runner41.2469069s, exit0/timeout=false (300s); log `.local-test-logs/20261002-224208-570dd8ff827347a996948ef567391f35/{output.log,result.json}`. Ruff lint/format, mypy toàn app44 sources, compileall, workflow policy PASS; scoped review ownership/transaction/invariants không thấy blocker. CI relocation còn chờ; không lấy PR #39 xanh cho code mới.
+- Bước tiếp theo: required CI relocation trên đúng head, rồi UI quản lý root/đổi vị trí media theo Asset trên worker, hiển thị unavailable rõ ràng và test Qt thực qua runner. Chưa có UI/đổi default intake; chưa kiểm rút/gắn ổ vật lý, disk exhaustion hay crash recovery relocation. Giữ validation/review/CI bắt buộc; Gate 2/product ĐANG LÀM, không nâng 24 dòng thành nghiệm thu toàn yêu cầu.
+
 ### Registered storage root — 02/10/2026 (+07)
 
 - Branch `gate2-registered-storage-roots`, code nền `e5bcda2820da8bb2a59db61beaaffcf476b76bc6`: PR #38 merge 15:34:02 UTC; head `7006442` có ba required SUCCESS trong run37026602261. API protection main đối chiếu lại: strict=true, đúng fast/security/Windows, enforce_admins=true; không có required review cấu hình. Kit vẫn untracked, không stage. Checkpoint chuẩn bị bên dưới là lịch sử trước merge.
