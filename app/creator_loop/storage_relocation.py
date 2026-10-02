@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sqlite3
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 from typing import BinaryIO
@@ -17,11 +18,15 @@ from creator_loop.storage_roots import resolve_registered_root
 from creator_loop.windows_owned_file import OwnedWindowsFile
 
 
-def _digest(source: BinaryIO) -> tuple[str, int]:
+def _digest(
+    source: BinaryIO, cancelled: Callable[[], bool] | None = None
+) -> tuple[str, int]:
     source.seek(0)
     digest = hashlib.sha256()
     size = 0
     for chunk in iter(lambda: source.read(READ_CHUNK_SIZE), b""):
+        if cancelled is not None and cancelled():
+            raise InterruptedError("Relocation cancelled")
         digest.update(chunk)
         size += len(chunk)
     return digest.hexdigest(), size
@@ -43,7 +48,11 @@ def _may_be_referenced(db_path: Path, keys: list[str]) -> bool:
 
 
 def relocate_asset_files(
-    data_root: Path, file_ids: list[str], target_root_id: str
+    data_root: Path,
+    file_ids: list[str],
+    target_root_id: str,
+    *,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, str]:
     """Move recorded locations as one transaction, retaining all source files.
 
@@ -69,6 +78,8 @@ def relocate_asset_files(
             try:
                 target = resolve_registered_root(canonical, target_root_id)
                 for file_id in file_ids:
+                    if cancelled is not None and cancelled():
+                        raise InterruptedError("Relocation cancelled")
                     row = db.execute(
                         "SELECT role,storage_key,sha256,byte_size FROM asset_files WHERE file_id=?",
                         (file_id,),
@@ -90,6 +101,8 @@ def relocate_asset_files(
                         owned.append(outgoing)
                         keys[file_id] = key
                         for chunk in iter(lambda: incoming.read(READ_CHUNK_SIZE), b""):
+                            if cancelled is not None and cancelled():
+                                raise InterruptedError("Relocation cancelled")
                             remaining = memoryview(chunk)
                             while remaining:
                                 written = outgoing.stream.write(remaining)
@@ -100,11 +113,11 @@ def relocate_asset_files(
                                 remaining = remaining[written:]
                         outgoing.stream.flush()
                         os.fsync(outgoing.stream.fileno())
-                        if _digest(incoming) != (digest, size):
+                        if _digest(incoming, cancelled) != (digest, size):
                             raise ValueError(
                                 "Source bytes differ from recorded digest/size"
                             )
-                        if _digest(outgoing.stream) != (digest, size):
+                        if _digest(outgoing.stream, cancelled) != (digest, size):
                             raise ValueError(
                                 "Copied bytes differ from recorded digest/size"
                             )
@@ -114,6 +127,8 @@ def relocate_asset_files(
                         "UPDATE asset_files SET storage_key=? WHERE file_id=? AND storage_key=?",
                         (key, file_id, old_key),
                     )
+                if cancelled is not None and cancelled():
+                    raise InterruptedError("Relocation cancelled")
                 commit_started = True
                 db.commit()
                 committed = True
