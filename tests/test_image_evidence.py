@@ -7,6 +7,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from creator_loop.database import initialize
 
@@ -86,7 +87,9 @@ class ImageEvidenceTests(unittest.TestCase):
     def test_signature_only_image_is_not_accepted_as_observation(self) -> None:
         fake = Path(self.temp.name) / "Chưa giải mã.png"
         fake.write_bytes(b"\x89PNG\r\n\x1a\n" + b"not a decodable image")
-        imported = intake_image_original(fake, root=self.root)
+        # Exercise a legacy row imported before intake codec preflight existed.
+        with patch("creator_loop.media_intake.preflight_image", return_value=None):
+            imported = intake_image_original(fake, root=self.root)
         with self.assertRaisesRegex(ValueError, "cannot be decoded"):
             create_image_evidence(
                 self.db,
