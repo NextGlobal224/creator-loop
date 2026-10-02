@@ -86,6 +86,25 @@ class StorageUITests(unittest.TestCase):
         self.assertFalse(dialog.confirm.isChecked())
         self.assertIn("giữ nguyên ID", dialog.status.text())
 
+    def test_default_choice_persists_and_local_reset_preserves_registrations(
+        self,
+    ) -> None:
+        from creator_loop.storage_roots import default_storage_root_id
+
+        dialog = self.dialog(False)
+        self.register(dialog)
+        dialog.default_button.click()
+        self.wait(dialog)
+        chosen = default_storage_root_id(self.root)
+        self.assertEqual(chosen, dialog.stores.currentData()[0])
+        self.assertIn(str(self.media.resolve()), dialog.default_status.text())
+        reopened = self.dialog(False)
+        self.assertIn(str(self.media.resolve()), reopened.default_status.text())
+        reopened.local_button.click()
+        self.wait(reopened)
+        self.assertIsNone(default_storage_root_id(self.root))
+        self.assertEqual(len(list_storage_roots(self.root)), 1)
+
     def test_changed_volume_is_visible_and_move_disabled(self) -> None:
         dialog = self.dialog()
         self.register(dialog)

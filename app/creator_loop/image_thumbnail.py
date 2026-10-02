@@ -16,6 +16,7 @@ from PySide6.QtCore import QBuffer, QIODevice, Qt
 from creator_loop.database import _connect_write
 from creator_loop.image_evidence import read_verified_image
 from creator_loop.library import LibraryRepository
+from creator_loop.storage_paths import new_storage_destination, resolve_storage_path
 from creator_loop.text_intake import _registration_exists, _stored_digest_and_size
 from creator_loop.windows_owned_file import OwnedWindowsFile
 
@@ -72,8 +73,6 @@ def create_image_thumbnail(
         )
         new_file_id = uuid4().hex
         stored_name = f"{new_file_id}.png"
-        storage_key = f"storage/derived/{stored_name}"
-        derived = root / "storage" / "derived"
         owned: OwnedWindowsFile | None = None
         committed = False
         commit_started = False
@@ -91,13 +90,10 @@ def create_image_thumbnail(
             if not scaled.save(encoded, "PNG"):
                 raise ValueError("Thumbnail PNG encoding failed")
             png = bytes(encoded.data())
-            for folder in (root / "storage", derived):
-                if folder.exists() and not folder.resolve().is_relative_to(root):
-                    raise ValueError("Derived storage escapes the data root")
-            derived.mkdir(parents=True, exist_ok=True)
-            if not derived.resolve().is_relative_to(root):
-                raise ValueError("Derived storage escapes the data root")
-            owned = OwnedWindowsFile.create_new(derived / stored_name)
+            storage_key, destination = new_storage_destination(
+                root, "THUMBNAIL", stored_name
+            )
+            owned = OwnedWindowsFile.create_new(destination)
             remaining = memoryview(png)
             while remaining:
                 written = owned.stream.write(remaining)
@@ -110,6 +106,10 @@ def create_image_thumbnail(
             if size != len(png) or digest != hashlib.sha256(png).hexdigest():
                 raise OSError("Stored thumbnail differs from encoded pixels")
             db.execute("BEGIN IMMEDIATE")
+            if resolve_storage_path(root, "THUMBNAIL", storage_key) != destination:
+                raise ValueError(
+                    "Thumbnail storage location changed before registration"
+                )
             db.execute(
                 """INSERT INTO asset_files(
                      file_id,asset_id,role,storage_key,sha256,byte_size,mime_type,

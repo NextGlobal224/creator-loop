@@ -22,9 +22,11 @@ from creator_loop.database import open_readonly
 from creator_loop.storage_relocation import relocate_asset_files
 from creator_loop.storage_roots import (
     StorageRootError,
+    default_storage_root_id,
     list_storage_roots,
     register_storage_root,
     resolve_registered_root,
+    set_default_storage_root,
 )
 
 
@@ -64,6 +66,9 @@ class StorageWorker(QThread):
                 message = (
                     f"Đã chuyển vị trí {len(moved)} file; giữ nguyên ID và nguồn cũ."
                 )
+            elif self.action == "default":
+                set_default_storage_root(self.root, self.value or None)
+                message = "Đã chọn kho cho media nhập mới và file dẫn xuất; file cũ giữ nguyên vị trí."
             elif self.action != "list":
                 raise ValueError("Unknown storage action")
             rows = []
@@ -74,7 +79,7 @@ class StorageWorker(QThread):
                 except (StorageRootError, OSError):
                     available = False
                 rows.append((registered.root_id, registered.path, available))
-            self.result.emit((message, rows))
+            self.result.emit((message, rows, default_storage_root_id(self.root)))
         except InterruptedError:
             self.failed.emit(
                 "Đã hủy chuyển media; vị trí đã lưu và nguồn cũ được giữ nguyên."
@@ -105,6 +110,15 @@ class StorageDialog(QDialog):
         self.refresh_button = QPushButton("Kiểm tra lại kết nối kho")
         self.refresh_button.clicked.connect(lambda: self.start("list"))
         layout.addWidget(self.refresh_button)
+        self.default_button = QPushButton("Dùng kho đã chọn cho media mới")
+        self.default_button.clicked.connect(self.choose_default)
+        layout.addWidget(self.default_button)
+        self.local_button = QPushButton("Dùng thư mục dữ liệu ứng dụng cho media mới")
+        self.local_button.clicked.connect(lambda: self.start("default"))
+        layout.addWidget(self.local_button)
+        self.default_status = QLabel()
+        self.default_status.setWordWrap(True)
+        layout.addWidget(self.default_status)
         self.confirm = QCheckBox(
             "Chuyển các file hiện có của Asset đã chọn; giữ bản nguồn cũ."
         )
@@ -139,6 +153,8 @@ class StorageDialog(QDialog):
             and self.confirm.isChecked()
         )
         self.buttons.setEnabled(not busy)
+        self.default_button.setEnabled(not busy and bool(selection) and selection[1])
+        self.local_button.setEnabled(not busy)
         self.cancel_button.setEnabled(
             busy and self._worker is not None and self._worker.action == "relocate"
         )
@@ -147,6 +163,11 @@ class StorageDialog(QDialog):
         if self._worker is not None and self._worker.action == "relocate":
             self._worker.requestInterruption()
             self.status.setText("Đang hủy; chờ rollback và đóng file an toàn…")
+
+    def choose_default(self) -> None:
+        selection = self.stores.currentData()
+        if self._worker is None and selection and selection[1]:
+            self.start("default", selection[0])
 
     def choose_folder(self) -> None:
         if self._worker is not None:
@@ -191,7 +212,7 @@ class StorageDialog(QDialog):
         if worker is not None:
             worker.deleteLater()
         if isinstance(self._result, tuple):
-            message, rows = self._result
+            message, rows, default = self._result
             selected = self.stores.currentData()
             self.stores.clear()
             for root_id, path, available in rows:
@@ -200,6 +221,12 @@ class StorageDialog(QDialog):
                 if selected and selected[0] == root_id:
                     self.stores.setCurrentIndex(self.stores.count() - 1)
             self.status.setText(message)
+            chosen = next(
+                (path for root_id, path, _available in rows if root_id == default), None
+            )
+            self.default_status.setText(
+                f"Media mới: {chosen or 'thư mục dữ liệu ứng dụng'}. Kho mất kết nối sẽ báo lỗi, không tự đổi kho."
+            )
         else:
             self.status.setText(self._failure or "Chưa xác minh kết quả thao tác.")
         self.confirm.setChecked(False)

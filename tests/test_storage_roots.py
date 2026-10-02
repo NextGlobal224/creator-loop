@@ -22,9 +22,11 @@ from creator_loop.originals import verify_original_file
 from creator_loop.storage_paths import StoragePathError, resolve_storage_path
 from creator_loop.storage_roots import (
     StorageRootError,
+    default_storage_root_id,
     list_storage_roots,
     register_storage_root,
     resolve_registered_root,
+    set_default_storage_root,
 )
 
 
@@ -39,6 +41,42 @@ class RegisteredStorageTests(unittest.TestCase):
         self.media = self.base / "Kho media Đà Nẵng"
         self.media.mkdir()
         self.manifest = self.root / "manifests" / "storage-roots.json"
+
+    def test_default_choice_preserves_roots_and_legacy_manifest(self) -> None:
+        self.assertIsNone(default_storage_root_id(self.root))
+        registered = register_storage_root(self.root, self.media)
+        before = json.loads(self.manifest.read_text(encoding="utf-8"))
+        self.assertNotIn("default_storage_root_id", before)
+        set_default_storage_root(self.root, registered.root_id)
+        self.assertEqual(default_storage_root_id(self.root), registered.root_id)
+        set_default_storage_root(self.root, None)
+        self.assertIsNone(default_storage_root_id(self.root))
+        after = json.loads(self.manifest.read_text(encoding="utf-8"))
+        self.assertEqual(before["data_root_id"], after["data_root_id"])
+        self.assertEqual(list_storage_roots(self.root), [registered])
+
+    def test_default_choice_unknown_or_offline_root_does_not_overwrite_manifest(
+        self,
+    ) -> None:
+        registered = register_storage_root(self.root, self.media)
+        before = self.manifest.read_bytes()
+        for root_id in ("0" * 32, "../invalid"):
+            with self.assertRaises(StorageRootError):
+                set_default_storage_root(self.root, root_id)
+        with patch(
+            "creator_loop.storage_roots.volume_identity", return_value="wrong-volume"
+        ):
+            with self.assertRaises(StorageRootError):
+                set_default_storage_root(self.root, registered.root_id)
+        self.assertEqual(self.manifest.read_bytes(), before)
+
+    def test_malformed_default_is_not_treated_as_local_storage(self) -> None:
+        register_storage_root(self.root, self.media)
+        payload = json.loads(self.manifest.read_text(encoding="utf-8"))
+        payload["default_storage_root_id"] = "missing"
+        self.manifest.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaises(StorageRootError):
+            default_storage_root_id(self.root)
 
     def test_registration_persists_identity_and_does_not_touch_domain_or_media(
         self,
@@ -160,6 +198,14 @@ class RegisteredStorageTests(unittest.TestCase):
         ):
             with self.subTest(key=key), self.assertRaises(StoragePathError):
                 resolve_storage_path(self.root, "ORIGINAL", key)
+
+    def test_oversized_manifest_is_rejected_without_replacing_it(self) -> None:
+        register_storage_root(self.root, self.media)
+        raw = b" " * (1024 * 1024 + 1)
+        self.manifest.write_bytes(raw)
+        with self.assertRaisesRegex(StorageRootError, "budget"):
+            set_default_storage_root(self.root, None)
+        self.assertEqual(self.manifest.stat().st_size, len(raw))
 
     def test_manifest_corruption_is_not_silently_replaced(self) -> None:
         register_storage_root(self.root, self.media)
