@@ -29,6 +29,7 @@ from creator_loop.image_evidence import (
     reopen_image_region,
 )
 from creator_loop.image_evidence_ui import ImageEvidenceDialog, ImageRegionView
+from creator_loop.image_thumbnail import create_image_thumbnail
 from creator_loop.media_intake import intake_image_original, intake_video_original
 from creator_loop.source_association import (
     SourceDetails,
@@ -177,6 +178,23 @@ class ImageEvidenceWorker(QThread):
             self.failed.emit(f"Không thể xử lý Evidence ảnh: {exc}")
 
 
+class ThumbnailWorker(QThread):
+    completed = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, file_id: str, root: Path) -> None:
+        super().__init__()
+        self.file_id = file_id
+        self.root = root
+
+    def run(self) -> None:
+        try:
+            result = create_image_thumbnail(self.file_id, data_root=self.root)
+            self.completed.emit(result.run_id)
+        except Exception as exc:
+            self.failed.emit(f"Không thể tạo thumbnail: {exc}")
+
+
 class SourceWorker(QThread):
     linked = Signal(str)
     failed = Signal(str)
@@ -227,7 +245,7 @@ class LibraryWindow(QMainWindow):
         self._evidence_result: object | None = None
         self._image_result: object | None = None
         self.setWindowTitle("Creator Loop — Library")
-        self.resize(900, 540)
+        self.resize(1000, 700)
 
         central = QWidget()
         layout = QVBoxLayout(central)
@@ -246,6 +264,10 @@ class LibraryWindow(QMainWindow):
             )
             self._buttons.append(button)
             actions.addWidget(button)
+        thumbnail = QPushButton("Tạo thumbnail Image")
+        thumbnail.clicked.connect(self.choose_image_thumbnail)
+        self._buttons.append(thumbnail)
+        actions.addWidget(thumbnail)
         layout.addLayout(actions)
 
         self.table = QTableWidget(0, 4)
@@ -287,6 +309,14 @@ class LibraryWindow(QMainWindow):
         )
         self.evidence_table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.evidence_table)
+        layout.addWidget(QLabel("Các task đã chạy"))
+        self.run_table = QTableWidget(0, 4)
+        self.run_table.setHorizontalHeaderLabels(
+            ("Asset", "Task", "Trạng thái", "File dẫn xuất")
+        )
+        self.run_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.run_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.run_table)
         self.status = QLabel()
         layout.addWidget(self.status)
         self.setCentralWidget(central)
@@ -310,6 +340,14 @@ class LibraryWindow(QMainWindow):
                    WHERE e.deleted_at IS NULL
                    ORDER BY v.created_at DESC, v.evidence_version_id DESC"""
             ).fetchall()
+            run_rows = db.execute(
+                """SELECT a.display_name,r.task_type,r.status,
+                          COALESCE((SELECT f.storage_key FROM asset_files f
+                                    WHERE f.processing_run_id=r.run_id
+                                    ORDER BY f.created_at,f.file_id LIMIT 1),'')
+                   FROM processing_runs r JOIN assets a ON a.asset_id=r.asset_id
+                   ORDER BY r.created_at DESC,r.run_id DESC"""
+            ).fetchall()
         self.table.setRowCount(len(rows))
         for row_index, row in enumerate(rows):
             for column_index, value in enumerate(row[:4]):
@@ -331,7 +369,13 @@ class LibraryWindow(QMainWindow):
             content_item.setData(Qt.ItemDataRole.UserRole, row[4])
             self.evidence_table.setItem(row_index, 1, content_item)
             self.evidence_table.setItem(row_index, 2, QTableWidgetItem(str(row[3])))
-        self.status.setText(f"{len(rows)} original(s)")
+        self.run_table.setRowCount(len(run_rows))
+        for row_index, row in enumerate(run_rows):
+            for column_index, value in enumerate(row):
+                self.run_table.setItem(
+                    row_index, column_index, QTableWidgetItem(str(value))
+                )
+        self.status.setText(f"{len(rows)} original(s), {len(run_rows)} run(s)")
 
     def choose_original(self, kind: str, filter_text: str) -> None:
         if self._worker is not None:
@@ -437,6 +481,27 @@ class LibraryWindow(QMainWindow):
             ImageEvidenceWorker("load", str(file_id), self.root),
             "Đang xác minh ảnh gốc…",
         )
+
+    def choose_image_thumbnail(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.table.currentRow()
+        if row < 0 or self.table.item(row, 0).text() != "IMAGE":
+            QMessageBox.information(self, "Chọn Image", "Chọn một original IMAGE.")
+            return
+        file_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        worker = ThumbnailWorker(str(file_id), self.root)
+        worker.completed.connect(self._on_thumbnail_completed)
+        worker.failed.connect(self._on_thumbnail_failed)
+        self._start_worker(worker, "Đang tạo thumbnail…")
+
+    def _on_thumbnail_completed(self, _run_id: str) -> None:
+        self.reload()
+        self.status.setText("Thumbnail và run đã được ghi.")
+
+    def _on_thumbnail_failed(self, message: str) -> None:
+        self.reload()
+        self._on_failed(message)
 
     def reopen_selected_text_evidence(self) -> None:
         if self._worker is not None:
