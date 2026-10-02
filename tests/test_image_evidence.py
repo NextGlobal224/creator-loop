@@ -76,6 +76,13 @@ class ImageEvidenceTests(unittest.TestCase):
             self.db.execute("SELECT count(*) FROM evidences").fetchone()[0], 0
         )
 
+    def test_region_without_decoded_pixels_cannot_be_saved(self) -> None:
+        with self.assertRaisesRegex(ValueError, "resolves to no pixels"):
+            self._create({"x": 0.5, "y": 0.5, "width": 1e-320, "height": 0.5})
+        self.assertEqual(
+            self.db.execute("SELECT count(*) FROM evidences").fetchone()[0], 0
+        )
+
     def test_signature_only_image_is_not_accepted_as_observation(self) -> None:
         fake = Path(self.temp.name) / "Chưa giải mã.png"
         fake.write_bytes(b"\x89PNG\r\n\x1a\n" + b"not a decodable image")

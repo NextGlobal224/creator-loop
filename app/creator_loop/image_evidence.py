@@ -105,6 +105,20 @@ def read_verified_image(
     return asset_id, image
 
 
+def crop_image_region(image: QImage, region: dict[str, float]) -> QImage:
+    """Resolve a normalized region to actual decoded pixels."""
+    left = math.floor(image.width() * region["x"])
+    top = math.floor(image.height() * region["y"])
+    right = math.ceil(image.width() * (region["x"] + region["width"]))
+    bottom = math.ceil(image.height() * (region["y"] + region["height"]))
+    if not (0 <= left < right <= image.width() and 0 <= top < bottom <= image.height()):
+        raise ValueError("Image region resolves to no pixels")
+    crop = image.copy(left, top, right - left, bottom - top)
+    if crop.isNull():
+        raise ValueError("Image region resolves to no pixels")
+    return crop
+
+
 def create_image_evidence(
     db: sqlite3.Connection,
     *,
@@ -116,9 +130,10 @@ def create_image_evidence(
 ) -> EvidenceVersion:
     if not actor.strip() or not content.strip():
         raise ValueError("Image observation and actor are required")
-    asset_id, _image = read_verified_image(db, file_id, data_root)
+    asset_id, image = read_verified_image(db, file_id, data_root)
     locator_data = json.dumps(region, sort_keys=True)
-    validate_locator("IMAGE_REGION", locator_data)
+    validated = cast(dict[str, float], validate_locator("IMAGE_REGION", locator_data))
+    crop_image_region(image, validated)
     timestamp = (
         datetime.now(timezone.utc)
         .isoformat(timespec="milliseconds")
@@ -160,11 +175,5 @@ def reopen_image_region(
     if row is None or row[0] != asset_id:
         raise ValueError("Image Evidence belongs to another Asset")
     region = cast(dict[str, float], reopened.locator)
-    left = math.floor(image.width() * region["x"])
-    top = math.floor(image.height() * region["y"])
-    right = math.ceil(image.width() * (region["x"] + region["width"]))
-    bottom = math.ceil(image.height() * (region["y"] + region["height"]))
-    crop = image.copy(left, top, right - left, bottom - top)
-    if crop.isNull():
-        raise ValueError("Image region resolves to no pixels")
+    crop = crop_image_region(image, region)
     return str(row[1]), crop

@@ -1,21 +1,22 @@
-"""Append a corrected TEXT Evidence Version and review history atomically."""
+"""Append a corrected image region without changing its source or history."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
+from creator_loop.evidence_reopen import reopen_evidence_version
+from creator_loop.image_evidence import crop_image_region, read_verified_image
 from creator_loop.locator import validate_locator
-from creator_loop.text_evidence import read_verified_text_snapshot
 
 
 @dataclass(frozen=True)
-class CorrectedTextEvidence:
+class CorrectedImageEvidence:
     evidence_id: str
     old_version_id: str
     new_version_id: str
@@ -30,49 +31,58 @@ def _timestamp() -> str:
     )
 
 
-def correct_text_evidence(
+def correct_image_evidence(
     db: sqlite3.Connection,
     *,
     evidence_version_id: str,
     data_root: Path,
-    start: int,
-    end: int,
+    region: dict[str, float],
+    content: str,
     actor: str,
     reason: str,
-) -> CorrectedTextEvidence:
-    """Correct the current DIRECT_TEXT version without changing its history."""
-    if not actor.strip() or not reason.strip():
-        raise ValueError("Correction actor and reason are required")
+) -> CorrectedImageEvidence:
+    """Correct the current IMAGE_REGION version on its exact verified anchor."""
+    if not content.strip() or not actor.strip() or not reason.strip():
+        raise ValueError("Image observation, correction actor and reason are required")
     if db.in_transaction:
-        raise ValueError("Evidence correction requires a clean transaction")
+        raise ValueError("Image correction requires a clean transaction")
+
     try:
         db.execute("BEGIN IMMEDIATE")
         row = db.execute(
             """SELECT v.evidence_id,v.asset_id,v.anchor_file_id,v.version_no,
-                      e.evidence_type,e.deleted_at
+                      v.locator_type,e.evidence_type,e.deleted_at
                FROM evidence_versions v JOIN evidences e ON e.evidence_id=v.evidence_id
                WHERE v.evidence_version_id=?""",
             (evidence_version_id,),
         ).fetchone()
-        if row is None or row[4] != "DIRECT_TEXT" or row[5] is not None:
-            raise ValueError("Current DIRECT_TEXT Evidence version is required")
-        evidence_id, asset_id, file_id, old_number, _kind, _deleted = row
+        if (
+            row is None
+            or row[4] != "IMAGE_REGION"
+            or row[5] != "VISUAL_OBSERVATION"
+            or row[6] is not None
+        ):
+            raise ValueError("Current IMAGE_REGION Evidence version is required")
+        evidence_id, asset_id, file_id, old_number, _locator, _kind, _deleted = row
         newest = db.execute(
             "SELECT MAX(version_no) FROM evidence_versions WHERE evidence_id=?",
             (evidence_id,),
         ).fetchone()[0]
         if old_number != newest:
             raise ValueError("Correction must start from the latest Evidence Version")
-        verified_asset_id, snapshot = read_verified_text_snapshot(
-            db, file_id, data_root
-        )
+
+        reopened = reopen_evidence_version(db, evidence_version_id, data_root)
+        if reopened.anchor_file_id != file_id:
+            raise ValueError("Evidence anchor changed during correction")
+        verified_asset_id, image = read_verified_image(db, file_id, data_root)
         if verified_asset_id != asset_id:
             raise ValueError("Evidence anchor belongs to another Asset")
-        digest = "sha256:" + hashlib.sha256(snapshot.encode("utf-8")).hexdigest()
-        locator = json.dumps(
-            {"start": start, "end": end, "text_digest": digest}, sort_keys=True
+        locator_data = json.dumps(region, sort_keys=True)
+        validated = cast(
+            dict[str, float], validate_locator("IMAGE_REGION", locator_data)
         )
-        validate_locator("TEXT_RANGE", locator, text_snapshot=snapshot)
+        crop_image_region(image, validated)
+
         new_version_id = uuid4().hex
         timestamp = _timestamp()
         db.execute(
@@ -87,9 +97,9 @@ def correct_text_evidence(
                 asset_id,
                 old_number + 1,
                 file_id,
-                snapshot[start:end],
-                "TEXT_RANGE",
-                locator,
+                content.strip(),
+                "IMAGE_REGION",
+                locator_data,
                 "HUMAN",
                 None,
                 actor.strip(),
@@ -116,28 +126,6 @@ def correct_text_evidence(
     except BaseException:
         db.rollback()
         raise
-    return CorrectedTextEvidence(
+    return CorrectedImageEvidence(
         str(evidence_id), evidence_version_id, new_version_id, old_number + 1
     )
-
-
-def claim_versions_needing_review(
-    db: sqlite3.Connection, evidence_id: str
-) -> list[str]:
-    """Project Claims using older Evidence Versions; preserve their original FK."""
-    return [
-        row[0]
-        for row in db.execute(
-            """SELECT DISTINCT ce.claim_version_id
-               FROM claim_evidence ce
-               JOIN evidence_versions used
-                 ON used.evidence_version_id=ce.evidence_version_id
-               WHERE used.evidence_id=?
-                 AND used.version_no < (
-                     SELECT MAX(current.version_no)
-                     FROM evidence_versions current
-                     WHERE current.evidence_id=used.evidence_id)
-               ORDER BY ce.claim_version_id""",
-            (evidence_id,),
-        ).fetchall()
-    ]

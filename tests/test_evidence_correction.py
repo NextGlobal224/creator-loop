@@ -178,3 +178,20 @@ class EvidenceCorrectionTests(unittest.TestCase):
         self.assertEqual(
             self.db.execute("SELECT count(*) FROM review_events").fetchone()[0], 0
         )
+
+    def test_existing_caller_transaction_is_not_rolled_back(self) -> None:
+        self.db.execute(
+            "INSERT INTO claims(claim_id,claim_type,created_at) VALUES(?,?,?)",
+            ("caller-claim", "INTERPRETIVE", "2026-10-02T00:00:00Z"),
+        )
+        self.assertTrue(self.db.in_transaction)
+        with self.assertRaisesRegex(ValueError, "clean transaction"):
+            self._correct()
+        self.assertTrue(self.db.in_transaction)
+        self.assertEqual(
+            self.db.execute(
+                "SELECT count(*) FROM claims WHERE claim_id='caller-claim'"
+            ).fetchone()[0],
+            1,
+        )
+        self.db.rollback()

@@ -31,6 +31,8 @@ Select an original and choose **Nguồn của Asset** to inspect its linked Sour
 
 For a PNG/JPEG original, choose **Tạo Evidence Image**. Set normalized X/Y/width/height coordinates, inspect the cropped preview and enter the observation. Select its Evidence row and choose **Mở Evidence Image** to verify the recorded original digest and reopen that region. Image decoding uses the bundled Qt runtime; images above 40 MiB or 80 million pixels are outside the current local decode budget.
 
+The IMAGE_REGION correction service can append a human version on the same verified original or thumbnail anchor and record a CORRECT review event. It leaves older versions and Claim links intact for review. The correction UI is pending.
+
 For an MP4 original with a decodable video track, choose **Tạo Evidence Video**. Set the start/end in milliseconds, play that segment and enter the observation. **Mở Evidence Video** verifies the same original and replays the saved range. For an MP4 with a decodable audio track, choose **Tạo Evidence Audio**, listen to the range, choose speech or other sound, and enter the human observation. **Mở Evidence Audio** verifies the recorded original and replays its saved range. The audio UI passed the required checks in PR #22; transcription is still missing.
 
 Select an IMAGE original and choose **Tạo thumbnail Image** to generate a PNG derivative with its own processing run. The task table shows each run's status and derived file path; a failed run stays visible without changing the original. Other media processing tasks and cancellation are later Gate 2 work.
