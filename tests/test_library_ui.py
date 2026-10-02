@@ -15,6 +15,8 @@ if os.name == "nt":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from creator_loop.library_ui import LibraryWindow
+        from creator_loop.text_evidence_ui import TextEvidenceDialog
+        from creator_loop.text_intake import intake_text_original
         from PySide6.QtWidgets import QApplication, QFileDialog
     except ImportError:
         QApplication = None
@@ -24,6 +26,13 @@ else:
 
 @unittest.skipUnless(QApplication is not None, "requires Windows and PySide6")
 class LibraryUiTests(unittest.TestCase):
+    def _wait_for_worker(self, app: QApplication, window: LibraryWindow) -> None:
+        deadline = time.monotonic() + 10
+        while window._worker is not None and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        self.assertIsNone(window._worker)
+
     def test_three_original_types_appear_after_worker_import(self) -> None:
         assert QApplication is not None
         app = QApplication.instance() or QApplication([])
@@ -52,11 +61,7 @@ class LibraryUiTests(unittest.TestCase):
             self.assertIsNotNone(window._worker)
             self.assertTrue(all(not button.isEnabled() for button in window._buttons))
 
-            deadline = time.monotonic() + 10
-            while window._worker is not None and time.monotonic() < deadline:
-                app.processEvents()
-                time.sleep(0.01)
-            self.assertIsNone(window._worker)
+            self._wait_for_worker(app, window)
             self.assertEqual(window.table.rowCount(), index)
             self.assertTrue(all(button.isEnabled() for button in window._buttons))
 
@@ -65,3 +70,46 @@ class LibraryUiTests(unittest.TestCase):
             for row in range(window.table.rowCount())
         }
         self.assertEqual(shown, {(kind, name) for kind, name, _ in samples})
+
+    def test_create_and_reopen_text_evidence_from_ui(self) -> None:
+        assert QApplication is not None
+        app = QApplication.instance() or QApplication([])
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name) / "dữ liệu Evidence"
+        root.mkdir()
+        initialize(root / "creator_loop.sqlite3")
+        source = Path(self.temp.name) / "Bản gốc.txt"
+        source.write_text("Cafe\u0301 ở Huế", encoding="utf-8")
+        intake_text_original(source, root=root)
+        window = LibraryWindow(root)
+        self.addCleanup(window.close)
+        window.show()
+        window.table.selectRow(0)
+
+        def accept_cafe(dialog: TextEvidenceDialog) -> object:
+            dialog.start.setValue(0)
+            dialog.end.setValue(4)
+            return TextEvidenceDialog.DialogCode.Accepted
+
+        with patch.object(TextEvidenceDialog, "exec", accept_cafe):
+            window.choose_text_evidence()
+            self._wait_for_worker(app, window)
+
+        self.assertEqual(window.evidence_table.rowCount(), 1)
+        self.assertEqual(window.evidence_table.item(0, 1).text(), "Café")
+        window.evidence_table.selectRow(0)
+        with patch("creator_loop.library_ui.QMessageBox.information") as shown:
+            window.reopen_selected_text_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(shown.call_args.args[2], "Café")
+
+    def test_text_range_dialog_uses_unicode_code_points(self) -> None:
+        assert QApplication is not None
+        app = QApplication.instance() or QApplication([])
+        dialog = TextEvidenceDialog("😀Café")
+        self.addCleanup(dialog.close)
+        dialog.start.setValue(1)
+        dialog.end.setValue(5)
+        app.processEvents()
+        self.assertEqual(dialog.preview.text(), "Café")

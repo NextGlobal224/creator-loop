@@ -14,18 +14,10 @@ from creator_loop.evidence import Evidence, EvidenceRepository, EvidenceVersion
 from creator_loop.evidence_reopen import EvidenceReopenError, _anchor_path
 
 
-def create_text_evidence(
-    db: sqlite3.Connection,
-    *,
-    file_id: str,
-    data_root: Path,
-    start: int,
-    end: int,
-    actor: str,
-) -> EvidenceVersion:
-    """Record one NFC code-point range after checking the stored file digest."""
-    if not actor.strip():
-        raise ValueError("Evidence actor is required")
+def read_verified_text_snapshot(
+    db: sqlite3.Connection, file_id: str, data_root: Path
+) -> tuple[str, str]:
+    """Return Asset ID and NFC text only when the recorded original matches."""
     row = db.execute(
         """SELECT f.asset_id, a.media_type, f.role, f.storage_key, f.sha256,
                   f.byte_size, f.mime_type
@@ -53,6 +45,22 @@ def create_text_evidence(
         snapshot = unicodedata.normalize("NFC", raw.decode("utf-8-sig"))
     except UnicodeDecodeError as exc:
         raise EvidenceReopenError("text_decode_error") from exc
+    return asset_id, snapshot
+
+
+def create_text_evidence(
+    db: sqlite3.Connection,
+    *,
+    file_id: str,
+    data_root: Path,
+    start: int,
+    end: int,
+    actor: str,
+) -> EvidenceVersion:
+    """Record one NFC code-point range after checking the stored file digest."""
+    if not actor.strip():
+        raise ValueError("Evidence actor is required")
+    asset_id, snapshot = read_verified_text_snapshot(db, file_id, data_root)
     if (
         type(start) is not int
         or type(end) is not int
