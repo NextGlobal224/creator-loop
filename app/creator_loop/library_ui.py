@@ -50,6 +50,7 @@ from creator_loop.image_evidence_correction import correct_image_evidence
 from creator_loop.image_evidence_ui import ImageEvidenceDialog, ImageRegionView
 from creator_loop.image_thumbnail import create_image_thumbnail
 from creator_loop.media_intake import intake_image_original, intake_video_original
+from creator_loop.project_ui import ProjectDialog
 from creator_loop.source_association import (
     SourceDetails,
     create_source_for_asset,
@@ -570,6 +571,10 @@ class LibraryWindow(QMainWindow):
         thumbnail.clicked.connect(self.choose_image_thumbnail)
         self._buttons.append(thumbnail)
         actions.addWidget(thumbnail)
+        projects = QPushButton("Projects")
+        projects.clicked.connect(self.choose_project)
+        self._buttons.append(projects)
+        actions.addWidget(projects)
         layout.addLayout(actions)
 
         self.table = QTableWidget(0, 4)
@@ -786,6 +791,11 @@ class LibraryWindow(QMainWindow):
             TextEvidenceWorker("load", str(file_id), self.root),
             "Đang xác minh snapshot TEXT…",
         )
+
+    def choose_project(self) -> None:
+        if self._worker is not None:
+            return
+        ProjectDialog(self.root).exec()
 
     def choose_source(self) -> None:
         if self._worker is not None:

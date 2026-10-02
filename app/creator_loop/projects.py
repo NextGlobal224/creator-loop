@@ -38,6 +38,12 @@ class ProjectReference:
     usage_intent: UsageIntent
 
 
+@dataclass(frozen=True)
+class ReferenceTarget:
+    target_id: str
+    label: str
+
+
 def _timestamp() -> str:
     return (
         datetime.now(timezone.utc)
@@ -194,3 +200,74 @@ def list_project_references(
         (project_id,),
     ).fetchall()
     return [ProjectReference(*row) for row in rows]
+
+
+def list_reference_targets(
+    db: sqlite3.Connection, target_type: str
+) -> list[ReferenceTarget]:
+    """Offer live selectable targets with their exact IDs and version labels."""
+    if target_type == "asset_id":
+        rows = db.execute(
+            """SELECT asset_id,display_name,media_type FROM assets
+               WHERE deleted_at IS NULL ORDER BY created_at,rowid"""
+        ).fetchall()
+        return [
+            ReferenceTarget(identity, f"{name} — {kind} — {identity}")
+            for identity, name, kind in rows
+        ]
+    if target_type == "claim_version_id":
+        rows = db.execute(
+            """SELECT v.claim_version_id,v.statement,v.version_no,c.claim_type
+               FROM claim_versions v JOIN claims c ON c.claim_id=v.claim_id
+               JOIN claim_version_seals s ON s.claim_version_id=v.claim_version_id
+               WHERE c.deleted_at IS NULL ORDER BY v.created_at,v.rowid"""
+        ).fetchall()
+        return [
+            ReferenceTarget(identity, f"v{number} — {statement} — {kind} — {identity}")
+            for identity, statement, number, kind in rows
+        ]
+    if target_type == "source_id":
+        rows = db.execute(
+            """SELECT source_id,platform,canonical_url,external_id,rights_status
+               FROM sources ORDER BY created_at,rowid"""
+        ).fetchall()
+        return [
+            ReferenceTarget(
+                identity,
+                f"{platform} — {url or external or 'chưa biết URL/ID'} — {rights} — {identity}",
+            )
+            for identity, platform, url, external, rights in rows
+        ]
+    raise ValueError("Invalid Project reference target type")
+
+
+def reference_target_label(db: sqlite3.Connection, reference: ProjectReference) -> str:
+    """Describe a historical target without hiding its version or availability."""
+    if reference.asset_id is not None:
+        row = db.execute(
+            "SELECT display_name,media_type,deleted_at FROM assets WHERE asset_id=?",
+            (reference.asset_id,),
+        ).fetchone()
+        if row is None:
+            return f"Asset không còn bản ghi — {reference.asset_id}"
+        suffix = " — đã xóa mềm" if row[2] is not None else ""
+        return f"{row[0]} — {row[1]} — {reference.asset_id}{suffix}"
+    if reference.claim_version_id is not None:
+        row = db.execute(
+            """SELECT v.statement,v.version_no,c.deleted_at
+               FROM claim_versions v JOIN claims c ON c.claim_id=v.claim_id
+               WHERE v.claim_version_id=?""",
+            (reference.claim_version_id,),
+        ).fetchone()
+        if row is None:
+            return f"Claim Version không còn bản ghi — {reference.claim_version_id}"
+        suffix = " — đã xóa mềm" if row[2] is not None else ""
+        return f"v{row[1]} — {row[0]} — {reference.claim_version_id}{suffix}"
+    row = db.execute(
+        """SELECT platform,canonical_url,external_id,rights_status FROM sources
+           WHERE source_id=?""",
+        (reference.source_id,),
+    ).fetchone()
+    if row is None:
+        return f"Source không còn bản ghi — {reference.source_id}"
+    return f"{row[0]} — {row[1] or row[2] or 'chưa biết URL/ID'} — {row[3]} — {reference.source_id}"
