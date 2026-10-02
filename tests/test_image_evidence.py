@@ -17,6 +17,7 @@ if os.name == "nt":
             create_image_evidence,
             reopen_image_region,
         )
+        from creator_loop.image_thumbnail import create_image_thumbnail
         from creator_loop.media_intake import intake_image_original
         from PySide6.QtGui import QColor, QImage
     except ImportError:
@@ -100,3 +101,71 @@ class ImageEvidenceTests(unittest.TestCase):
         with self.assertRaises(EvidenceReopenError) as failure:
             reopen_image_region(self.db, version.evidence_version_id, self.root)
         self.assertEqual(failure.exception.reason, "digest_mismatch")
+
+    def test_region_can_anchor_verified_thumbnail_without_original_fallback(
+        self,
+    ) -> None:
+        thumbnail = create_image_thumbnail(
+            self.imported.file_id, data_root=self.root, max_edge=2
+        )
+        version = create_image_evidence(
+            self.db,
+            file_id=thumbnail.file_id,
+            data_root=self.root,
+            region={"x": 0.5, "y": 0.5, "width": 0.5, "height": 0.5},
+            content="Vùng xanh trên thumbnail",
+            actor="creator",
+        )
+        self.assertEqual(version.anchor_file_id, thumbnail.file_id)
+        self.assertEqual(version.asset_id, self.imported.asset_id)
+        raw = bytearray(self.stored.read_bytes())
+        raw[-1] ^= 1
+        self.stored.write_bytes(raw)
+        content, crop = reopen_image_region(
+            self.db, version.evidence_version_id, self.root
+        )
+        self.assertEqual(content, "Vùng xanh trên thumbnail")
+        self.assertEqual((crop.width(), crop.height()), (1, 1))
+        self.assertEqual(crop.pixelColor(0, 0), QColor("blue"))
+
+    def test_changed_thumbnail_is_rejected_without_opening_original(self) -> None:
+        thumbnail = create_image_thumbnail(
+            self.imported.file_id, data_root=self.root, max_edge=2
+        )
+        version = create_image_evidence(
+            self.db,
+            file_id=thumbnail.file_id,
+            data_root=self.root,
+            region={"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+            content="Thumbnail",
+            actor="creator",
+        )
+        derived = self.root.joinpath(*thumbnail.storage_key.split("/"))
+        raw = bytearray(derived.read_bytes())
+        raw[-1] ^= 1
+        derived.write_bytes(raw)
+        with self.assertRaises(EvidenceReopenError) as failure:
+            reopen_image_region(self.db, version.evidence_version_id, self.root)
+        self.assertEqual(failure.exception.reason, "digest_mismatch")
+
+    def test_thumbnail_from_non_successful_run_cannot_anchor_evidence(self) -> None:
+        thumbnail = create_image_thumbnail(
+            self.imported.file_id, data_root=self.root, max_edge=2
+        )
+        self.db.execute(
+            "UPDATE processing_runs SET status='FAILED',error_code='INVALID' WHERE run_id=?",
+            (thumbnail.run_id,),
+        )
+        self.db.commit()
+        with self.assertRaisesRegex(ValueError, "lineage is invalid"):
+            create_image_evidence(
+                self.db,
+                file_id=thumbnail.file_id,
+                data_root=self.root,
+                region={"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+                content="Không hợp lệ",
+                actor="creator",
+            )
+        self.assertEqual(
+            self.db.execute("SELECT count(*) FROM evidences").fetchone()[0], 0
+        )

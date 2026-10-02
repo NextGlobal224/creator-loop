@@ -1,4 +1,4 @@
-"""Create and reopen human image observations from verified original pixels."""
+"""Create and reopen human image observations from verified anchor pixels."""
 
 from __future__ import annotations
 
@@ -31,24 +31,48 @@ def read_verified_image(
 ) -> tuple[str, QImage]:
     row = db.execute(
         """SELECT f.asset_id,a.media_type,f.role,f.storage_key,f.sha256,
-                  f.byte_size,f.mime_type
+                  f.byte_size,f.mime_type,f.parent_file_id,f.processing_run_id,
+                  p.asset_id,p.role,r.asset_id,r.input_file_id,r.task_type,r.status
            FROM asset_files f JOIN assets a ON a.asset_id=f.asset_id
+           LEFT JOIN asset_files p ON p.file_id=f.parent_file_id
+           LEFT JOIN processing_runs r ON r.run_id=f.processing_run_id
            WHERE f.file_id=?""",
         (file_id,),
     ).fetchone()
     if row is None:
-        raise ValueError("Image original does not exist")
-    asset_id, media_type, role, key, digest, size, mime = row
-    if (
-        media_type != "IMAGE"
-        or role != "ORIGINAL"
-        or mime
-        not in (
-            "image/png",
-            "image/jpeg",
-        )
+        raise ValueError("Image anchor does not exist")
+    (
+        asset_id,
+        media_type,
+        role,
+        key,
+        digest,
+        size,
+        mime,
+        parent_id,
+        run_id,
+        parent_asset_id,
+        parent_role,
+        run_asset_id,
+        run_input_id,
+        task_type,
+        run_status,
+    ) = row
+    original = role == "ORIGINAL" and mime in ("image/png", "image/jpeg")
+    thumbnail = role == "THUMBNAIL" and mime == "image/png"
+    if media_type != "IMAGE" or not (original or thumbnail):
+        raise ValueError("Evidence requires an image original or thumbnail")
+    if thumbnail and (
+        parent_id is None
+        or run_id is None
+        or parent_asset_id != asset_id
+        or parent_role != "ORIGINAL"
+        or run_asset_id != asset_id
+        or run_input_id != parent_id
+        or task_type != "IMAGE_THUMBNAIL"
+        or run_status != "SUCCEEDED"
     ):
-        raise ValueError("Evidence requires an image original")
+        raise ValueError("Image thumbnail lineage is invalid")
     if not isinstance(size, int) or size < 1 or size > MAX_IMAGE_BYTES:
         raise ValueError("Image exceeds local decode budget")
     path = _anchor_path(Path(data_root), role, key)

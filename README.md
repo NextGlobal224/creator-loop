@@ -31,9 +31,11 @@ Select an original and choose **Nguồn của Asset** to inspect its linked Sour
 
 For a PNG/JPEG original, choose **Tạo Evidence Image**. Set normalized X/Y/width/height coordinates, inspect the cropped preview and enter the observation. Select its Evidence row and choose **Mở Evidence Image** to verify the recorded original digest and reopen that region. Image decoding uses the bundled Qt runtime; images above 40 MiB or 80 million pixels are outside the current local decode budget.
 
-For an MP4 original with a decodable video track, choose **Tạo Evidence Video**. Set the start/end in milliseconds, play that segment and enter the observation. **Mở Evidence Video** verifies the same original and replays the saved range. For an MP4 with a decodable audio track, choose **Tạo Evidence Audio**, listen to the range, choose speech or other sound, and enter the human observation. **Mở Evidence Audio** verifies the recorded original and replays its saved range. This UI slice is under CI review; transcription is still missing.
+For an MP4 original with a decodable video track, choose **Tạo Evidence Video**. Set the start/end in milliseconds, play that segment and enter the observation. **Mở Evidence Video** verifies the same original and replays the saved range. For an MP4 with a decodable audio track, choose **Tạo Evidence Audio**, listen to the range, choose speech or other sound, and enter the human observation. **Mở Evidence Audio** verifies the recorded original and replays its saved range. The audio UI passed the required checks in PR #22; transcription is still missing.
 
 Select an IMAGE original and choose **Tạo thumbnail Image** to generate a PNG derivative with its own processing run. The task table shows each run's status and derived file path; a failed run stays visible without changing the original. Other media processing tasks and cancellation are later Gate 2 work.
+
+The image Evidence service on the current branch can anchor an `IMAGE_REGION` to a thumbnail file ID when its parent and successful processing run have valid lineage. Reopening verifies the thumbnail's own digest, even if the original later becomes unavailable. Selecting a derived file for Evidence in the UI is still missing.
 
 ## CI and release
 
