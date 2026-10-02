@@ -45,6 +45,8 @@ Select an Evidence Version and use its **Mở Evidence** button to compare the s
 
 The Claim service creates Claim Versions with exact SUPPORTS, CONTRADICTS and CONTEXT links to Evidence Versions. A sealed version preserves its statement and citations; corrections append a later version. Its support projection counts current ACCEPT links and stale links after Evidence correction; it does not approve publication. Claim UI and the editorial support threshold are still open.
 
+The Project service creates, lists and archives workspaces, and records references to exactly one Asset, Source or sealed Claim Version with RESEARCH, QUOTE or REUSE_MEDIA intent. References keep the selected Claim Version and remain readable after archiving. REUSE_MEDIA does not grant publication rights. Project UI is the next milestone.
+
 ## CI and release
 
 The `fast-schema-domain`, `security-dependencies-workflow`, and `windows-artifact` jobs are the intended required PR checks. Repository branch protection or a ruleset must enforce them; workflow YAML alone cannot enforce merging rules. On 2026-10-01, `main` branch protection required all three checks with `strict=true`, as verified through the GitHub API. A tag `v*` reachable from `main` runs the Windows build, extracts and smokes the exact ZIP, then publishes those tested bytes. [PR #5](https://github.com/NextGlobal224/creator-loop/pull/5) ran all three PR jobs successfully on head `99ff244`, including `windows-artifact` on the configured `windows-2022` runner ([CI run](https://github.com/NextGlobal224/creator-loop/actions/runs/36884109471)). The tag release gate remains unverified.
