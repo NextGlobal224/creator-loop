@@ -125,6 +125,69 @@ class LibraryUiTests(unittest.TestCase):
         app.processEvents()
         self.assertEqual(dialog.preview.text(), "Café")
 
+    def test_correct_text_evidence_from_ui_preserves_both_versions(self) -> None:
+        assert QApplication is not None
+        app = QApplication.instance() or QApplication([])
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name) / "dữ liệu sửa Evidence"
+        root.mkdir()
+        db_path = root / "creator_loop.sqlite3"
+        initialize(db_path)
+        source = Path(self.temp.name) / "Bản gốc.txt"
+        source.write_text("Café ở Huế", encoding="utf-8")
+        intake_text_original(source, root=root)
+        window = LibraryWindow(root)
+        self.addCleanup(window.close)
+        window.show()
+        window.table.selectRow(0)
+
+        def create(dialog: TextEvidenceDialog) -> object:
+            dialog.start.setValue(0)
+            dialog.end.setValue(4)
+            return TextEvidenceDialog.DialogCode.Accepted
+
+        with patch.object(TextEvidenceDialog, "exec", create):
+            window.choose_text_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(window.evidence_table.rowCount(), 1)
+        old_id = window.evidence_table.item(0, 0).data(Qt.ItemDataRole.UserRole)
+        window.evidence_table.selectRow(0)
+
+        def correct(dialog: TextEvidenceDialog) -> object:
+            self.assertTrue(dialog.correction)
+            self.assertEqual((dialog.start.value(), dialog.end.value()), (0, 4))
+            self.assertFalse(
+                dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+            )
+            dialog.start.setValue(7)
+            dialog.end.setValue(10)
+            dialog.reason.setText("Chọn đúng địa danh")
+            self.assertTrue(
+                dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+            )
+            return TextEvidenceDialog.DialogCode.Accepted
+
+        with patch.object(TextEvidenceDialog, "exec", correct):
+            window.correct_selected_text_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(window.evidence_table.rowCount(), 2)
+        self.assertIn("0 Claim Version cần xem lại", window.status.text())
+        shown: dict[int, str] = {}
+        for row in range(2):
+            version = int(window.evidence_table.item(row, 2).text())
+            window.evidence_table.selectRow(row)
+            with patch("creator_loop.library_ui.QMessageBox.information") as popup:
+                window.reopen_selected_text_evidence()
+                self._wait_for_worker(app, window)
+            shown[version] = popup.call_args.args[2]
+        self.assertEqual(shown, {1: "Café", 2: "Huế"})
+        with closing(sqlite3.connect(db_path)) as db:
+            event = db.execute(
+                "SELECT evidence_version_id,action,actor_id,reason FROM review_events"
+            ).fetchone()
+        self.assertEqual(event, (old_id, "CORRECT", "creator", "Chọn đúng địa danh"))
+
     def test_source_is_attached_and_reused_across_assets(self) -> None:
         assert QApplication is not None
         app = QApplication.instance() or QApplication([])

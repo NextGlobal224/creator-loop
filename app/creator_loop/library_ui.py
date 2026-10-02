@@ -22,6 +22,10 @@ from PySide6.QtWidgets import (
 )
 
 from creator_loop.database import _connect_write, open_readonly
+from creator_loop.evidence_correction import (
+    claim_versions_needing_review,
+    correct_text_evidence,
+)
 from creator_loop.evidence_reopen import reopen_evidence_version
 from creator_loop.image_evidence import (
     create_image_evidence,
@@ -86,6 +90,7 @@ class TextEvidenceWorker(QThread):
         start: int = 0,
         end: int = 0,
         actor: str = "",
+        reason: str = "",
     ) -> None:
         super().__init__()
         self.action = action
@@ -94,6 +99,7 @@ class TextEvidenceWorker(QThread):
         self.range_start = start
         self.range_end = end
         self.actor = actor
+        self.reason = reason
 
     def run(self) -> None:
         db_path = self.root / "creator_loop.sqlite3"
@@ -115,6 +121,40 @@ class TextEvidenceWorker(QThread):
                         db, self.identifier, self.root
                     )
                 self.result.emit(snapshot)
+            elif self.action == "load-correction":
+                with closing(open_readonly(db_path)) as db:
+                    reopened = reopen_evidence_version(db, self.identifier, self.root)
+                    if reopened.locator_type != "TEXT_RANGE":
+                        raise ValueError("Selected Evidence is not a text range")
+                    _asset_id, snapshot = read_verified_text_snapshot(
+                        db, reopened.anchor_file_id, self.root
+                    )
+                    start = reopened.locator["start"]
+                    end = reopened.locator["end"]
+                    if type(start) is not int or type(end) is not int:
+                        raise ValueError("Selected Evidence has an invalid text range")
+                self.result.emit(
+                    (
+                        snapshot,
+                        start,
+                        end,
+                    )
+                )
+            elif self.action == "correct":
+                with closing(_connect_write(db_path)) as db:
+                    corrected = correct_text_evidence(
+                        db,
+                        evidence_version_id=self.identifier,
+                        data_root=self.root,
+                        start=self.range_start,
+                        end=self.range_end,
+                        actor=self.actor,
+                        reason=self.reason,
+                    )
+                    stale_claims = claim_versions_needing_review(
+                        db, corrected.evidence_id
+                    )
+                self.result.emit((corrected.new_version_id, len(stale_claims)))
             elif self.action == "reopen":
                 with closing(open_readonly(db_path)) as db:
                     reopened = reopen_evidence_version(db, self.identifier, self.root)
@@ -357,6 +397,10 @@ class LibraryWindow(QMainWindow):
         reopen_evidence.clicked.connect(self.reopen_selected_text_evidence)
         self._buttons.append(reopen_evidence)
         evidence_actions.addWidget(reopen_evidence)
+        correct_evidence = QPushButton("Sửa Evidence Text")
+        correct_evidence.clicked.connect(self.correct_selected_text_evidence)
+        self._buttons.append(correct_evidence)
+        evidence_actions.addWidget(correct_evidence)
         reopen_image = QPushButton("Mở Evidence Image")
         reopen_image.clicked.connect(self.reopen_selected_image_evidence)
         self._buttons.append(reopen_image)
@@ -621,6 +665,23 @@ class LibraryWindow(QMainWindow):
             "Đang xác minh Evidence…",
         )
 
+    def correct_selected_text_evidence(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.evidence_table.currentRow()
+        if (
+            row < 0
+            or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            != "TEXT_RANGE"
+        ):
+            QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Text.")
+            return
+        version_id = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        self._start_evidence_worker(
+            TextEvidenceWorker("load-correction", str(version_id), self.root),
+            "Đang xác minh Evidence để sửa…",
+        )
+
     def reopen_selected_image_evidence(self) -> None:
         if self._worker is not None:
             return
@@ -732,6 +793,28 @@ class LibraryWindow(QMainWindow):
         elif action == "create":
             self.reload()
             self.status.setText("Evidence Text đã được tạo.")
+        elif action == "load-correction":
+            snapshot, start, end = cast(tuple[str, int, int], result)
+            dialog = TextEvidenceDialog(snapshot, correction=True, start=start, end=end)
+            if dialog.exec() == TextEvidenceDialog.DialogCode.Accepted:
+                self._start_evidence_worker(
+                    TextEvidenceWorker(
+                        "correct",
+                        identifier,
+                        self.root,
+                        start=dialog.start.value(),
+                        end=dialog.end.value(),
+                        actor=dialog.actor.text(),
+                        reason=dialog.reason.text(),
+                    ),
+                    "Đang ghi Evidence Version mới…",
+                )
+        elif action == "correct":
+            _new_version_id, stale_count = cast(tuple[str, int], result)
+            self.reload()
+            self.status.setText(
+                f"Đã tạo Evidence Version mới; {stale_count} Claim Version cần xem lại."
+            )
         elif action == "reopen":
             QMessageBox.information(self, "Đoạn Evidence", str(result))
 
