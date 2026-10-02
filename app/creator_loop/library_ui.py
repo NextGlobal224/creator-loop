@@ -29,6 +29,7 @@ from creator_loop.audio_evidence import (
     reopen_audio_evidence,
 )
 from creator_loop.audio_evidence_ui import AudioEvidenceDialog, AudioRangeView
+from creator_loop.claim_ui import ClaimDialog
 from creator_loop.database import _connect_write, open_readonly
 from creator_loop.evidence_correction import (
     claim_versions_needing_review,
@@ -583,6 +584,10 @@ class LibraryWindow(QMainWindow):
         projects.clicked.connect(self.choose_project)
         self._buttons.append(projects)
         actions.addWidget(projects)
+        claims = QPushButton("Claims")
+        claims.clicked.connect(self.choose_claim)
+        self._buttons.append(claims)
+        actions.addWidget(claims)
         storage = QPushButton("Kho media")
         storage.clicked.connect(self.choose_storage)
         self._buttons.append(storage)
@@ -938,6 +943,40 @@ class LibraryWindow(QMainWindow):
         if self._worker is not None:
             return
         ProjectDialog(self.root).exec()
+
+    def choose_claim(self) -> None:
+        if self._worker is not None:
+            return
+        dialog = ClaimDialog(self.root)
+        dialog.evidence_requested.connect(self.open_claim_evidence)
+        dialog.exec()
+
+    def open_claim_evidence(self, version_id: str) -> None:
+        if self._worker is not None:
+            return
+        self.reload()
+        for row in range(self.evidence_table.rowCount()):
+            if (
+                self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                != version_id
+            ):
+                continue
+            self.evidence_table.setCurrentCell(row, 0)
+            locator = self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            handlers = {
+                "TEXT_RANGE": self.reopen_selected_text_evidence,
+                "IMAGE_REGION": self.reopen_selected_image_evidence,
+                "TIME_RANGE:video": self.reopen_selected_video_evidence,
+                "TIME_RANGE:audio": self.reopen_selected_audio_evidence,
+                "WHOLE_ASSET": lambda: self.choose_whole_evidence("reopen"),
+            }
+            handler = handlers.get(str(locator))
+            if handler is not None:
+                handler()
+                return
+        QMessageBox.warning(
+            self, "Claim citation", "Evidence Version không còn khả dụng trong Library."
+        )
 
     def choose_source(self) -> None:
         if self._worker is not None:

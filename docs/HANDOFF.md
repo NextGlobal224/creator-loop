@@ -1,8 +1,15 @@
 # Bàn giao hiện tại — Gate 2 Library/Evidence
 
-**Cập nhật:** 02/10/2026 (+07:00). Đây là ảnh chụp trạng thái; khi tiếp tục phải đối chiếu lại Git, source và CI. [Biên bản Gate 1](../Creator_Loop_Gate_1_Status.md) là lịch sử, không phải trạng thái Gate 2 hiện tại.
+**Cập nhật:** 03/10/2026 (+07:00). Đây là ảnh chụp trạng thái; khi tiếp tục phải đối chiếu lại Git, source và CI. [Biên bản Gate 1](../Creator_Loop_Gate_1_Status.md) là lịch sử, không phải trạng thái Gate 2 hiện tại.
 
 ## Trạng thái mới nhất
+
+### Claim UI — 03/10/2026 (+07)
+
+- Branch `gate3-claim-ui`, HEAD/code nền `db8ae479bf37f2e1a35542562d6ebb3c3aff3041`. [PR #45](https://github.com/NextGlobal224/creator-loop/pull/45) MERGED17:07:47 UTC02/10; exact head sửa `a0bfec497b3630f09555f3a2b67653fcc2d2c85a`, [run37038268487](https://github.com/NextGlobal224/creator-loop/actions/runs/37038268487) ba required SUCCESS/release SKIPPED; Windows243 ca/48.924s/OK, build/ZIP smoke đạt. Protection đọc lại strict=true/đúng ba context/không required external review; kiểm full head và từng SUCCESS trước merge. Lịch sử CI FAIL #45 bên dưới giữ nguyên. Kit không đổi/untracked.
+- UI `ClaimDialog` từ Library tạo ba loại Claim, chọn nhiều exact Evidence Versions và relation SUPPORTS/CONTRADICTS/CONTEXT, không nhân đôi cùng cặp. Chọn Version để đọc statement/citations/review history/stale projection; chỉ latest live sealed được sửa/review. CORRECT giữ bản cũ read-only; review bản mới không tự cấp publication. Citation chọn trong Claim chuyển sang đúng locator viewer của Library, kể cả Evidence version cũ sau correction. Write/ACCEPT hash chạy ở QThread với connection riêng; khóa mutation/close khi busy, không kill process. Lỗi write giữ input; lỗi read sau commit không báo thành công/không bật write. README cập nhật cách dùng và hiện trạng codec #44.
+- Focused8 Qt/integration test PASS/1.948s qua runner120s/exit0/timeout=false: `.local-test-logs/20261003-000841-06e2ce34039242f8a3160e242dd098b4/`. Full code UI cuối **251 ca/250 PASS/1 SKIP symlink Windows**,46.709s, runner48.8303973s/300s/exit0/timeout=false: `.local-test-logs/20261003-000930-5e4639118ad844b2b859cec6b60c8a42/{output.log,result.json}`. Ruff lint/format, mypy48 sources, compileall, workflow policy/source smoke PASS. Tests dùng SQLite/bytes/Qt worker thật; mock chỉ điều khiển modal/failure/delay, integration reopen exact old text cho `Café`, không fake digest/read để báo source đúng.
+- Scoped review: snapshot payload sang worker, sealed/latest/live guard vẫn ở service, citations/history/read failure/close guard/exact viewer route đúng; không thấy blocker. Chưa chạy required CI UI; local proof không thay exact PR head/artifact cuối. Bước tiếp theo: required CI UI rồi Draft immutable versions/parent A+B DAG/assertion offsets/citations/NEEDS_SOURCE, Draft review, selection set/Project/history theo yêu cầu13/14. Storage physical volume/disk-crash, engine/model path/version/license, lifecycle/update/final artifact/máy8GB vẫn thiếu. 0/24 nghiệm thu toàn yêu cầu, Gate2/3/product ĐANG LÀM; usage chưa có số đo.
 
 ### Claim review/correction service — 02/10/2026 (+07)
 
