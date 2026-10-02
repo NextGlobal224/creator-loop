@@ -97,10 +97,22 @@ class LibraryUiTests(unittest.TestCase):
         window.show()
 
         self.assertEqual(window.table.rowCount(), 0)
+        from PySide6.QtGui import QImage
+
+        png_path = Path(self.temp.name) / "fixture.png"
+        image = QImage(10, 6, QImage.Format.Format_RGB32)
+        image.fill(0xFFFF00FF)
+        self.assertTrue(image.save(str(png_path)))
         samples = (
             ("TEXT", "Bản ghi Đà Nẵng.txt", "Một đoạn văn".encode("utf-8")),
-            ("VIDEO", "Huế Kha.mp4", b"\x00\x00\x00\x18ftypisom" + b"sample"),
-            ("IMAGE", "Ảnh mẫu.png", b"\x89PNG\r\n\x1a\n" + b"sample"),
+            (
+                "VIDEO",
+                "Huế Kha.mp4",
+                (
+                    Path(__file__).parent / "fixtures" / "video-with-tone.mp4"
+                ).read_bytes(),
+            ),
+            ("IMAGE", "Ảnh mẫu.png", png_path.read_bytes()),
         )
         for index, (kind, name, content) in enumerate(samples, start=1):
             source = Path(self.temp.name) / name

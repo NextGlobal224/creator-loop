@@ -10,9 +10,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from PySide6.QtCore import QCoreApplication, QUrl
+from PySide6.QtCore import QCoreApplication, QIODevice, QUrl
 from PySide6.QtGui import QImage
-from PySide6.QtMultimedia import QMediaPlayer, QVideoFrame, QVideoSink
+from PySide6.QtMultimedia import (
+    QAudioBuffer,
+    QAudioBufferOutput,
+    QMediaPlayer,
+    QVideoFrame,
+    QVideoSink,
+)
 
 from creator_loop.evidence import Evidence, EvidenceRepository, EvidenceVersion
 from creator_loop.evidence_reopen import _anchor_path, reopen_evidence_version
@@ -61,14 +67,44 @@ def decode_video_frame(
     asset_id, _media_type, role, key, _mime = row
     verify_original_file(db, file_id, data_root)
     path = _anchor_path(Path(data_root), role, key)
+    decoded = decode_video_path(
+        path, start_ms=start_ms, timeout_seconds=timeout_seconds
+    )
+    verify_original_file(db, file_id, data_root)
+    return str(asset_id), decoded
+
+
+def decode_video_path(
+    path: Path,
+    *,
+    start_ms: int = 0,
+    timeout_seconds: float = 8.0,
+    device: QIODevice | None = None,
+    require_audio: bool = False,
+) -> DecodedVideoFrame:
+    """Decode a held readable media path without requiring a published DB row."""
+    if type(start_ms) is not int or start_ms < 0:
+        raise ValueError("Video position must be a non-negative millisecond")
+    if QCoreApplication.instance() is None:
+        raise RuntimeError("Qt event loop is required to decode video")
 
     player = QMediaPlayer()
     sink = QVideoSink()
     player.setVideoOutput(sink)
     frames: list[tuple[int, QImage]] = []
+    audio_frames = [0]
+    audio = QAudioBufferOutput(player) if require_audio else None
+    if audio is not None:
+        player.setAudioBufferOutput(audio)
+
+        def capture_audio(buffer: QAudioBuffer) -> None:
+            if buffer.isValid():
+                audio_frames[0] += buffer.frameCount()
+
+        audio.audioBufferReceived.connect(capture_audio)
 
     def capture(frame: QVideoFrame) -> None:
-        if frame.isValid() and frame.startTime() >= 0:
+        if not frames and frame.isValid() and frame.startTime() // 1000 >= start_ms:
             image = frame.toImage()
             if not image.isNull():
                 frames.append((frame.startTime() // 1000, image))
@@ -76,7 +112,10 @@ def decode_video_frame(
     sink.videoFrameChanged.connect(capture)
     deadline = time.monotonic() + timeout_seconds
     try:
-        player.setSource(QUrl.fromLocalFile(str(path)))
+        if device is None:
+            player.setSource(QUrl.fromLocalFile(str(path)))
+        else:
+            player.setSourceDevice(device, QUrl.fromLocalFile(str(path)))
         while time.monotonic() < deadline:
             QCoreApplication.processEvents()
             if player.error() != QMediaPlayer.Error.NoError:
@@ -96,11 +135,10 @@ def decode_video_frame(
             if player.error() != QMediaPlayer.Error.NoError:
                 raise ValueError(f"Video decoder failed: {player.errorString()}")
             for frame_time, image in frames:
-                if frame_time >= start_ms:
-                    verify_original_file(db, file_id, data_root)
-                    return str(asset_id), DecodedVideoFrame(
-                        duration, frame_time, image, path
-                    )
+                if frame_time >= start_ms and (
+                    not require_audio or not player.hasAudio() or audio_frames[0] > 0
+                ):
+                    return DecodedVideoFrame(duration, frame_time, image, path)
             time.sleep(0.01)
         raise TimeoutError("Video decoder did not produce a frame at the locator")
     finally:

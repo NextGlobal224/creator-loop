@@ -553,7 +553,9 @@ class WholeMediaEvidenceTests(unittest.TestCase):
     def test_image_decode_is_required_and_video_tamper_is_rejected(self) -> None:
         fake = Path(self.temp.name) / "Ảnh không giải mã.png"
         fake.write_bytes(b"\x89PNG\r\n\x1a\n" + b"not a decodable image")
-        imported = intake_image_original(fake, root=self.root)
+        # Legacy imported bytes still require decoding when used as Evidence.
+        with patch("creator_loop.media_intake.preflight_image", return_value=None):
+            imported = intake_image_original(fake, root=self.root)
         with self.assertRaisesRegex(ValueError, "cannot be decoded"):
             self._create(imported)
         version = self._create(self.video)

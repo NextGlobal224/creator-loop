@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from creator_loop.database import _connect_write
 from creator_loop.library import Asset, LibraryRepository
+from creator_loop.media_preflight import MediaInfo
 from creator_loop.originals import READ_CHUNK_SIZE
 from creator_loop.paths import data_root
 from creator_loop.storage_paths import new_storage_destination, resolve_storage_path
@@ -62,6 +63,7 @@ def _intake_original(
     source_path: Path,
     *,
     classify: Callable[[BinaryIO], tuple[str, str]],
+    preflight: Callable[[BinaryIO, Path], MediaInfo] | None = None,
     root: Path | None = None,
 ) -> ImportedOriginal:
     """Copy exact bytes, classify the held destination, then register it."""
@@ -101,6 +103,7 @@ def _intake_original(
         media_type, mime_type = classify(owned.stream)
         if media_type not in ("VIDEO", "IMAGE", "TEXT") or not mime_type:
             raise ValueError("Invalid original media classification")
+        info = preflight(owned.stream, destination) if preflight is not None else None
         timestamp = (
             datetime.now(timezone.utc)
             .isoformat(timespec="milliseconds")
@@ -135,6 +138,11 @@ def _intake_original(
                 "FROM asset_files WHERE file_id=?",
                 (file_id,),
             ).fetchone()
+            if info is not None:
+                db.execute(
+                    "UPDATE asset_files SET width_px=?,height_px=?,duration_ms=? WHERE file_id=?",
+                    (info.width_px, info.height_px, info.duration_ms, file_id),
+                )
             if recorded != ("ORIGINAL", storage_key, size, digest):
                 raise RuntimeError(
                     "Pending original registration does not match stored bytes"

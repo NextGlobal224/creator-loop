@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 if os.name == "nt":
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from creator_loop.database import initialize, open_readonly
     from creator_loop.image_thumbnail import create_image_thumbnail
     from creator_loop.media_intake import intake_image_original, intake_video_original
@@ -23,11 +24,13 @@ if os.name == "nt":
     )
     from creator_loop.text_intake import intake_text_original
     from PySide6.QtGui import QColor, QImage
+    from PySide6.QtWidgets import QApplication
 
 
 @unittest.skipUnless(os.name == "nt", "Requires Windows owned files and Qt")
 class DefaultIntakeTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.app = QApplication.instance() or QApplication([])
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)

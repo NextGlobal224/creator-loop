@@ -91,6 +91,12 @@ class AudioEvidenceTests(unittest.TestCase):
         )
 
     def test_audio_metadata_and_evidence_respect_caller_transaction(self) -> None:
+        # Retain rollback coverage for legacy metadata that is still unknown.
+        self.db.execute(
+            "UPDATE asset_files SET duration_ms=NULL WHERE file_id=?",
+            (self.imported.file_id,),
+        )
+        self.db.commit()
         self.db.execute(
             """CREATE TEMP TRIGGER reject_audio_version
                BEFORE INSERT ON evidence_versions

@@ -81,6 +81,12 @@ class VideoEvidenceTests(unittest.TestCase):
         )
 
     def test_media_metadata_and_evidence_respect_caller_transaction(self) -> None:
+        # A legacy imported file has unknown dimensions before Evidence decoding.
+        self.db.execute(
+            "UPDATE asset_files SET duration_ms=NULL,width_px=NULL,height_px=NULL WHERE file_id=?",
+            (self.imported.file_id,),
+        )
+        self.db.commit()
         self.db.execute(
             """CREATE TEMP TRIGGER reject_video_version
                BEFORE INSERT ON evidence_versions

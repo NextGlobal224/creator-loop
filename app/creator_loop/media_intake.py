@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import BinaryIO
 
+from creator_loop.media_preflight import preflight_image, preflight_video
 from creator_loop.text_intake import ImportedOriginal, _intake_original
 
 
@@ -34,11 +35,15 @@ def intake_video_original(
     source_path: Path, *, root: Path | None = None
 ) -> ImportedOriginal:
     """Register a physical MP4 original after signature and byte verification."""
-    return _intake_original(source_path, classify=_video_type, root=root)
+    return _intake_original(
+        source_path, classify=_video_type, preflight=preflight_video, root=root
+    )
 
 
 def intake_image_original(
     source_path: Path, *, root: Path | None = None
 ) -> ImportedOriginal:
     """Register a physical PNG or JPEG original after signature verification."""
-    return _intake_original(source_path, classify=_image_type, root=root)
+    return _intake_original(
+        source_path, classify=_image_type, preflight=preflight_image, root=root
+    )

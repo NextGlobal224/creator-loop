@@ -21,7 +21,9 @@ class _NonWindowsOwnedFile:
         self.delete_on_close = False
 
     @classmethod
-    def create_new(cls, path: Path) -> _NonWindowsOwnedFile:
+    def create_new(
+        cls, path: Path, *, share_read: bool = False
+    ) -> _NonWindowsOwnedFile:
         return cls(path)
 
     def discard(self) -> None:
@@ -35,6 +37,11 @@ class _NonWindowsOwnedFile:
 
 class MediaOriginalIntakeTests(unittest.TestCase):
     def setUp(self) -> None:
+        if os.name == "nt":
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+            from PySide6.QtWidgets import QApplication
+
+            self.app = QApplication.instance() or QApplication([])
         if os.name != "nt":
             owned_patch = patch(
                 "creator_loop.text_intake.OwnedWindowsFile", _NonWindowsOwnedFile
@@ -90,24 +97,37 @@ class MediaOriginalIntakeTests(unittest.TestCase):
             )
             self.assertIsNone(verify_original_file(db, result.file_id, self.root))
 
+    @unittest.skipUnless(
+        os.name == "nt", "Actual Qt codec preflight requires Windows runtime"
+    )
     def test_mp4_original_preserves_bytes_and_metadata(self) -> None:
         self._check_import(
             self.base / "nguồn" / "Huế Kha.mp4",
-            b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00" + b"sample video bytes",
+            (Path(__file__).parent / "fixtures" / "video-with-tone.mp4").read_bytes(),
             "VIDEO",
             "video/mp4",
         )
 
+    @unittest.skipUnless(
+        os.name == "nt", "Actual Qt codec preflight requires Windows runtime"
+    )
     def test_png_and_jpeg_originals_use_stored_signature(self) -> None:
+        from PySide6.QtGui import QImage
+
+        image = QImage(10, 6, QImage.Format.Format_RGB32)
+        image.fill(0xFFFF00FF)
+        png, jpeg = self.base / "sample.png", self.base / "sample.jpeg"
+        self.assertTrue(image.save(str(png)))
+        self.assertTrue(image.save(str(jpeg)))
         self._check_import(
             self.base / "nguồn" / "Ảnh ghi nhầm đuôi.jpg",
-            b"\x89PNG\r\n\x1a\n" + b"sample png bytes",
+            png.read_bytes(),
             "IMAGE",
             "image/png",
         )
         self._check_import(
             self.base / "nguồn" / "Ảnh khác.jpeg",
-            b"\xff\xd8\xff\xe0" + b"sample jpeg bytes",
+            jpeg.read_bytes(),
             "IMAGE",
             "image/jpeg",
         )
@@ -127,3 +147,54 @@ class MediaOriginalIntakeTests(unittest.TestCase):
             )
         self.assertEqual(list((self.root / "storage" / "originals").iterdir()), [])
         self.assertEqual(source.read_bytes(), b"\x89PNG\r\n\x1a\n" + b"image bytes")
+
+    @unittest.skipUnless(
+        os.name == "nt", "Actual Qt codec preflight requires Windows runtime"
+    )
+    def test_signature_only_media_is_rejected_without_registration(self) -> None:
+        for name, raw, intake in (
+            ("broken.png", b"\x89PNG\r\n\x1a\ninvalid", intake_image_original),
+            (
+                "broken.mp4",
+                b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00invalid",
+                intake_video_original,
+            ),
+        ):
+            source = self.base / name
+            source.write_bytes(raw)
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                intake(source, root=self.root)
+            self.assertEqual(source.read_bytes(), raw)
+        with closing(sqlite3.connect(self.db_path)) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM assets").fetchone()[0], 0)
+        self.assertEqual(list((self.root / "storage" / "originals").iterdir()), [])
+
+    @unittest.skipUnless(
+        os.name == "nt", "Actual Qt codec preflight requires Windows runtime"
+    )
+    def test_decoder_reads_owned_descriptor_while_external_write_is_denied(
+        self,
+    ) -> None:
+        from creator_loop.media_preflight import preflight_video
+
+        fixture = Path(__file__).parent / "fixtures" / "video-with-tone.mp4"
+        denials = []
+
+        def checked(stream, path):
+            with self.assertRaises(OSError):
+                with path.open("wb"):
+                    pass
+            denials.append(True)
+            return preflight_video(stream, path)
+
+        with patch("creator_loop.media_intake.preflight_video", side_effect=checked):
+            imported = intake_video_original(fixture, root=self.root)
+        self.assertEqual(denials, [True])
+        with closing(sqlite3.connect(self.db_path)) as db:
+            width, height, duration = db.execute(
+                "SELECT width_px,height_px,duration_ms FROM asset_files WHERE file_id=?",
+                (imported.file_id,),
+            ).fetchone()
+            self.assertEqual((width, height), (64, 48))
+            self.assertGreater(duration, 700)
+            verify_original_file(db, imported.file_id, self.root)
