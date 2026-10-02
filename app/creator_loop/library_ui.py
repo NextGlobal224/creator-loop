@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QCloseEvent, QImage
 from PySide6.QtWidgets import (
     QFileDialog,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -58,6 +59,7 @@ from creator_loop.source_ui import SourceDialog
 from creator_loop.text_evidence import create_text_evidence, read_verified_text_snapshot
 from creator_loop.text_evidence_ui import TextEvidenceDialog
 from creator_loop.text_intake import intake_text_original
+from creator_loop.time_evidence_correction import correct_time_evidence
 from creator_loop.video_evidence import (
     DecodedVideoFrame,
     create_video_evidence,
@@ -306,6 +308,7 @@ class VideoEvidenceWorker(QThread):
         end_ms: int = 0,
         content: str = "",
         actor: str = "",
+        reason: str = "",
     ) -> None:
         super().__init__()
         self.action = action
@@ -315,6 +318,7 @@ class VideoEvidenceWorker(QThread):
         self.end_ms = end_ms
         self.content = content
         self.actor = actor
+        self.reason = reason
 
     def run(self) -> None:
         db_path = self.root / "creator_loop.sqlite3"
@@ -337,7 +341,23 @@ class VideoEvidenceWorker(QThread):
                         actor=self.actor,
                     )
                 self.result.emit(version.evidence_version_id)
-            elif self.action == "reopen":
+            elif self.action == "correct":
+                with closing(_connect_write(db_path)) as db:
+                    corrected = correct_time_evidence(
+                        db,
+                        evidence_version_id=self.identifier,
+                        data_root=self.root,
+                        start_ms=self.start_ms,
+                        end_ms=self.end_ms,
+                        content=self.content,
+                        actor=self.actor,
+                        reason=self.reason,
+                    )
+                    stale_count = len(
+                        claim_versions_needing_review(db, corrected.evidence_id)
+                    )
+                self.result.emit((corrected.new_version_id, stale_count))
+            elif self.action in ("reopen", "load-correction"):
                 with closing(open_readonly(db_path)) as db:
                     self.result.emit(
                         reopen_video_evidence(db, self.identifier, self.root)
@@ -363,6 +383,7 @@ class AudioEvidenceWorker(QThread):
         content: str = "",
         actor: str = "",
         evidence_type: str = "SPEECH",
+        reason: str = "",
     ) -> None:
         super().__init__()
         self.action = action
@@ -373,6 +394,7 @@ class AudioEvidenceWorker(QThread):
         self.content = content
         self.actor = actor
         self.evidence_type = evidence_type
+        self.reason = reason
 
     def run(self) -> None:
         db_path = self.root / "creator_loop.sqlite3"
@@ -396,6 +418,36 @@ class AudioEvidenceWorker(QThread):
                         evidence_type=self.evidence_type,
                     )
                 self.result.emit(version.evidence_version_id)
+            elif self.action == "correct":
+                with closing(_connect_write(db_path)) as db:
+                    corrected = correct_time_evidence(
+                        db,
+                        evidence_version_id=self.identifier,
+                        data_root=self.root,
+                        start_ms=self.start_ms,
+                        end_ms=self.end_ms,
+                        content=self.content,
+                        actor=self.actor,
+                        reason=self.reason,
+                    )
+                    stale_count = len(
+                        claim_versions_needing_review(db, corrected.evidence_id)
+                    )
+                self.result.emit((corrected.new_version_id, stale_count))
+            elif self.action == "load-correction":
+                with closing(open_readonly(db_path)) as db:
+                    reopened = reopen_audio_evidence(db, self.identifier, self.root)
+                    kind = db.execute(
+                        """SELECT e.evidence_type FROM evidences e
+                           JOIN evidence_versions v ON v.evidence_id=e.evidence_id
+                           WHERE v.evidence_version_id=?""",
+                        (self.identifier,),
+                    ).fetchone()[0]
+                    if kind not in ("SPEECH", "OTHER"):
+                        raise ValueError(
+                            "Audio correction requires SPEECH or OTHER Evidence"
+                        )
+                self.result.emit((*reopened, str(kind)))
             elif self.action == "reopen":
                 with closing(open_readonly(db_path)) as db:
                     self.result.emit(
@@ -526,61 +578,69 @@ class LibraryWindow(QMainWindow):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table)
-        evidence_actions = QHBoxLayout()
+        evidence_actions = QGridLayout()
         attach_source = QPushButton("Nguồn của Asset")
         attach_source.clicked.connect(self.choose_source)
         self._buttons.append(attach_source)
-        evidence_actions.addWidget(attach_source)
+        evidence_actions.addWidget(attach_source, 0, 0)
         create_evidence = QPushButton("Tạo Evidence Text")
         create_evidence.clicked.connect(self.choose_text_evidence)
         self._buttons.append(create_evidence)
-        evidence_actions.addWidget(create_evidence)
+        evidence_actions.addWidget(create_evidence, 0, 1)
         create_image = QPushButton("Tạo Evidence Image")
         create_image.clicked.connect(self.choose_image_evidence)
         self._buttons.append(create_image)
-        evidence_actions.addWidget(create_image)
+        evidence_actions.addWidget(create_image, 0, 2)
         create_thumbnail_evidence = QPushButton("Evidence từ thumbnail")
         create_thumbnail_evidence.clicked.connect(self.choose_thumbnail_evidence)
         self._buttons.append(create_thumbnail_evidence)
-        evidence_actions.addWidget(create_thumbnail_evidence)
+        evidence_actions.addWidget(create_thumbnail_evidence, 0, 3)
         reopen_evidence = QPushButton("Mở Evidence Text")
         reopen_evidence.clicked.connect(self.reopen_selected_text_evidence)
         self._buttons.append(reopen_evidence)
-        evidence_actions.addWidget(reopen_evidence)
+        evidence_actions.addWidget(reopen_evidence, 1, 0)
         correct_evidence = QPushButton("Sửa Evidence Text")
         correct_evidence.clicked.connect(self.correct_selected_text_evidence)
         self._buttons.append(correct_evidence)
-        evidence_actions.addWidget(correct_evidence)
+        evidence_actions.addWidget(correct_evidence, 1, 1)
         reopen_image = QPushButton("Mở Evidence Image")
         reopen_image.clicked.connect(self.reopen_selected_image_evidence)
         self._buttons.append(reopen_image)
-        evidence_actions.addWidget(reopen_image)
+        evidence_actions.addWidget(reopen_image, 1, 2)
         correct_image = QPushButton("Sửa Evidence Image")
         correct_image.clicked.connect(self.correct_selected_image_evidence)
         self._buttons.append(correct_image)
-        evidence_actions.addWidget(correct_image)
+        evidence_actions.addWidget(correct_image, 1, 3)
         layout.addLayout(evidence_actions)
-        video_actions = QHBoxLayout()
+        video_actions = QGridLayout()
         create_video = QPushButton("Tạo Evidence Video")
         create_video.clicked.connect(self.choose_video_evidence)
         self._buttons.append(create_video)
-        video_actions.addWidget(create_video)
+        video_actions.addWidget(create_video, 0, 0)
         reopen_video = QPushButton("Mở Evidence Video")
         reopen_video.clicked.connect(self.reopen_selected_video_evidence)
         self._buttons.append(reopen_video)
-        video_actions.addWidget(reopen_video)
+        video_actions.addWidget(reopen_video, 0, 1)
+        correct_video = QPushButton("Sửa Evidence Video")
+        correct_video.clicked.connect(self.correct_selected_video_evidence)
+        self._buttons.append(correct_video)
+        video_actions.addWidget(correct_video, 0, 2)
         create_audio = QPushButton("Tạo Evidence Audio")
         create_audio.clicked.connect(self.choose_audio_evidence)
         self._buttons.append(create_audio)
-        video_actions.addWidget(create_audio)
+        video_actions.addWidget(create_audio, 1, 0)
         reopen_audio = QPushButton("Mở Evidence Audio")
         reopen_audio.clicked.connect(self.reopen_selected_audio_evidence)
         self._buttons.append(reopen_audio)
-        video_actions.addWidget(reopen_audio)
+        video_actions.addWidget(reopen_audio, 1, 1)
+        correct_audio = QPushButton("Sửa Evidence Audio")
+        correct_audio.clicked.connect(self.correct_selected_audio_evidence)
+        self._buttons.append(correct_audio)
+        video_actions.addWidget(correct_audio, 1, 2)
         review_evidence = QPushButton("Review Evidence")
         review_evidence.clicked.connect(self.choose_evidence_review)
         self._buttons.append(review_evidence)
-        video_actions.addWidget(review_evidence)
+        video_actions.addWidget(review_evidence, 0, 3, 2, 1)
         layout.addLayout(video_actions)
 
         self.evidence_table = QTableWidget(0, 4)
@@ -977,6 +1037,39 @@ class LibraryWindow(QMainWindow):
             "Đang xác minh đoạn audio…",
         )
 
+    def correct_selected_video_evidence(self) -> None:
+        self._correct_selected_time_evidence("video")
+
+    def correct_selected_audio_evidence(self) -> None:
+        self._correct_selected_time_evidence("audio")
+
+    def _correct_selected_time_evidence(self, track: str) -> None:
+        if self._worker is not None:
+            return
+        row = self.evidence_table.currentRow()
+        if (
+            row < 0
+            or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            != f"TIME_RANGE:{track}"
+        ):
+            QMessageBox.information(
+                self, "Chọn Evidence", f"Chọn một Evidence {track}."
+            )
+            return
+        version_id = str(
+            self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        )
+        if track == "video":
+            self._start_video_worker(
+                VideoEvidenceWorker("load-correction", version_id, self.root),
+                "Đang xác minh Evidence video để sửa…",
+            )
+        else:
+            self._start_audio_worker(
+                AudioEvidenceWorker("load-correction", version_id, self.root),
+                "Đang xác minh Evidence audio để sửa…",
+            )
+
     def choose_evidence_review(self) -> None:
         if self._worker is not None:
             return
@@ -1033,6 +1126,37 @@ class LibraryWindow(QMainWindow):
                 tuple[str, DecodedVideoFrame, int, int], result
             )
             VideoRangeView(content, decoded, start_ms, end_ms).exec()
+        elif action == "load-correction":
+            content, decoded, start_ms, end_ms = cast(
+                tuple[str, DecodedVideoFrame, int, int], result
+            )
+            dialog = VideoEvidenceDialog(
+                decoded,
+                correction=True,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                content=content,
+            )
+            if dialog.exec() == VideoEvidenceDialog.DialogCode.Accepted:
+                self._start_video_worker(
+                    VideoEvidenceWorker(
+                        "correct",
+                        identifier,
+                        self.root,
+                        start_ms=dialog.start.value(),
+                        end_ms=dialog.end.value(),
+                        content=dialog.content.text(),
+                        actor=dialog.actor.text(),
+                        reason=dialog.reason.text(),
+                    ),
+                    "Đang ghi Evidence video Version mới…",
+                )
+        elif action == "correct":
+            _new_version_id, stale_count = cast(tuple[str, int], result)
+            self.reload()
+            self.status.setText(
+                f"Đã tạo Evidence Video Version mới; {stale_count} Claim Version cần xem lại."
+            )
 
     def _finish_audio(self, action: str, identifier: str) -> None:
         result = self._audio_result
@@ -1063,6 +1187,38 @@ class LibraryWindow(QMainWindow):
                 tuple[str, DecodedAudioSegment, int, int], result
             )
             AudioRangeView(content, decoded, start_ms, end_ms).exec()
+        elif action == "load-correction":
+            content, decoded, start_ms, end_ms, kind = cast(
+                tuple[str, DecodedAudioSegment, int, int, str], result
+            )
+            dialog = AudioEvidenceDialog(
+                decoded,
+                correction=True,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                content=content,
+                evidence_type=kind,
+            )
+            if dialog.exec() == AudioEvidenceDialog.DialogCode.Accepted:
+                self._start_audio_worker(
+                    AudioEvidenceWorker(
+                        "correct",
+                        identifier,
+                        self.root,
+                        start_ms=dialog.start.value(),
+                        end_ms=dialog.end.value(),
+                        content=dialog.content.text(),
+                        actor=dialog.actor.text(),
+                        reason=dialog.reason.text(),
+                    ),
+                    "Đang ghi Evidence audio Version mới…",
+                )
+        elif action == "correct":
+            _new_version_id, stale_count = cast(tuple[str, int], result)
+            self.reload()
+            self.status.setText(
+                f"Đã tạo Evidence Audio Version mới; {stale_count} Claim Version cần xem lại."
+            )
 
     def _finish_image(self, action: str, identifier: str) -> None:
         result = self._image_result

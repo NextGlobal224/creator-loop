@@ -660,6 +660,125 @@ class LibraryUiTests(unittest.TestCase):
         self.assertEqual(opened[0][:2], (600, 800))
         self.assertEqual(Path(opened[0][2]).resolve(), stored.resolve())
 
+        from creator_loop.claims import EvidenceLink, create_claim
+
+        old_id = window.evidence_table.item(0, 0).data(Qt.ItemDataRole.UserRole)
+        with closing(sqlite3.connect(root / "creator_loop.sqlite3")) as db:
+            db.execute("PRAGMA foreign_keys=ON")
+            old_version = db.execute(
+                "SELECT * FROM evidence_versions WHERE evidence_version_id=?", (old_id,)
+            ).fetchone()
+            create_claim(
+                db,
+                claim_type="FACTUAL",
+                statement="Khung hình xanh",
+                actor="editor",
+                links=[EvidenceLink(str(old_id), "SUPPORTS")],
+            )
+
+        def correct_range(dialog: VideoEvidenceDialog) -> object:
+            self.assertTrue(dialog.correction)
+            self.assertEqual((dialog.start.value(), dialog.end.value()), (600, 800))
+            self.assertEqual(dialog.content.text(), "Khung xanh")
+            self.assertFalse(
+                dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+            )
+            dialog.start.setValue(100)
+            dialog.end.setValue(400)
+            dialog.content.setText("Khung đỏ")
+            dialog.actor.setText("editor")
+            dialog.reason.setText("Chọn lại đoạn")
+            self.assertTrue(
+                dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+            )
+            dialog.segment.stop()
+            return VideoEvidenceDialog.DialogCode.Accepted
+
+        with patch.object(VideoEvidenceDialog, "exec", correct_range):
+            window.correct_selected_video_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(window.evidence_table.rowCount(), 2)
+        self.assertIn("1 Claim Version", window.status.text())
+        with closing(sqlite3.connect(root / "creator_loop.sqlite3")) as db:
+            new_id = db.execute(
+                "SELECT evidence_version_id FROM evidence_versions WHERE version_no=2"
+            ).fetchone()[0]
+            self.assertEqual(
+                db.execute(
+                    "SELECT * FROM evidence_versions WHERE evidence_version_id=?",
+                    (old_id,),
+                ).fetchone(),
+                old_version,
+            )
+            self.assertEqual(
+                db.execute("SELECT evidence_version_id FROM claim_evidence").fetchone()[
+                    0
+                ],
+                old_id,
+            )
+            self.assertEqual(
+                db.execute(
+                    "SELECT action,actor_id,reason FROM review_events"
+                ).fetchone(),
+                ("CORRECT", "editor", "Chọn lại đoạn"),
+            )
+
+        def inspect_corrected(dialog: VideoRangeView) -> object:
+            self.assertEqual(
+                (dialog.segment.start_ms, dialog.segment.end_ms), (100, 400)
+            )
+            self.assertEqual(
+                Path(dialog.segment.player.source().toLocalFile()).resolve(),
+                stored.resolve(),
+            )
+            colors: list[QColor] = []
+            dialog.segment.video.videoSink().videoFrameChanged.connect(
+                lambda frame: (
+                    colors.append(frame.toImage().pixelColor(0, 0))
+                    if frame.isValid()
+                    else None
+                )
+            )
+            dialog.segment.play()
+            deadline = time.monotonic() + 2
+            while (
+                not any(color.red() > color.blue() for color in colors)
+                and time.monotonic() < deadline
+            ):
+                app.processEvents()
+                time.sleep(0.01)
+            self.assertTrue(any(color.red() > color.blue() for color in colors))
+            dialog.done(0)
+            return VideoRangeView.DialogCode.Accepted
+
+        for row in range(window.evidence_table.rowCount()):
+            if (
+                window.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                == new_id
+            ):
+                window.evidence_table.selectRow(row)
+        with patch.object(VideoRangeView, "exec", inspect_corrected):
+            window.reopen_selected_video_evidence()
+            self._wait_for_worker(app, window)
+        for row in range(window.evidence_table.rowCount()):
+            if (
+                window.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                == old_id
+            ):
+                window.evidence_table.selectRow(row)
+        with patch.object(VideoRangeView, "exec", inspect_range):
+            window.reopen_selected_video_evidence()
+            self._wait_for_worker(app, window)
+        with (
+            patch.object(VideoEvidenceDialog, "exec", correct_range),
+            patch("creator_loop.library_ui.QMessageBox.warning") as stale,
+        ):
+            window.correct_selected_video_evidence()
+            self._wait_for_worker(app, window)
+        stale.assert_called_once()
+        self.assertIn("latest Evidence Version", window.status.text())
+        self.assertEqual(window.evidence_table.rowCount(), 2)
+
     def test_create_and_reopen_audio_range_from_ui(self) -> None:
         assert QApplication is not None
         app = QApplication.instance() or QApplication([])
@@ -714,3 +833,133 @@ class LibraryUiTests(unittest.TestCase):
             self._wait_for_worker(app, window)
         self.assertEqual(opened[0][:2], (200, 600))
         self.assertEqual(Path(opened[0][2]).resolve(), stored.resolve())
+
+        old_id = window.evidence_table.item(0, 0).data(Qt.ItemDataRole.UserRole)
+
+        def correct_range(dialog: AudioEvidenceDialog) -> object:
+            self.assertTrue(dialog.correction)
+            self.assertEqual((dialog.start.value(), dialog.end.value()), (200, 600))
+            self.assertEqual(dialog.content.text(), "Âm tổng hợp 440 Hz")
+            self.assertEqual(dialog.kind.currentData(), "OTHER")
+            self.assertFalse(dialog.kind.isEnabled())
+            dialog.start.setValue(600)
+            dialog.end.setValue(900)
+            dialog.content.setText("Đoạn âm đã sửa")
+            dialog.actor.setText("editor")
+            dialog.reason.setText("Chọn lại audio")
+            self.assertTrue(
+                dialog.buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled()
+            )
+            dialog.segment.stop()
+            return AudioEvidenceDialog.DialogCode.Accepted
+
+        with patch.object(AudioEvidenceDialog, "exec", correct_range):
+            window.correct_selected_audio_evidence()
+            self._wait_for_worker(app, window)
+        self.assertEqual(window.evidence_table.rowCount(), 2)
+        with closing(sqlite3.connect(root / "creator_loop.sqlite3")) as db:
+            new_id = db.execute(
+                "SELECT evidence_version_id FROM evidence_versions WHERE version_no=2"
+            ).fetchone()[0]
+            self.assertEqual(
+                db.execute("SELECT evidence_type FROM evidences").fetchone()[0], "OTHER"
+            )
+            self.assertEqual(
+                db.execute(
+                    "SELECT action,actor_id,reason FROM review_events"
+                ).fetchone(),
+                ("CORRECT", "editor", "Chọn lại audio"),
+            )
+            self.assertEqual(
+                db.execute(
+                    "SELECT content FROM evidence_versions WHERE evidence_version_id=?",
+                    (old_id,),
+                ).fetchone()[0],
+                "Âm tổng hợp 440 Hz",
+            )
+
+        def inspect_corrected(dialog: AudioRangeView) -> object:
+            self.assertEqual(
+                (dialog.segment.start_ms, dialog.segment.end_ms), (600, 900)
+            )
+            self.assertEqual(
+                Path(dialog.segment.player.source().toLocalFile()).resolve(),
+                stored.resolve(),
+            )
+            dialog.segment.stop()
+            return AudioRangeView.DialogCode.Accepted
+
+        for row in range(window.evidence_table.rowCount()):
+            if (
+                window.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                == new_id
+            ):
+                window.evidence_table.selectRow(row)
+        with patch.object(AudioRangeView, "exec", inspect_corrected):
+            window.reopen_selected_audio_evidence()
+            self._wait_for_worker(app, window)
+        for row in range(window.evidence_table.rowCount()):
+            if (
+                window.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                == old_id
+            ):
+                window.evidence_table.selectRow(row)
+        with patch.object(AudioRangeView, "exec", inspect_range):
+            window.reopen_selected_audio_evidence()
+            self._wait_for_worker(app, window)
+        with (
+            patch.object(AudioEvidenceDialog, "exec", correct_range),
+            patch("creator_loop.library_ui.QMessageBox.warning") as stale,
+        ):
+            window.correct_selected_audio_evidence()
+            self._wait_for_worker(app, window)
+        stale.assert_called_once()
+        self.assertIn("latest Evidence Version", window.status.text())
+
+        from creator_loop.evidence import Evidence, EvidenceRepository, EvidenceVersion
+
+        with closing(sqlite3.connect(root / "creator_loop.sqlite3")) as db:
+            db.execute("PRAGMA foreign_keys=ON")
+            EvidenceRepository(db).create_with_version(
+                Evidence(
+                    "unsupported-audio",
+                    imported.asset_id,
+                    "METADATA",
+                    "2026-10-02T00:00:00Z",
+                    None,
+                ),
+                EvidenceVersion(
+                    "unsupported-audio-v1",
+                    "unsupported-audio",
+                    imported.asset_id,
+                    1,
+                    imported.file_id,
+                    "Unsupported kind",
+                    "TIME_RANGE",
+                    '{"start_ms":200,"end_ms":600,"track":"audio"}',
+                    "HUMAN",
+                    None,
+                    "creator",
+                    "2026-10-02T00:00:00Z",
+                ),
+            )
+        window.reload()
+        for row in range(window.evidence_table.rowCount()):
+            if (
+                window.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                == "unsupported-audio-v1"
+            ):
+                window.evidence_table.selectRow(row)
+        with (
+            patch.object(AudioEvidenceDialog, "exec") as unsupported_dialog,
+            patch("creator_loop.library_ui.QMessageBox.warning") as unsupported,
+        ):
+            window.correct_selected_audio_evidence()
+            self._wait_for_worker(app, window)
+        unsupported.assert_called_once()
+        unsupported_dialog.assert_not_called()
+        self.assertIn("SPEECH or OTHER", window.status.text())
+        with closing(sqlite3.connect(root / "creator_loop.sqlite3")) as db:
+            self.assertEqual(
+                db.execute("SELECT count(*) FROM evidence_versions").fetchone()[0], 3
+            )
