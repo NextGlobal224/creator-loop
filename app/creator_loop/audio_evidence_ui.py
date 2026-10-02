@@ -55,9 +55,30 @@ class AudioSegmentWidget(QWidget):
 
 
 class AudioEvidenceDialog(QDialog):
-    def __init__(self, decoded: DecodedAudioSegment) -> None:
+    def __init__(
+        self,
+        decoded: DecodedAudioSegment,
+        *,
+        correction: bool = False,
+        start_ms: int = 0,
+        end_ms: int | None = None,
+        content: str = "",
+        evidence_type: str = "SPEECH",
+    ) -> None:
         super().__init__()
-        self.setWindowTitle("Tạo Evidence từ Audio")
+        selected_end = min(decoded.duration_ms, 1000) if end_ms is None else end_ms
+        if (
+            type(start_ms) is not int
+            or type(selected_end) is not int
+            or not 0 <= start_ms < selected_end <= decoded.duration_ms
+        ):
+            raise ValueError("Audio dialog requires a valid saved time range")
+        if evidence_type not in ("SPEECH", "OTHER"):
+            raise ValueError("Audio dialog requires SPEECH or OTHER Evidence")
+        self.correction = correction
+        self.setWindowTitle(
+            "Sửa Evidence Audio" if correction else "Tạo Evidence từ Audio"
+        )
         self.resize(600, 360)
         layout = QVBoxLayout(self)
         self.segment = AudioSegmentWidget(decoded)
@@ -67,17 +88,23 @@ class AudioEvidenceDialog(QDialog):
         self.end = QSpinBox()
         self.start.setRange(0, decoded.duration_ms - 1)
         self.end.setRange(1, decoded.duration_ms)
-        self.end.setValue(min(decoded.duration_ms, 1000))
+        self.start.setValue(start_ms)
+        self.end.setValue(selected_end)
         self.kind = QComboBox()
         self.kind.addItem("Lời nói", "SPEECH")
         self.kind.addItem("Âm thanh khác", "OTHER")
-        self.content = QLineEdit()
+        self.kind.setCurrentIndex(self.kind.findData(evidence_type))
+        self.kind.setEnabled(not correction)
+        self.content = QLineEdit(content)
         self.actor = QLineEdit("creator")
+        self.reason = QLineEdit()
         form.addRow("Bắt đầu (ms)", self.start)
         form.addRow("Kết thúc (ms)", self.end)
         form.addRow("Loại quan sát", self.kind)
         form.addRow("Nội dung nghe được", self.content)
-        form.addRow("Người tạo", self.actor)
+        form.addRow("Người sửa" if correction else "Người tạo", self.actor)
+        if correction:
+            form.addRow("Lý do sửa", self.reason)
         layout.addLayout(form)
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -89,6 +116,7 @@ class AudioEvidenceDialog(QDialog):
         self.end.valueChanged.connect(self._refresh)
         self.content.textChanged.connect(self._refresh)
         self.actor.textChanged.connect(self._refresh)
+        self.reason.textChanged.connect(self._refresh)
         self._refresh()
 
     def _refresh(self) -> None:
@@ -98,6 +126,7 @@ class AudioEvidenceDialog(QDialog):
             start < end
             and bool(self.content.text().strip())
             and bool(self.actor.text().strip())
+            and (not self.correction or bool(self.reason.text().strip()))
         )
 
     def done(self, result: int) -> None:

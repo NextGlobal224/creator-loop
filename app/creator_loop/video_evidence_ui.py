@@ -68,9 +68,27 @@ class VideoSegmentWidget(QWidget):
 
 
 class VideoEvidenceDialog(QDialog):
-    def __init__(self, decoded: DecodedVideoFrame) -> None:
+    def __init__(
+        self,
+        decoded: DecodedVideoFrame,
+        *,
+        correction: bool = False,
+        start_ms: int = 0,
+        end_ms: int | None = None,
+        content: str = "",
+    ) -> None:
         super().__init__()
-        self.setWindowTitle("Tạo Evidence từ Video")
+        selected_end = min(decoded.duration_ms, 1000) if end_ms is None else end_ms
+        if (
+            type(start_ms) is not int
+            or type(selected_end) is not int
+            or not 0 <= start_ms < selected_end <= decoded.duration_ms
+        ):
+            raise ValueError("Video dialog requires a valid saved time range")
+        self.correction = correction
+        self.setWindowTitle(
+            "Sửa Evidence Video" if correction else "Tạo Evidence từ Video"
+        )
         self.resize(720, 650)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Chọn đoạn theo milliseconds của MP4 đã giải mã."))
@@ -81,13 +99,17 @@ class VideoEvidenceDialog(QDialog):
         self.end = QSpinBox()
         self.start.setRange(0, decoded.duration_ms - 1)
         self.end.setRange(1, decoded.duration_ms)
-        self.end.setValue(min(decoded.duration_ms, 1000))
-        self.content = QLineEdit()
+        self.start.setValue(start_ms)
+        self.end.setValue(selected_end)
+        self.content = QLineEdit(content)
         self.actor = QLineEdit("creator")
+        self.reason = QLineEdit()
         form.addRow("Bắt đầu (ms)", self.start)
         form.addRow("Kết thúc (ms)", self.end)
         form.addRow("Quan sát", self.content)
-        form.addRow("Người tạo", self.actor)
+        form.addRow("Người sửa" if correction else "Người tạo", self.actor)
+        if correction:
+            form.addRow("Lý do sửa", self.reason)
         layout.addLayout(form)
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -99,6 +121,7 @@ class VideoEvidenceDialog(QDialog):
         self.end.valueChanged.connect(self._refresh)
         self.content.textChanged.connect(self._refresh)
         self.actor.textChanged.connect(self._refresh)
+        self.reason.textChanged.connect(self._refresh)
         self._refresh()
 
     def _refresh(self) -> None:
@@ -108,6 +131,7 @@ class VideoEvidenceDialog(QDialog):
             start < end
             and bool(self.content.text().strip())
             and bool(self.actor.text().strip())
+            and (not self.correction or bool(self.reason.text().strip()))
         )
 
     def done(self, result: int) -> None:
