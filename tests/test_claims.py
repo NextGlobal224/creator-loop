@@ -148,6 +148,46 @@ class ClaimVersionTests(unittest.TestCase):
             2,
         )
 
+    def test_sealed_claim_citations_reject_direct_mutation(self) -> None:
+        saved = self._create()
+        original = self.db.execute(
+            """SELECT evidence_version_id,relation_type FROM claim_evidence
+               WHERE claim_version_id=? ORDER BY evidence_version_id""",
+            (saved.claim_version_id,),
+        ).fetchall()
+        statements = (
+            (
+                """UPDATE claim_evidence SET relation_type='CONTRADICTS'
+                   WHERE claim_version_id=? AND relation_type='SUPPORTS'""",
+                (saved.claim_version_id,),
+            ),
+            (
+                "DELETE FROM claim_evidence WHERE claim_version_id=?",
+                (saved.claim_version_id,),
+            ),
+            (
+                """INSERT INTO claim_evidence(
+                     claim_version_id,evidence_version_id,relation_type)
+                   VALUES(?,?,'CONTRADICTS')""",
+                (saved.claim_version_id, self.support.evidence_version_id),
+            ),
+            (
+                "DELETE FROM claim_version_seals WHERE claim_version_id=?",
+                (saved.claim_version_id,),
+            ),
+        )
+        for sql, args in statements:
+            with self.subTest(sql=sql), self.assertRaises(sqlite3.IntegrityError):
+                self.db.execute(sql, args)
+        self.assertEqual(
+            self.db.execute(
+                """SELECT evidence_version_id,relation_type FROM claim_evidence
+                   WHERE claim_version_id=? ORDER BY evidence_version_id""",
+                (saved.claim_version_id,),
+            ).fetchall(),
+            original,
+        )
+
     def test_missing_evidence_rolls_back_claim_and_version(self) -> None:
         with self.assertRaisesRegex(ValueError, "live Evidence Version"):
             create_claim(
@@ -200,3 +240,28 @@ class ClaimVersionTests(unittest.TestCase):
             (saved.claim_version_id,),
         ).fetchone()[0]
         self.assertEqual(link, self.support.evidence_version_id)
+
+    def test_existing_caller_transaction_is_not_rolled_back(self) -> None:
+        self.db.execute(
+            "INSERT INTO claims(claim_id,claim_type,created_at) VALUES(?,?,?)",
+            ("caller-claim", "INTERPRETIVE", "2026-10-02T00:00:00Z"),
+        )
+        self.assertTrue(self.db.in_transaction)
+        with self.assertRaisesRegex(ValueError, "clean transaction"):
+            self._create()
+        with self.assertRaisesRegex(ValueError, "clean transaction"):
+            append_claim_version(
+                self.db,
+                claim_id="caller-claim",
+                statement="Bản mới",
+                actor="editor",
+                links=[EvidenceLink(self.support.evidence_version_id, "SUPPORTS")],
+            )
+        self.assertTrue(self.db.in_transaction)
+        self.assertEqual(
+            self.db.execute(
+                "SELECT count(*) FROM claims WHERE claim_id='caller-claim'"
+            ).fetchone()[0],
+            1,
+        )
+        self.db.rollback()

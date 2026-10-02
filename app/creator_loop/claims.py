@@ -87,6 +87,10 @@ def _insert_version(
                VALUES(?,?,?)""",
             (version_id, link.evidence_version_id, link.relation_type),
         )
+    db.execute(
+        "INSERT INTO claim_version_seals(claim_version_id,sealed_at) VALUES(?,?)",
+        (version_id, _timestamp()),
+    )
     return SavedClaimVersion(claim_id, version_id, version_no)
 
 
@@ -102,6 +106,8 @@ def create_claim(
     if claim_type not in ("FACTUAL", "INTERPRETIVE", "EDITORIAL_HYPOTHESIS"):
         raise ValueError("Invalid Claim type")
     _validate_input(statement, actor, links)
+    if db.in_transaction:
+        raise ValueError("Claim creation requires a clean transaction")
     claim_id = uuid4().hex
     try:
         db.execute("BEGIN IMMEDIATE")
@@ -127,6 +133,8 @@ def append_claim_version(
 ) -> SavedClaimVersion:
     """Append a Claim Version without changing prior statements or citations."""
     _validate_input(statement, actor, links)
+    if db.in_transaction:
+        raise ValueError("Claim version append requires a clean transaction")
     try:
         db.execute("BEGIN IMMEDIATE")
         row = db.execute(
@@ -153,11 +161,14 @@ def claim_support_review(
     """Project support review and stale citations; do not authorize publication."""
     if (
         db.execute(
-            "SELECT 1 FROM claim_versions WHERE claim_version_id=?", (claim_version_id,)
+            """SELECT 1 FROM claim_versions v
+               JOIN claim_version_seals s ON s.claim_version_id=v.claim_version_id
+               WHERE v.claim_version_id=?""",
+            (claim_version_id,),
         ).fetchone()
         is None
     ):
-        raise ValueError("Claim Version does not exist")
+        raise ValueError("Sealed Claim Version does not exist")
     rows = db.execute(
         """SELECT ce.relation_type,v.version_no,
                   (SELECT MAX(latest.version_no) FROM evidence_versions latest
