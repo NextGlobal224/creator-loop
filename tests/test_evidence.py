@@ -66,6 +66,88 @@ class EvidenceRepositoryTests(unittest.TestCase):
 
         self.repo = EvidenceRepository(self.db)
 
+    def test_repository_owns_only_its_transaction_scope(self) -> None:
+        # Persist the fixture, then create caller work that the repository must
+        # neither commit on success nor roll back on validation/SQL failures.
+        self.db.commit()
+        self.db.execute(
+            "INSERT INTO projects(project_id,title,status,created_at) VALUES(?,?,?,?)",
+            ("caller-project", "Caller work", "ACTIVE", "2026-10-02T00:00:00Z"),
+        )
+        first = replace(self._prepare_append(), version_no=1)
+        other = sqlite3.connect(self.db_path)
+        self.addCleanup(other.close)
+        self.assertTrue(self.db.in_transaction)
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM evidences").fetchone()[0], 0
+        )
+        before = self._version_rows()
+        with self.assertRaisesRegex(ValueError, "next version"):
+            self.repo.append_version(first)
+        self.db.execute(
+            """CREATE TEMP TRIGGER reject_version BEFORE INSERT ON evidence_versions
+               BEGIN SELECT RAISE(ABORT,'version blocked'); END"""
+        )
+        second = replace(first, version_no=2)
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "version blocked"):
+            self.repo.append_version(second)
+        failed_evidence = Evidence(
+            "failed-evidence", "asset-1", "SPEECH", first.created_at, None
+        )
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "version blocked"):
+            self.repo.create_with_version(
+                failed_evidence,
+                replace(
+                    first,
+                    evidence_id=failed_evidence.evidence_id,
+                    evidence_version_id="failed-version",
+                ),
+            )
+        self.assertTrue(self.db.in_transaction)
+        self.assertEqual(self._version_rows(), before)
+        self.assertEqual(
+            self.db.execute("SELECT count(*) FROM evidences").fetchone()[0], 1
+        )
+        self.assertEqual(
+            self.db.execute("SELECT count(*) FROM projects").fetchone()[0], 1
+        )
+        self.db.execute("DROP TRIGGER reject_version")
+        self.repo.append_version(second)
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM evidence_versions").fetchone()[0], 0
+        )
+        self.db.commit()
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM evidence_versions").fetchone()[0], 2
+        )
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM projects").fetchone()[0], 1
+        )
+
+    def test_repository_commits_its_own_transaction_and_rolls_back_failed_create(
+        self,
+    ) -> None:
+        self.db.commit()
+        second = self._prepare_append()
+        self.assertFalse(self.db.in_transaction)
+        self.repo.append_version(second)
+        other = sqlite3.connect(self.db_path)
+        self.addCleanup(other.close)
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM evidence_versions").fetchone()[0], 2
+        )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.repo.create_with_version(
+                Evidence(
+                    "failed-evidence", "asset-1", "SPEECH", second.created_at, None
+                ),
+                replace(second, evidence_id="failed-evidence", version_no=1),
+            )
+        self.assertFalse(self.db.in_transaction)
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM evidences").fetchone()[0], 1
+        )
+
     def test_create_evidence_with_first_version_and_provenance(self) -> None:
         evidence = Evidence(
             evidence_id="evidence-1",

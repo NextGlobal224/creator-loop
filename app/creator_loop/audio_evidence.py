@@ -17,6 +17,7 @@ from creator_loop.evidence import Evidence, EvidenceRepository, EvidenceVersion
 from creator_loop.evidence_reopen import _anchor_path, reopen_evidence_version
 from creator_loop.locator import validate_locator
 from creator_loop.originals import verify_original_file
+from creator_loop.transactions import atomic_transaction
 
 
 @dataclass(frozen=True)
@@ -134,10 +135,6 @@ def create_audio_evidence(
         {"start_ms": start_ms, "end_ms": end_ms, "track": "audio"}, sort_keys=True
     )
     validate_locator("TIME_RANGE", locator_data, duration_ms=decoded.duration_ms)
-    db.execute(
-        "UPDATE asset_files SET duration_ms=? WHERE file_id=?",
-        (decoded.duration_ms, file_id),
-    )
     timestamp = _timestamp()
     evidence_id = uuid4().hex
     version = EvidenceVersion(
@@ -154,9 +151,14 @@ def create_audio_evidence(
         created_by=actor.strip(),
         created_at=timestamp,
     )
-    EvidenceRepository(db).create_with_version(
-        Evidence(evidence_id, asset_id, evidence_type, timestamp, None), version
-    )
+    with atomic_transaction(db):
+        db.execute(
+            "UPDATE asset_files SET duration_ms=? WHERE file_id=?",
+            (decoded.duration_ms, file_id),
+        )
+        EvidenceRepository(db).create_with_version(
+            Evidence(evidence_id, asset_id, evidence_type, timestamp, None), version
+        )
     return version
 
 

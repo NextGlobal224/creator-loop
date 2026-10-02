@@ -9,6 +9,7 @@ from typing import Literal
 from uuid import uuid4
 
 from creator_loop.evidence_reopen import reopen_evidence_version
+from creator_loop.transactions import atomic_transaction
 
 ReviewAction = Literal["ACCEPT", "REJECT", "REQUEST_CHANGES", "REOPEN"]
 ReviewState = Literal[
@@ -44,8 +45,7 @@ def record_evidence_review(
         raise ValueError("Review actor is required")
     if action != "ACCEPT" and not reason.strip():
         raise ValueError("Review reason is required for this action")
-    try:
-        db.execute("BEGIN IMMEDIATE")
+    with atomic_transaction(db):
         row = db.execute(
             """SELECT v.evidence_id,v.version_no,e.deleted_at
                FROM evidence_versions v JOIN evidences e ON e.evidence_id=v.evidence_id
@@ -84,8 +84,4 @@ def record_evidence_review(
                 timestamp,
             ),
         )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
     return event_id

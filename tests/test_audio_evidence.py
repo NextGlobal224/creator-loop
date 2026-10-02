@@ -90,6 +90,75 @@ class AudioEvidenceTests(unittest.TestCase):
             self.db.execute("SELECT count(*) FROM evidences").fetchone()[0], 0
         )
 
+    def test_audio_metadata_and_evidence_respect_caller_transaction(self) -> None:
+        self.db.execute(
+            """CREATE TEMP TRIGGER reject_audio_version
+               BEFORE INSERT ON evidence_versions
+               BEGIN SELECT RAISE(ABORT,'version blocked'); END"""
+        )
+        self.db.execute(
+            "INSERT INTO projects(project_id,title,status,created_at) VALUES(?,?,?,?)",
+            ("caller-project", "Caller work", "ACTIVE", "2026-10-02T00:00:00Z"),
+        )
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "version blocked"):
+            create_audio_evidence(
+                self.db,
+                file_id=self.imported.file_id,
+                data_root=self.root,
+                start_ms=200,
+                end_ms=600,
+                content="Âm kiểm thử",
+                actor="creator",
+            )
+        self.assertTrue(self.db.in_transaction)
+        self.assertEqual(
+            self.db.execute(
+                "SELECT duration_ms FROM asset_files WHERE file_id=?",
+                (self.imported.file_id,),
+            ).fetchone()[0],
+            None,
+        )
+        self.assertEqual(
+            self.db.execute("SELECT count(*) FROM evidences").fetchone()[0], 0
+        )
+        self.assertEqual(
+            self.db.execute(
+                "SELECT count(*) FROM projects WHERE project_id='caller-project'"
+            ).fetchone()[0],
+            1,
+        )
+        self.db.execute("DROP TRIGGER reject_audio_version")
+        version = create_audio_evidence(
+            self.db,
+            file_id=self.imported.file_id,
+            data_root=self.root,
+            start_ms=200,
+            end_ms=600,
+            content="Âm kiểm thử",
+            actor="creator",
+        )
+        self.assertTrue(self.db.in_transaction)
+        other = sqlite3.connect(self.root / "creator_loop.sqlite3")
+        self.addCleanup(other.close)
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM evidences").fetchone()[0], 0
+        )
+        self.assertEqual(
+            other.execute(
+                "SELECT duration_ms FROM asset_files WHERE file_id=?",
+                (self.imported.file_id,),
+            ).fetchone()[0],
+            None,
+        )
+        self.db.commit()
+        self.assertEqual(
+            other.execute(
+                "SELECT anchor_file_id FROM evidence_versions WHERE evidence_version_id=?",
+                (version.evidence_version_id,),
+            ).fetchone()[0],
+            self.imported.file_id,
+        )
+
     def test_video_without_audio_track_is_rejected(self) -> None:
         fixture = Path(__file__).parent / "fixtures" / "video-red-blue.mp4"
         silent = intake_video_original(fixture, root=self.root)
