@@ -7,11 +7,12 @@ import re
 import sqlite3
 import unicodedata
 from dataclasses import dataclass
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 from typing import Literal
 
 from creator_loop.locator import validate_locator
 from creator_loop.originals import READ_CHUNK_SIZE
+from creator_loop.storage_paths import StoragePathError, resolve_storage_path
 
 FailureReason = Literal[
     "missing_version",
@@ -45,34 +46,10 @@ class ReopenedEvidence:
 
 
 def _anchor_path(data_root: Path, role: str, storage_key: str) -> Path:
-    if not isinstance(storage_key, str):
-        raise EvidenceReopenError("unsafe_path")
-    parts = storage_key.split("/")
-    expected_folder = "originals" if role == "ORIGINAL" else "derived"
-    if (
-        len(parts) < 3
-        or parts[:2] != ["storage", expected_folder]
-        or any(part in ("", ".", "..") for part in parts)
-        or any(
-            char in storage_key
-            for char in ("\\", "\x00", ":", "<", ">", '"', "|", "?", "*")
-        )
-        or PureWindowsPath(storage_key).drive
-        or PureWindowsPath(storage_key).root
-    ):
-        raise EvidenceReopenError("unsafe_path")
-
     try:
-        canonical_root = data_root.resolve()
-        folder = (canonical_root / "storage" / expected_folder).resolve()
-        candidate = canonical_root.joinpath(*parts).resolve()
-    except OSError as exc:
-        raise EvidenceReopenError("unavailable_file") from exc
-    if not folder.is_relative_to(canonical_root) or not candidate.is_relative_to(
-        folder
-    ):
-        raise EvidenceReopenError("unsafe_path")
-    return candidate
+        return resolve_storage_path(data_root, role, storage_key)
+    except StoragePathError as exc:
+        raise EvidenceReopenError(exc.reason) from exc
 
 
 def reopen_evidence_version(
