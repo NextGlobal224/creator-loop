@@ -241,21 +241,60 @@ class ClaimVersionTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(link, self.support.evidence_version_id)
 
-    def test_existing_caller_transaction_is_not_rolled_back(self) -> None:
+    def test_successful_writers_leave_commit_to_caller(self) -> None:
         self.db.execute(
             "INSERT INTO claims(claim_id,claim_type,created_at) VALUES(?,?,?)",
             ("caller-claim", "INTERPRETIVE", "2026-10-02T00:00:00Z"),
         )
         self.assertTrue(self.db.in_transaction)
-        with self.assertRaisesRegex(ValueError, "clean transaction"):
-            self._create()
-        with self.assertRaisesRegex(ValueError, "clean transaction"):
+        saved = self._create()
+        appended = append_claim_version(
+            self.db,
+            claim_id=saved.claim_id,
+            statement="Bản mới",
+            actor="editor",
+            links=[EvidenceLink(self.support.evidence_version_id, "SUPPORTS")],
+        )
+        self.assertEqual(appended.version_no, 2)
+        self.assertTrue(self.db.in_transaction)
+        self.db.rollback()
+        for table in (
+            "claims",
+            "claim_versions",
+            "claim_evidence",
+            "claim_version_seals",
+        ):
+            self.assertEqual(
+                self.db.execute(f"SELECT count(*) FROM {table}").fetchone()[0], 0
+            )
+
+    def test_failed_writers_roll_back_only_their_savepoint(self) -> None:
+        saved = self._create()
+        self.db.execute(
+            "INSERT INTO claims(claim_id,claim_type,created_at) VALUES(?,?,?)",
+            ("caller-claim", "INTERPRETIVE", "2026-10-02T00:00:00Z"),
+        )
+        with self.assertRaisesRegex(ValueError, "live Evidence Version"):
+            create_claim(
+                self.db,
+                claim_type="FACTUAL",
+                statement="Không đủ",
+                actor="editor",
+                links=[
+                    EvidenceLink(self.support.evidence_version_id, "SUPPORTS"),
+                    EvidenceLink("missing", "CONTEXT"),
+                ],
+            )
+        with self.assertRaisesRegex(ValueError, "live Evidence Version"):
             append_claim_version(
                 self.db,
-                claim_id="caller-claim",
+                claim_id=saved.claim_id,
                 statement="Bản mới",
                 actor="editor",
-                links=[EvidenceLink(self.support.evidence_version_id, "SUPPORTS")],
+                links=[
+                    EvidenceLink(self.support.evidence_version_id, "SUPPORTS"),
+                    EvidenceLink("missing", "CONTEXT"),
+                ],
             )
         self.assertTrue(self.db.in_transaction)
         self.assertEqual(
@@ -264,4 +303,16 @@ class ClaimVersionTests(unittest.TestCase):
             ).fetchone()[0],
             1,
         )
-        self.db.rollback()
+        self.db.commit()
+        self.assertEqual(
+            self.db.execute("SELECT count(*) FROM claims").fetchone()[0], 2
+        )
+        self.assertEqual(
+            self.db.execute("SELECT count(*) FROM claim_versions").fetchone()[0], 1
+        )
+        self.assertEqual(
+            self.db.execute("SELECT count(*) FROM claim_evidence").fetchone()[0], 2
+        )
+        self.assertEqual(
+            self.db.execute("SELECT count(*) FROM claim_version_seals").fetchone()[0], 1
+        )

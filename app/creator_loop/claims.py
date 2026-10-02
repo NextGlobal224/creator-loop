@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from typing import Literal, Sequence
 from uuid import uuid4
 
+from creator_loop.transactions import atomic_transaction
+
 ClaimType = Literal["FACTUAL", "INTERPRETIVE", "EDITORIAL_HYPOTHESIS"]
 RelationType = Literal["SUPPORTS", "CONTRADICTS", "CONTEXT"]
 
@@ -106,20 +108,13 @@ def create_claim(
     if claim_type not in ("FACTUAL", "INTERPRETIVE", "EDITORIAL_HYPOTHESIS"):
         raise ValueError("Invalid Claim type")
     _validate_input(statement, actor, links)
-    if db.in_transaction:
-        raise ValueError("Claim creation requires a clean transaction")
     claim_id = uuid4().hex
-    try:
-        db.execute("BEGIN IMMEDIATE")
+    with atomic_transaction(db):
         db.execute(
             "INSERT INTO claims(claim_id,claim_type,created_at) VALUES(?,?,?)",
             (claim_id, claim_type, _timestamp()),
         )
         saved = _insert_version(db, claim_id, 1, statement, actor, links)
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
     return saved
 
 
@@ -133,10 +128,7 @@ def append_claim_version(
 ) -> SavedClaimVersion:
     """Append a Claim Version without changing prior statements or citations."""
     _validate_input(statement, actor, links)
-    if db.in_transaction:
-        raise ValueError("Claim version append requires a clean transaction")
-    try:
-        db.execute("BEGIN IMMEDIATE")
+    with atomic_transaction(db):
         row = db.execute(
             "SELECT deleted_at FROM claims WHERE claim_id=?", (claim_id,)
         ).fetchone()
@@ -148,10 +140,6 @@ def append_claim_version(
         if newest is None:
             raise ValueError("Claim has no existing Version")
         saved = _insert_version(db, claim_id, newest + 1, statement, actor, links)
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
     return saved
 
 
