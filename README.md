@@ -23,11 +23,13 @@ python -m creator_loop --smoke
 
 Desktop UI requires `pip install PySide6==6.10.2`. The app stores user data outside installation by default, under `%LOCALAPPDATA%\CreatorLoop` on Windows. `CREATOR_LOOP_DATA_ROOT` overrides this for test/portable use.
 
-To open the current Library UI, run `python -m creator_loop` with `PYTHONPATH=app`. The three import buttons accept TEXT, MP4 video, and PNG/JPEG images. The app copies bytes into the user-data originals store and lists the imported files. Format detection checks stored signatures; video/image playback and the formal Evidence review workflow are later Gate 2 work.
+To open the current Library UI, run `python -m creator_loop` with `PYTHONPATH=app`. The three import buttons accept TEXT, MP4 video, and PNG/JPEG images. The app copies bytes into the user-data originals store and lists the imported files. Format detection checks stored signatures; video playback, codec validation and formal Evidence review are later Gate 2 work.
 
-For a TEXT original, select its row and choose **Tạo Evidence Text**. Enter start/end positions on the NFC text snapshot and inspect the excerpt preview before saving. Select the saved Evidence row and choose **Mở Evidence Text** to verify and display that exact excerpt again. This UI slice has passed local tests; required CI on the current branch remains pending.
+For a TEXT original, select its row and choose **Tạo Evidence Text**. Enter start/end positions on the NFC text snapshot and inspect the excerpt preview before saving. Select the saved Evidence row and choose **Mở Evidence Text** to verify and display that exact excerpt again. This UI slice passed the required CI checks in PR #10.
 
 Select an original and choose **Nguồn của Asset** to inspect its linked Sources. Enter a platform to create a Source, or choose an existing Source to associate it with another Asset. URL, external ID and publisher are optional; unknown rights and relationship stay explicit. The dialog records provenance supplied by the user and does not infer it from the filename.
+
+For a PNG/JPEG original, choose **Tạo Evidence Image**. Set normalized X/Y/width/height coordinates, inspect the cropped preview and enter the observation. Select its Evidence row and choose **Mở Evidence Image** to verify the recorded original digest and reopen that region. Image decoding uses the bundled Qt runtime; images above 40 MiB or 80 million pixels are outside the current local decode budget.
 
 ## CI and release
 
@@ -37,7 +39,7 @@ The `fast-schema-domain`, `security-dependencies-workflow`, and `windows-artifac
 
 ## Boundaries
 
-The Library UI imports and lists originals, links Sources and opens TEXT Evidence. It does not yet open video/image media at an Evidence locator, launch engines, publish posts or update installations. Package creation is implemented as a small domain transaction to test atomicity and fingerprint rules; a full publishing workflow is not yet present.
+The Library UI imports and lists originals, links Sources and opens TEXT and IMAGE_REGION Evidence. It does not yet open video at an Evidence locator, launch engines, publish posts or update installations. Package creation is implemented as a small domain transaction to test atomicity and fingerprint rules; a full publishing workflow is not yet present.
 
 The public application read path is `open_readonly()`. Publication writes go through `PublicationRepository`; `_connect_write()` is an internal adapter reserved for repositories, migrations and tests. This is an application boundary, not a sandbox against someone opening the SQLite file directly. Direct SQL may create an unsealed staging row, which cannot be approved.
 
