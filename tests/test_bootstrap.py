@@ -89,6 +89,7 @@ class BootstrapTests(unittest.TestCase):
             "INSERT INTO draft_versions VALUES (?,?,?,?,?,?,?)",
             ("dv1", "d1", 1, "caption", "POST", "owner", T),
         )
+        d.execute("INSERT INTO draft_version_seals VALUES (?,?)", ("dv1", T))
         d.commit()
 
     def test_initial_schema_and_backup(self):
@@ -101,7 +102,7 @@ class BootstrapTests(unittest.TestCase):
         try:
             self.assertEqual(
                 copy.execute("PRAGMA user_version").fetchone()[0],
-                2,
+                3,
             )
         finally:
             copy.close()
@@ -114,7 +115,7 @@ class BootstrapTests(unittest.TestCase):
         )
         self.assertEqual(
             self.db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0],
-            2,
+            3,
         )
 
     def make_legacy_database(self):
@@ -188,7 +189,7 @@ class BootstrapTests(unittest.TestCase):
         initialize(legacy)
         with closing(_connect_write(legacy)) as upgraded:
             validate(upgraded)
-            self.assertEqual(upgraded.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(upgraded.execute("PRAGMA user_version").fetchone()[0], 3)
             self.assertEqual(
                 upgraded.execute("SELECT count(*) FROM claim_version_seals").fetchone()[
                     0
@@ -206,7 +207,7 @@ class BootstrapTests(unittest.TestCase):
                     "INSERT INTO claim_evidence VALUES (?,?,?)",
                     ("cv2", "ev1", "CONTEXT"),
                 )
-        snapshots = list(legacy.parent.glob("legacy.sqlite3.pre-v2-*.sqlite3"))
+        snapshots = list(legacy.parent.glob("legacy.sqlite3.pre-v3-*.sqlite3"))
         self.assertEqual(len(snapshots), 1)
         with closing(sqlite3.connect(snapshots[0])) as snapshot:
             snapshot.execute("PRAGMA foreign_keys=ON")
@@ -217,7 +218,7 @@ class BootstrapTests(unittest.TestCase):
             )
         initialize(legacy)
         self.assertEqual(
-            len(list(legacy.parent.glob("legacy.sqlite3.pre-v2-*.sqlite3"))), 1
+            len(list(legacy.parent.glob("legacy.sqlite3.pre-v3-*.sqlite3"))), 1
         )
 
     def test_claim_citations_and_seals_are_immutable(self):
@@ -258,7 +259,7 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(
                 old.execute("SELECT count(*) FROM claim_evidence").fetchone()[0], 1
             )
-        snapshots = list(legacy.parent.glob("legacy.sqlite3.pre-v2-*.sqlite3"))
+        snapshots = list(legacy.parent.glob("legacy.sqlite3.pre-v3-*.sqlite3"))
         self.assertEqual(len(snapshots), 1)
         with closing(sqlite3.connect(snapshots[0])) as snapshot:
             snapshot.execute("PRAGMA foreign_keys=ON")
@@ -276,7 +277,7 @@ class BootstrapTests(unittest.TestCase):
         with closing(sqlite3.connect(legacy)) as old:
             self.assertEqual(old.execute("PRAGMA user_version").fetchone()[0], 1)
         self.assertEqual(
-            list(legacy.parent.glob("legacy.sqlite3.pre-v2-*.sqlite3")), []
+            list(legacy.parent.glob("legacy.sqlite3.pre-v3-*.sqlite3")), []
         )
 
     def test_v2_history_checksum_is_checked(self):

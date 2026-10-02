@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
-MIGRATIONS = ("0001_initial", "0002_claim_citation_seal")
+MIGRATIONS = ("0001_initial", "0002_claim_citation_seal", "0003_draft_snapshot_seal")
 SCHEMA_VERSION = len(MIGRATIONS)
 
 
@@ -56,19 +56,23 @@ def initialize(path: Path) -> None:
             validate(db)
             return
         data_version: int | None = None
-        if version == 1:
-            validate(db, expected_version=1)
+        if version > 0:
+            validate(db, expected_version=version)
             data_version = db.execute("PRAGMA data_version").fetchone()[0]
-            snapshot = path.with_name(f"{path.name}.pre-v2-{uuid4().hex}.sqlite3")
-            backup(path, snapshot, expected_version=1)
+            snapshot = path.with_name(
+                f"{path.name}.pre-v{SCHEMA_VERSION}-{uuid4().hex}.sqlite3"
+            )
+            backup(path, snapshot, expected_version=version)
         try:
             db.execute("BEGIN IMMEDIATE")
+            if db.execute("PRAGMA user_version").fetchone()[0] != version:
+                raise RuntimeError("Schema changed while preparing migration")
             if data_version is not None:
                 if db.execute("PRAGMA data_version").fetchone()[0] != data_version:
                     raise RuntimeError(
                         "Database changed while preparing migration backup"
                     )
-                validate(db, expected_version=1)
+                validate(db, expected_version=version)
             for step in range(version + 1, SCHEMA_VERSION + 1):
                 migration_id = MIGRATIONS[step - 1]
                 sql, digest = _migration_sql(migration_id)

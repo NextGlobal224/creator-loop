@@ -91,7 +91,7 @@ class RegisteredStorageTests(unittest.TestCase):
         self.assertEqual(list_storage_roots(self.root), [registered])
         self.assertEqual(register_storage_root(self.root, self.media), registered)
         payload = json.loads(self.manifest.read_text(encoding="utf-8"))
-        self.assertEqual(payload["schema_version"], 2)
+        self.assertEqual(payload["schema_version"], 3)
         self.assertEqual(source.read_bytes(), before)
         with closing(open_readonly(self.root / "creator_loop.sqlite3")) as db:
             for table in ("assets", "asset_files", "evidence_versions"):
