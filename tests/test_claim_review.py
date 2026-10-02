@@ -257,6 +257,11 @@ class ClaimReviewTests(unittest.TestCase):
         self.root.joinpath(*imported.storage_key.split("/")).unlink()
         with self.assertRaises(EvidenceReopenError):
             self._review(version=corrected.claim_version_id)
+        # Isolate the soft-deleted Evidence case from the earlier missing anchor;
+        # UUID order must not decide which validation failure is observed.
+        self.root.joinpath(*imported.storage_key.split("/")).write_bytes(
+            other.read_bytes()
+        )
         self.db.execute(
             "UPDATE evidences SET deleted_at='now' WHERE evidence_id=?",
             (self.evidence.evidence_id,),
