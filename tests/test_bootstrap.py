@@ -1,3 +1,4 @@
+import hashlib
 import os
 import sqlite3
 import sys
@@ -11,6 +12,7 @@ from creator_loop.database import (
     _connect_write,
     backup,
     initialize,
+    migration_path,
     open_readonly,
     validate,
 )
@@ -78,6 +80,7 @@ class BootstrapTests(unittest.TestCase):
         d.execute(
             "INSERT INTO claim_evidence VALUES (?,?,?)", ("cv1", "ev1", "SUPPORTS")
         )
+        d.execute("INSERT INTO claim_version_seals VALUES (?,?)", ("cv1", T))
         d.execute(
             "INSERT INTO projects VALUES (?,?,?,?,?)", ("p1", "test", "ACTIVE", T, None)
         )
@@ -98,7 +101,7 @@ class BootstrapTests(unittest.TestCase):
         try:
             self.assertEqual(
                 copy.execute("PRAGMA user_version").fetchone()[0],
-                1,
+                2,
             )
         finally:
             copy.close()
@@ -109,6 +112,181 @@ class BootstrapTests(unittest.TestCase):
             ).fetchone()[0],
             64,
         )
+        self.assertEqual(
+            self.db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0],
+            2,
+        )
+
+    def make_legacy_database(self):
+        path = Path(self.tmp.name) / "legacy.sqlite3"
+        sql = migration_path().read_text(encoding="utf-8")
+        digest = hashlib.sha256(sql.encode("utf-8")).hexdigest()
+        with closing(sqlite3.connect(path)) as legacy:
+            legacy.execute("PRAGMA foreign_keys=ON")
+            legacy.executescript(sql)
+            legacy.execute(
+                "INSERT INTO schema_migrations VALUES (?,?,?,?)",
+                ("0001_initial", digest, T, "0.1.0"),
+            )
+            legacy.execute("PRAGMA user_version=1")
+            legacy.execute(
+                "INSERT INTO assets VALUES (?,?,?,?,?)",
+                ("a1", "TEXT", "legacy", T, None),
+            )
+            legacy.execute(
+                """INSERT INTO asset_files
+                   (file_id,asset_id,role,storage_key,sha256,byte_size,mime_type,created_at)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                ("f1", "a1", "ORIGINAL", "legacy.txt", "digest", 1, "text/plain", T),
+            )
+            legacy.execute(
+                "INSERT INTO evidences VALUES (?,?,?,?,?)",
+                ("e1", "a1", "DIRECT_TEXT", T, None),
+            )
+            legacy.execute(
+                "INSERT INTO evidence_versions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    "ev1",
+                    "e1",
+                    "a1",
+                    1,
+                    "f1",
+                    "legacy text",
+                    "WHOLE_ASSET",
+                    "{}",
+                    "HUMAN",
+                    None,
+                    "owner",
+                    T,
+                ),
+            )
+            legacy.execute(
+                "INSERT INTO claims VALUES (?,?,?,?)",
+                ("c1", "FACTUAL", T, None),
+            )
+            legacy.execute(
+                "INSERT INTO claim_versions VALUES (?,?,?,?,?,?)",
+                ("cv1", "c1", 1, "legacy claim", "owner", T),
+            )
+            legacy.execute(
+                "INSERT INTO claim_evidence VALUES (?,?,?)",
+                ("cv1", "ev1", "SUPPORTS"),
+            )
+            legacy.execute(
+                "INSERT INTO claims VALUES (?,?,?,?)",
+                ("c2", "EDITORIAL_HYPOTHESIS", T, None),
+            )
+            legacy.execute(
+                "INSERT INTO claim_versions VALUES (?,?,?,?,?,?)",
+                ("cv2", "c2", 1, "uncited legacy claim", "owner", T),
+            )
+            legacy.commit()
+        return path
+
+    def test_v1_upgrade_preserves_and_seals_existing_claims(self):
+        legacy = self.make_legacy_database()
+        initialize(legacy)
+        with closing(_connect_write(legacy)) as upgraded:
+            validate(upgraded)
+            self.assertEqual(upgraded.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(
+                upgraded.execute("SELECT count(*) FROM claim_version_seals").fetchone()[
+                    0
+                ],
+                2,
+            )
+            self.assertEqual(
+                upgraded.execute(
+                    "SELECT evidence_version_id FROM claim_evidence WHERE claim_version_id='cv1'"
+                ).fetchone()[0],
+                "ev1",
+            )
+            with self.assertRaises(sqlite3.IntegrityError):
+                upgraded.execute(
+                    "INSERT INTO claim_evidence VALUES (?,?,?)",
+                    ("cv2", "ev1", "CONTEXT"),
+                )
+        snapshots = list(legacy.parent.glob("legacy.sqlite3.pre-v2-*.sqlite3"))
+        self.assertEqual(len(snapshots), 1)
+        with closing(sqlite3.connect(snapshots[0])) as snapshot:
+            snapshot.execute("PRAGMA foreign_keys=ON")
+            validate(snapshot, expected_version=1)
+            self.assertEqual(
+                snapshot.execute("SELECT count(*) FROM claim_versions").fetchone()[0],
+                2,
+            )
+        initialize(legacy)
+        self.assertEqual(
+            len(list(legacy.parent.glob("legacy.sqlite3.pre-v2-*.sqlite3"))), 1
+        )
+
+    def test_claim_citations_and_seals_are_immutable(self):
+        self.seed()
+        self.db.execute(
+            "INSERT INTO claims VALUES (?,?,?,?)", ("c2", "FACTUAL", T, None)
+        )
+        self.db.execute(
+            "INSERT INTO claim_versions VALUES (?,?,?,?,?,?)",
+            ("cv2", "c2", 1, "new", "owner", T),
+        )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO claim_version_seals VALUES (?,?)", ("cv2", T))
+        self.db.execute(
+            "INSERT INTO claim_evidence VALUES (?,?,?)", ("cv2", "ev1", "SUPPORTS")
+        )
+        self.db.execute("INSERT INTO claim_version_seals VALUES (?,?)", ("cv2", T))
+        for sql in (
+            "INSERT INTO claim_evidence VALUES ('cv2','ev1','CONTEXT')",
+            "UPDATE claim_evidence SET relation_type='CONTEXT' WHERE claim_version_id='cv2'",
+            "DELETE FROM claim_evidence WHERE claim_version_id='cv2'",
+            "UPDATE claim_version_seals SET sealed_at='later' WHERE claim_version_id='cv2'",
+            "DELETE FROM claim_version_seals WHERE claim_version_id='cv2'",
+        ):
+            with self.assertRaises(sqlite3.IntegrityError):
+                self.db.execute(sql)
+
+    def test_failed_v1_migration_rolls_back_and_keeps_backup(self):
+        legacy = self.make_legacy_database()
+        with closing(sqlite3.connect(legacy)) as old:
+            old.execute("CREATE TABLE claim_version_seals (incompatible TEXT)")
+            old.commit()
+        with self.assertRaises(sqlite3.OperationalError):
+            initialize(legacy)
+        with closing(sqlite3.connect(legacy)) as old:
+            old.execute("PRAGMA foreign_keys=ON")
+            validate(old, expected_version=1)
+            self.assertEqual(
+                old.execute("SELECT count(*) FROM claim_evidence").fetchone()[0], 1
+            )
+        snapshots = list(legacy.parent.glob("legacy.sqlite3.pre-v2-*.sqlite3"))
+        self.assertEqual(len(snapshots), 1)
+        with closing(sqlite3.connect(snapshots[0])) as snapshot:
+            snapshot.execute("PRAGMA foreign_keys=ON")
+            validate(snapshot, expected_version=1)
+
+    def test_invalid_v1_history_never_starts_migration(self):
+        legacy = self.make_legacy_database()
+        with closing(sqlite3.connect(legacy)) as old:
+            old.execute(
+                "UPDATE schema_migrations SET checksum='tampered' WHERE id='0001_initial'"
+            )
+            old.commit()
+        with self.assertRaisesRegex(RuntimeError, "checksum"):
+            initialize(legacy)
+        with closing(sqlite3.connect(legacy)) as old:
+            self.assertEqual(old.execute("PRAGMA user_version").fetchone()[0], 1)
+        self.assertEqual(
+            list(legacy.parent.glob("legacy.sqlite3.pre-v2-*.sqlite3")), []
+        )
+
+    def test_v2_history_checksum_is_checked(self):
+        self.db.execute(
+            "UPDATE schema_migrations SET checksum='tampered' "
+            "WHERE id='0002_claim_citation_seal'"
+        )
+        self.db.commit()
+        with self.assertRaisesRegex(RuntimeError, "checksum"):
+            initialize(self.path)
 
     def test_project_reference_exactly_one(self):
         self.seed()

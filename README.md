@@ -37,13 +37,15 @@ Select an IMAGE original and choose **Tạo thumbnail Image** to generate a PNG 
 
 To create Evidence from a generated thumbnail, select its successful task row and choose **Evidence từ thumbnail**. Select a region in the decoded thumbnail; the saved Evidence anchors that derived file. Reopening verifies the thumbnail's own digest, even if the original later becomes unavailable. The service and UI passed required CI in PR #23 and PR #24 respectively.
 
-Select an Evidence Version and use its **Mở Evidence** button to compare the saved source. Then choose **Review Evidence**, select ACCEPT, REJECT, REQUEST_CHANGES or REOPEN, and enter the reviewer and reason when required. The Review column is derived from append-only events. ACCEPT verifies the saved anchor again, and review of an older version after correction is rejected. The service passed required CI in PR #25; this UI action is under CI review.
+Select an Evidence Version and use its **Mở Evidence** button to compare the saved source. Then choose **Review Evidence**, select ACCEPT, REJECT, REQUEST_CHANGES or REOPEN, and enter the reviewer and reason when required. The Review column is derived from append-only events. ACCEPT verifies the saved anchor again, and review of an older version after correction is rejected. The service and UI passed required CI in PR #25 and PR #26 respectively.
+
+The Claim service creates Claim Versions with exact SUPPORTS, CONTRADICTS and CONTEXT links to Evidence Versions. A sealed version preserves its statement and citations; corrections append a later version. Its support projection counts current ACCEPT links and stale links after Evidence correction; it does not approve publication. Claim UI and the editorial support threshold are still open.
 
 ## CI and release
 
 The `fast-schema-domain`, `security-dependencies-workflow`, and `windows-artifact` jobs are the intended required PR checks. Repository branch protection or a ruleset must enforce them; workflow YAML alone cannot enforce merging rules. On 2026-10-01, `main` branch protection required all three checks with `strict=true`, as verified through the GitHub API. A tag `v*` reachable from `main` runs the Windows build, extracts and smokes the exact ZIP, then publishes those tested bytes. [PR #5](https://github.com/NextGlobal224/creator-loop/pull/5) ran all three PR jobs successfully on head `99ff244`, including `windows-artifact` on the configured `windows-2022` runner ([CI run](https://github.com/NextGlobal224/creator-loop/actions/runs/36884109471)). The tag release gate remains unverified.
 
-`0001_initial.sql` is the first migration; never edit it after a release. Current bootstrap `initialize()` supports new DB only. Upgrade runner and restore UI are future gates. The release update contract in `docs/` must be implemented before distribution to users with existing data.
+`0001_initial.sql` remains unchanged; `0002_claim_citation_seal.sql` seals Claim citation sets. `initialize()` creates a new schema or upgrades a version 1 database after making and validating a SQLite backup beside it. The full updater, recovery UI, and release migration checks remain future gates under the update contract in `docs/`.
 
 ## Boundaries
 
