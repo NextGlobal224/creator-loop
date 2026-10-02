@@ -460,6 +460,10 @@ class LibraryWindow(QMainWindow):
         create_image.clicked.connect(self.choose_image_evidence)
         self._buttons.append(create_image)
         evidence_actions.addWidget(create_image)
+        create_thumbnail_evidence = QPushButton("Evidence từ thumbnail")
+        create_thumbnail_evidence.clicked.connect(self.choose_thumbnail_evidence)
+        self._buttons.append(create_thumbnail_evidence)
+        evidence_actions.addWidget(create_thumbnail_evidence)
         reopen_evidence = QPushButton("Mở Evidence Text")
         reopen_evidence.clicked.connect(self.reopen_selected_text_evidence)
         self._buttons.append(reopen_evidence)
@@ -527,10 +531,11 @@ class LibraryWindow(QMainWindow):
             evidence_rows = db.execute(
                 """SELECT v.evidence_version_id, a.display_name, v.content,
                           v.version_no, v.locator_type,
-                          json_extract(v.locator_data,'$.track')
+                          json_extract(v.locator_data,'$.track'),f.role
                    FROM evidence_versions v
                    JOIN evidences e ON e.evidence_id = v.evidence_id
                    JOIN assets a ON a.asset_id = e.asset_id
+                   JOIN asset_files f ON f.file_id=v.anchor_file_id
                    WHERE e.deleted_at IS NULL
                    ORDER BY v.created_at DESC, v.evidence_version_id DESC"""
             ).fetchall()
@@ -538,7 +543,10 @@ class LibraryWindow(QMainWindow):
                 """SELECT a.display_name,r.task_type,r.status,
                           COALESCE((SELECT f.storage_key FROM asset_files f
                                     WHERE f.processing_run_id=r.run_id
-                                    ORDER BY f.created_at,f.file_id LIMIT 1),'')
+                                    ORDER BY f.created_at,f.file_id LIMIT 1),''),
+                          (SELECT f.file_id FROM asset_files f
+                           WHERE f.processing_run_id=r.run_id
+                           ORDER BY f.created_at,f.file_id LIMIT 1)
                    FROM processing_runs r JOIN assets a ON a.asset_id=r.asset_id
                    ORDER BY r.created_at DESC,r.run_id DESC"""
             ).fetchall()
@@ -553,7 +561,7 @@ class LibraryWindow(QMainWindow):
         self.evidence_table.setRowCount(len(evidence_rows))
         for row_index, row in enumerate(evidence_rows):
             evidence_kind = {
-                "IMAGE_REGION": "Image",
+                "IMAGE_REGION": "Image thumbnail" if row[6] == "THUMBNAIL" else "Image",
                 "TEXT_RANGE": "Text",
                 "TIME_RANGE": "Audio" if row[5] == "audio" else "Video",
             }.get(str(row[4]), str(row[4]))
@@ -567,10 +575,11 @@ class LibraryWindow(QMainWindow):
             self.evidence_table.setItem(row_index, 2, QTableWidgetItem(str(row[3])))
         self.run_table.setRowCount(len(run_rows))
         for row_index, row in enumerate(run_rows):
-            for column_index, value in enumerate(row):
+            for column_index, value in enumerate(row[:4]):
                 self.run_table.setItem(
                     row_index, column_index, QTableWidgetItem(str(value))
                 )
+            self.run_table.item(row_index, 3).setData(Qt.ItemDataRole.UserRole, row[4])
         self.status.setText(f"{len(rows)} original(s), {len(run_rows)} run(s)")
 
     def choose_original(self, kind: str, filter_text: str) -> None:
@@ -676,6 +685,30 @@ class LibraryWindow(QMainWindow):
         self._start_image_worker(
             ImageEvidenceWorker("load", str(file_id), self.root),
             "Đang xác minh ảnh gốc…",
+        )
+
+    def choose_thumbnail_evidence(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.run_table.currentRow()
+        if (
+            row < 0
+            or self.run_table.item(row, 1).text() != "IMAGE_THUMBNAIL"
+            or self.run_table.item(row, 2).text() != "SUCCEEDED"
+        ):
+            QMessageBox.information(
+                self, "Chọn thumbnail", "Chọn một task thumbnail đã thành công."
+            )
+            return
+        file_id = self.run_table.item(row, 3).data(Qt.ItemDataRole.UserRole)
+        if not file_id:
+            QMessageBox.information(
+                self, "Chọn thumbnail", "Task chưa có file dẫn xuất."
+            )
+            return
+        self._start_image_worker(
+            ImageEvidenceWorker("load", str(file_id), self.root),
+            "Đang xác minh thumbnail…",
         )
 
     def choose_image_thumbnail(self) -> None:
