@@ -37,7 +37,9 @@ Select an IMAGE original and choose **Tạo thumbnail Image** to generate a PNG 
 
 To create Evidence from a generated thumbnail, select its successful task row and choose **Evidence từ thumbnail**. Select a region in the decoded thumbnail; the saved Evidence anchors that derived file. Reopening verifies the thumbnail's own digest, even if the original later becomes unavailable. The service and UI passed required CI in PR #23 and PR #24 respectively.
 
-Select an Evidence Version and use its **Mở Evidence** button to compare the saved source. Then choose **Review Evidence**, select ACCEPT, REJECT, REQUEST_CHANGES or REOPEN, and enter the reviewer and reason when required. The Review column is derived from append-only events. ACCEPT verifies the saved anchor again, and review of an older version after correction is rejected. The service passed required CI in PR #25; this UI action is under CI review.
+Select an Evidence Version and use its **Mở Evidence** button to compare the saved source. Then choose **Review Evidence**, select ACCEPT, REJECT, REQUEST_CHANGES or REOPEN, and enter the reviewer and reason when required. The Review column is derived from append-only events. ACCEPT verifies the saved anchor again, and review of an older version after correction is rejected. The service and UI passed required CI in PR #25 and PR #26 respectively.
+
+The Claim service on the current branch creates Claim Versions with exact SUPPORTS, CONTRADICTS and CONTEXT links to Evidence Versions. A later Claim Version preserves the previous statement and citations. Its support projection counts current ACCEPT links and stale links after Evidence correction; it does not approve publication. Claim UI and the editorial support threshold are still open.
 
 ## CI and release
 
