@@ -64,6 +64,11 @@ class AppDataLock:
             self._file = stream
         return self
 
+    @property
+    def held(self) -> bool:
+        """Whether this coordination object still owns its acquired OS lock."""
+        return self._handle is not None or self._file is not None
+
     def close(self) -> None:
         if self._handle is not None:
             if sys.platform != "win32":

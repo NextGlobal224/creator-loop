@@ -96,7 +96,7 @@ jobs:
         run: python -m PyInstaller --noconfirm --clean --onedir --name CreatorLoop --paths app --add-data "migrations/0001_initial.sql;migrations" --add-data "migrations/0002_claim_citation_seal.sql;migrations" --add-data "migrations/0003_draft_snapshot_seal.sql;migrations" --add-data "migrations/0004_selection_snapshot_seal.sql;migrations" --add-data "migrations/0005_publication_snapshot_guards.sql;migrations" --add-data "migrations/0006_observation_metric_validation.sql;migrations" packaging/entrypoint.py
       - name: Pack and smoke the exact ZIP
         shell: pwsh
-        timeout-minutes: 46
+        timeout-minutes: 48
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force release | Out-Null
@@ -166,6 +166,9 @@ jobs:
           $decoderProbe = Join-Path $PWD '.local-test-logs/exact-decoder-${{ github.sha }}'
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 90 -CommandArgs @('scripts/check_decoder_lifecycle.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--work-root',$decoderProbe,'--component-version','${{ github.sha }}')
           if ($LASTEXITCODE -ne 0) { throw 'Exact candidate inherited-handle decoder failed' }
+          $processingProbe = Join-Path $PWD '.local-test-logs/exact-processing-${{ github.sha }}'
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 120 -CommandArgs @('scripts/check_processing_recovery.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--work-root',$processingProbe,'--component-version','${{ github.sha }}')
+          if ($LASTEXITCODE -ne 0) { throw 'Exact candidate processing startup recovery failed' }
           Copy-Item -LiteralPath (Join-Path $env:CREATOR_LOOP_DATA_ROOT 'logs') -Destination release/managed-launch-logs -Recurse
           if ($before -ne (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'ZIP changed during staging' }
           "$before  CreatorLoop-${{ github.sha }}-win-x64.zip" | Set-Content -Encoding ascii release/SHA256SUMS.txt

@@ -471,8 +471,8 @@ def main() -> int:
     if not args.compatible_only:
         ensure_data_root(root)
     try:
-        with AppDataLock(root):
-            launch_result = _run(args, root)
+        with AppDataLock(root) as coordination:
+            launch_result = _run(args, root, coordination=coordination)
         if launch_result == MAINTENANCE_REQUESTED:
             from .maintenance_ui import run_maintenance
 
@@ -493,7 +493,9 @@ def main() -> int:
         return 4
 
 
-def _run(args: argparse.Namespace, root: Path) -> int:
+def _run(
+    args: argparse.Namespace, root: Path, *, coordination: AppDataLock | None = None
+) -> int:
     """Initialize and run only while the app/updater coordination lock is held."""
     from .restore_guard import require_no_pending_restore
 
@@ -513,8 +515,38 @@ def _run(args: argparse.Namespace, root: Path) -> int:
         return 2
     from .library_ui import LibraryWindow
 
+    recovery = None
+    if not args.ui_smoke:
+        from .processing_recovery import recover_processing_startup
+
+        if coordination is None:
+            raise RuntimeError("UI startup recovery requires the app coordination lock")
+        recovery = recover_processing_startup(root, coordination)
     app = QApplication(sys.argv)
     window = LibraryWindow(root)
+    if recovery is not None and (
+        recovery.interrupted_run_ids or recovery.unverified_running_ids
+    ):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLabel
+
+        messages = []
+        if recovery.interrupted_run_ids:
+            messages.append(
+                f"Đã ghi nhận {len(recovery.interrupted_run_ids)} tác vụ thumbnail bị gián đoạn; "
+                "chọn ảnh gốc trong Library để chạy thumbnail lại."
+            )
+        if recovery.unverified_running_ids:
+            messages.append(
+                f"Còn {len(recovery.unverified_running_ids)} tác vụ từ phiên trước chưa xác minh; "
+                "ứng dụng giữ nguyên trạng thái và không tự chạy lại."
+            )
+        notice = QLabel(" ".join(messages))
+        notice.setTextFormat(Qt.TextFormat.PlainText)
+        notice.setWordWrap(True)
+        central = window.centralWidget()
+        if central is not None and central.layout() is not None:
+            central.layout().addWidget(notice)
     window.show()
     if args.ui_smoke:
         from PySide6.QtCore import QTimer
