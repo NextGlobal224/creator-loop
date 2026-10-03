@@ -77,7 +77,10 @@ try {
 "@
 $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childScript))
 try {
-    $process = Start-Process -FilePath "$PSHOME\powershell.exe" -ArgumentList @(
+    # The parent can be pwsh (CI packaging). Child redirection deliberately uses
+    # Windows PowerShell; PSHOME then points to pwsh's folder, not powershell.exe.
+    $childShell = Join-Path ([Environment]::GetFolderPath('System')) 'WindowsPowerShell/v1.0/powershell.exe'
+    $process = Start-Process -FilePath $childShell -ArgumentList @(
         '-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded
     ) -WindowStyle Hidden -PassThru
     $job.Assign($process.Handle)
