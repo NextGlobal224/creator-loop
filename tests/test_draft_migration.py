@@ -1,4 +1,4 @@
-"""Validate schema 2 -> 3 backup, immutable legacy snapshots and failure recovery."""
+"""Validate legacy Draft upgrade, backup, immutable snapshots and failure recovery."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from creator_loop.database import (
     MIGRATIONS,
+    SCHEMA_VERSION,
     backup,
     initialize,
     migration_path,
@@ -62,7 +63,9 @@ class DraftMigrationTests(unittest.TestCase):
                     "SELECT 1 FROM sqlite_master WHERE name='draft_version_seals'"
                 ).fetchone()
             )
-        snapshots = list(self.path.parent.glob("legacy.sqlite3.pre-v3-*.sqlite3"))
+        snapshots = list(
+            self.path.parent.glob(f"legacy.sqlite3.pre-v{SCHEMA_VERSION}-*.sqlite3")
+        )
         self.assertEqual(len(snapshots), 1)
         with closing(sqlite3.connect(snapshots[0])) as db:
             db.execute("PRAGMA foreign_keys=ON")
@@ -82,7 +85,9 @@ class DraftMigrationTests(unittest.TestCase):
         with closing(sqlite3.connect(self.path)) as db:
             db.execute("PRAGMA foreign_keys=ON")
             validate(db)
-            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(
+                db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION
+            )
             self.assertEqual(
                 db.execute("SELECT count(*) FROM draft_version_seals").fetchone()[0], 2
             )
@@ -90,7 +95,9 @@ class DraftMigrationTests(unittest.TestCase):
                 self.assertEqual(db.execute(f"SELECT * FROM {table}").fetchall(), rows)
             with self.assertRaises(sqlite3.IntegrityError):
                 db.execute("UPDATE draft_assertions SET review_state='UNREVIEWED'")
-        snapshots = list(self.path.parent.glob("legacy.sqlite3.pre-v3-*.sqlite3"))
+        snapshots = list(
+            self.path.parent.glob(f"legacy.sqlite3.pre-v{SCHEMA_VERSION}-*.sqlite3")
+        )
         self.assertEqual(len(snapshots), 1)
         with closing(sqlite3.connect(snapshots[0])) as db:
             db.execute("PRAGMA foreign_keys=ON")
@@ -103,7 +110,14 @@ class DraftMigrationTests(unittest.TestCase):
             )
         initialize(self.path)
         self.assertEqual(
-            len(list(self.path.parent.glob("legacy.sqlite3.pre-v3-*.sqlite3"))), 1
+            len(
+                list(
+                    self.path.parent.glob(
+                        f"legacy.sqlite3.pre-v{SCHEMA_VERSION}-*.sqlite3"
+                    )
+                )
+            ),
+            1,
         )
 
     def test_invalid_historical_offsets_and_cycles_roll_back_and_keep_backup(self):
@@ -181,7 +195,9 @@ class DraftMigrationTests(unittest.TestCase):
             self.assertEqual(
                 db.execute("SELECT count(*) FROM draft_version_seals").fetchone()[0], 1
             )
-        snapshots = list(path.parent.glob("schema-one.sqlite3.pre-v3-*.sqlite3"))
+        snapshots = list(
+            path.parent.glob(f"schema-one.sqlite3.pre-v{SCHEMA_VERSION}-*.sqlite3")
+        )
         self.assertEqual(len(snapshots), 1)
         with closing(sqlite3.connect(snapshots[0])) as db:
             db.execute("PRAGMA foreign_keys=ON")

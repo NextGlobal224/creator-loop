@@ -15,7 +15,12 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from creator_loop.database import _connect_write, initialize, open_readonly
+from creator_loop.database import (
+    SCHEMA_VERSION,
+    _connect_write,
+    initialize,
+    open_readonly,
+)
 from creator_loop.evidence import Evidence, EvidenceRepository, EvidenceVersion
 from creator_loop.evidence_reopen import EvidenceReopenError, reopen_evidence_version
 from creator_loop.originals import verify_original_file
@@ -91,7 +96,7 @@ class RegisteredStorageTests(unittest.TestCase):
         self.assertEqual(list_storage_roots(self.root), [registered])
         self.assertEqual(register_storage_root(self.root, self.media), registered)
         payload = json.loads(self.manifest.read_text(encoding="utf-8"))
-        self.assertEqual(payload["schema_version"], 3)
+        self.assertEqual(payload["schema_version"], SCHEMA_VERSION)
         self.assertEqual(source.read_bytes(), before)
         with closing(open_readonly(self.root / "creator_loop.sqlite3")) as db:
             for table in ("assets", "asset_files", "evidence_versions"):

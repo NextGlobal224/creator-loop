@@ -134,6 +134,10 @@ TIME_RANGE: `0 <= start < end <= duration` nếu biết duration. IMAGE_REGION: 
 | `draft_assertions` | `assertion_id` PK; `draft_version_id` FK NN; `text_start` NN; `text_end` NN; `asserted_text` NN; `claim_version_id` FK?; `review_state` NN | Offset trên `body_text` version này; `0 <= start < end`; NULL Claim cho câu sáng tạo/cần nguồn, trạng thái phải nói rõ `UNREVIEWED/SUPPORTED/NEEDS_SOURCE/EDITORIAL`. |
 | `selection_events` | `selection_event_id` PK; `project_id` FK NN; `selected_draft_version_id` FK NN; `candidate_set_id` NN; `reason_text`?; `actor_id` NN; `created_at` NN | Ghi Creator chọn gì và vì sao; không tạo taste score. |
 | `selection_candidates` | `selection_event_id` FK NN; `draft_version_id` FK NN | PK hai ID; selected version phải thuộc tập ứng viên, ràng buộc kiểm tại transaction/ứng dụng. |
+| `selection_event_seals` | `selection_event_id` PK/FK; `sealed_at` NN | Niêm phong event cùng toàn bộ tập ứng viên; seal kiểm selected membership, sealed Draft Versions và cùng Project; sau seal không thêm/sửa/xóa tập hoặc event. |
+
+Selection service tạo event, tập ứng viên và seal trong một transaction; chỉ event đã seal được đọc như quyết định hoàn tất. Mỗi quyết định mới có `candidate_set_id` riêng cho tập exact Versions đó; quyết định mới không ghi đè quyết định trước. Migration giữ lịch sử hợp lệ, từ chối lịch sử sai membership/Project; `reason_text` vắng vẫn là NULL. Selection không cấp Approval xuất bản hoặc taste score.
+Các guard INSERT cũng chặn SQLite REPLACE tái dùng Selection event/seal, Draft identity hoặc Draft Version ID/number; không để đường thay hàng làm đổi Project/body mà quyết định lịch sử tham chiếu.
 
 ### D. Publication
 
