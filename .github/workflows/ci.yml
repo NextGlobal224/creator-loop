@@ -96,6 +96,7 @@ jobs:
         run: python -m PyInstaller --noconfirm --clean --onedir --name CreatorLoop --paths app --add-data "migrations/0001_initial.sql;migrations" --add-data "migrations/0002_claim_citation_seal.sql;migrations" --add-data "migrations/0003_draft_snapshot_seal.sql;migrations" --add-data "migrations/0004_selection_snapshot_seal.sql;migrations" --add-data "migrations/0005_publication_snapshot_guards.sql;migrations" --add-data "migrations/0006_observation_metric_validation.sql;migrations" packaging/entrypoint.py
       - name: Pack and smoke the exact ZIP
         shell: pwsh
+        timeout-minutes: 8
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force release | Out-Null
@@ -114,9 +115,28 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted UI smoke failed' }
           $after = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($before -ne $after) { throw 'Release ZIP changed after smoke' }
-          $manifest = [ordered]@{ app_version='0.1.0'; git_commit='${{ github.sha }}'; schema_from=0; schema_to=6; target='win-x64'; artifact_sha256=$before; tested_artifact=$true }
-          $manifest | ConvertTo-Json | Set-Content -Encoding utf8 release/release-manifest.json
+          python scripts/write_release_manifest.py --zip $zip --package (Join-Path $target 'CreatorLoop') --output release/release-manifest.json --commit '${{ github.sha }}' --run-url '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Release manifest validation failed' }
+          $installation = Join-Path $env:RUNNER_TEMP 'bản cài đặt theo phiên bản'
+          New-Item -ItemType Directory -Force $installation | Out-Null
+          & .\scripts\run_test_with_timeout.ps1 -Executable (Join-Path $target 'CreatorLoop/CreatorLoop.exe') -TimeoutSeconds 120 -CommandArgs @('--stage-update',$zip,'--release-manifest',(Join-Path $PWD 'release/release-manifest.json'),'--installation-root',$installation)
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted staging command failed' }
+          $candidate = Get-ChildItem $installation -Directory | Select-Object -First 1
+          if (-not $candidate) { throw 'Verified candidate missing' }
+          & .\scripts\run_test_with_timeout.ps1 -Executable (Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe') -TimeoutSeconds 60 -CommandArgs @('--smoke')
+          if ($LASTEXITCODE -ne 0) { throw 'Staged candidate launcher/schema smoke failed' }
+          $healthLog = Get-ChildItem .local-test-logs -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          Copy-Item -LiteralPath $healthLog.FullName -Destination release/staged-health-log -Recurse
+          if ($before -ne (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'ZIP changed during staging' }
           "$before  CreatorLoop-${{ github.sha }}-win-x64.zip" | Set-Content -Encoding ascii release/SHA256SUMS.txt
+      - name: Preserve bounded staging logs
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
+        with:
+          name: creator-loop-staging-test-logs-${{ github.sha }}
+          path: .local-test-logs/
+          if-no-files-found: error
+          include-hidden-files: true
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
         with:
           name: creator-loop-windows-${{ github.sha }}
