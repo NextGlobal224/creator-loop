@@ -153,7 +153,10 @@ class UpdateBackupTests(unittest.TestCase):
         with patch("creator_loop.update_backup.validate", side_effect=reject_copy):
             with self.assertRaisesRegex(RuntimeError, "snapshot invalid"):
                 create_update_backup(self.root)
-        self.assertEqual(list((self.root / "backups").iterdir()), [prior])
+        self.assertEqual(
+            [entry.resolve(strict=True) for entry in (self.root / "backups").iterdir()],
+            [prior],
+        )
         self.assertEqual((prior / "creator_loop.sqlite3").read_bytes(), prior_bytes)
         self._unchanged()
 
@@ -250,7 +253,10 @@ class UpdateBackupTests(unittest.TestCase):
         ):
             with self.assertRaises(ValueError):
                 create_update_backup(self.root)
-        self.assertEqual(list((self.root / "backups").iterdir()), [target])
+        self.assertEqual(
+            [entry.resolve(strict=True) for entry in (self.root / "backups").iterdir()],
+            [target],
+        )
 
     def test_queued_run_and_future_schema_refuse_before_snapshot(self):
         self.db.execute(
