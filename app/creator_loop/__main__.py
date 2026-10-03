@@ -2,6 +2,8 @@
 
 import argparse
 import sys
+from contextlib import closing
+from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -9,6 +11,7 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
 from . import __version__
+from .app_lock import AppDataLock, DataRootBusy
 from .database import initialize, open_readonly, validate
 from .paths import data_root, ensure_data_root
 
@@ -24,9 +27,19 @@ def main() -> int:
     args = parser.parse_args()
     root = data_root()
     ensure_data_root(root)
+    try:
+        with AppDataLock(root):
+            return _run(args, root)
+    except DataRootBusy as exc:
+        print(str(exc), file=sys.stderr)
+        return 3
+
+
+def _run(args: argparse.Namespace, root: Path) -> int:
+    """Initialize and run only while the app/updater coordination lock is held."""
     db_path = root / "creator_loop.sqlite3"
     initialize(db_path)
-    with open_readonly(db_path) as db:
+    with closing(open_readonly(db_path)) as db:
         validate(db)
     if args.smoke:
         print(f"Creator Loop {__version__}: schema OK at {db_path}")
