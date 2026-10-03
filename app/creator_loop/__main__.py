@@ -1,6 +1,7 @@
 """Minimal Windows desktop launcher; --smoke validates packaged execution."""
 
 import argparse
+import json
 import sqlite3
 import sys
 import zipfile
@@ -41,10 +42,35 @@ def main() -> int:
     )
     parser.add_argument("--release-manifest", type=Path)
     parser.add_argument("--installation-root", type=Path)
+    parser.add_argument(
+        "--health-check",
+        action="store_true",
+        help="Read-only schema/storage health; no migration or UI",
+    )
     args = parser.parse_args()
     if args.backup and (args.smoke or args.ui_smoke):
         parser.error("--backup cannot be combined with smoke modes")
     root = data_root()
+    if args.health_check:
+        if (
+            args.backup
+            or args.smoke
+            or args.ui_smoke
+            or args.stage_update
+            or args.prepare_update
+            or args.release_manifest is not None
+            or args.installation_root is not None
+        ):
+            parser.error("--health-check cannot be combined with other modes")
+        from .update_health import readonly_health
+
+        try:
+            health_result = readonly_health(root)
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(f"Health refused: {type(exc).__name__}", file=sys.stderr)
+            return 4
+        print(json.dumps(health_result, sort_keys=True))
+        return 0
     if args.stage_update and args.prepare_update:
         parser.error("Choose stage-only or update preparation")
     if args.stage_update or args.prepare_update:
