@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 
 from creator_loop.claims import _timestamp
 from creator_loop.database import open_readonly
+from creator_loop.observation_ui import ObservationDialog
 from creator_loop.packages import PackageItem, PublicationRepository
 from creator_loop.projects import list_projects
 from creator_loop.publication import (
@@ -304,6 +305,9 @@ class PublicationDialog(QDialog):
         self.posts.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.posts.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         post_layout.addWidget(self.posts, 1)
+        self.observation_button = QPushButton("Số liệu / Observation của Post đã chọn")
+        self.observation_button.clicked.connect(self.open_observations)
+        post_layout.addWidget(self.observation_button)
         post_form = QFormLayout()
         self.external_id, self.external_url, self.published_at = (
             QLineEdit(),
@@ -629,6 +633,12 @@ class PublicationDialog(QDialog):
         self.prepare_button.setEnabled(ready and approved and post is None)
         self.new_post_button.setEnabled(snapshot)
         pending = bool(post and post.status == "PENDING")
+        self.observation_button.setEnabled(
+            snapshot
+            and bool(
+                post and post.published_at and post.status in ("PUBLISHED", "REMOVED")
+            )
+        )
         text_item = bool(
             self._snapshot
             and 0 <= row < len(self._snapshot.items)
@@ -759,6 +769,11 @@ class PublicationDialog(QDialog):
                     published_at=self.published_at.text(),
                 )
             )
+
+    def open_observations(self) -> None:
+        post = self.selected_post()
+        if self.observation_button.isEnabled() and post is not None:
+            ObservationDialog(self.root, post.post_id).exec()
 
     def preview_file(self) -> None:
         if self.preview_button.isEnabled():
