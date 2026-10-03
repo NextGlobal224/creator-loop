@@ -553,6 +553,7 @@ class LibraryWindow(QMainWindow):
     def __init__(self, root: Path) -> None:
         super().__init__()
         self.root = root
+        self.maintenance_requested = False
         self._worker: QThread | None = None
         self._evidence_result: object | None = None
         self._image_result: object | None = None
@@ -608,6 +609,12 @@ class LibraryWindow(QMainWindow):
         self._buttons.append(storage)
         actions.addWidget(storage)
         layout.addLayout(actions)
+        self.maintenance_button = QPushButton(
+            "Đóng Library để sao lưu / cập nhật / khôi phục"
+        )
+        self.maintenance_button.clicked.connect(self.choose_maintenance)
+        self._buttons.append(self.maintenance_button)
+        layout.addWidget(self.maintenance_button)
 
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(("Loại", "Tên", "MIME", "Byte"))
@@ -1594,6 +1601,11 @@ class LibraryWindow(QMainWindow):
             button.setEnabled(True)
         if worker is not None:
             worker.deleteLater()
+
+    def choose_maintenance(self) -> None:
+        self.maintenance_requested = True
+        if not self.close():
+            self.maintenance_requested = False
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._worker is not None and self._worker.isRunning():
