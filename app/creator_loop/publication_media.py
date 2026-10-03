@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 import sqlite3
+import sys
 from contextlib import ExitStack
 from pathlib import Path
 from typing import BinaryIO
@@ -16,7 +17,7 @@ from creator_loop.windows_owned_file import _INVALID_HANDLE_VALUE, _kernel32
 
 
 def _open_read_lock(path: Path) -> BinaryIO:
-    if os.name != "nt":
+    if sys.platform != "win32":
         # Portable CI verifies bytes/DB invariants; Windows tests verify sharing.
         return path.open("rb")
     import ctypes
