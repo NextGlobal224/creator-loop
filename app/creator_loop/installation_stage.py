@@ -127,20 +127,7 @@ def load_release_manifest(path: Path) -> dict[str, Any]:
     return manifest
 
 
-def stage_installation(
-    artifact: Path,
-    manifest_path: Path,
-    installation_root: Path,
-    *,
-    user_data_root: Path,
-) -> Path:
-    """Publish a verified candidate; retain every previous installation and DB.
-
-    The supplied manifest is from the user's chosen distribution source. Hashes
-    verify bytes against it; they do not independently authenticate that source.
-    No candidate executable runs here. Updater orchestration/health/activation
-    must happen separately, after the user-data backup and compatibility gate.
-    """
+def _installation_root(installation_root: Path, user_data_root: Path) -> Path:
     root = installation_root.resolve(strict=True)
     data = user_data_root.resolve()
     if (
@@ -157,6 +144,44 @@ def stage_installation(
         checkout = Path(__file__).resolve().parents[2]
         if root.is_relative_to(checkout) or checkout.is_relative_to(root):
             raise ValueError("Installation must be separate from the source checkout")
+    return root
+
+
+def preflight_installation(
+    installation_root: Path, user_data_root: Path, manifest: dict[str, Any]
+) -> None:
+    root = _installation_root(installation_root, user_data_root)
+    required = sum(entry["size"] for entry in manifest["files"].values()) + 1024**2
+    if shutil.disk_usage(root).free < required:
+        raise OSError("Insufficient installation staging space")
+    probe = root / f".{uuid4().hex}.write-probe"
+    created = False
+    try:
+        with probe.open("xb") as stream:
+            created = True
+            stream.write(b"Creator Loop installation preflight\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+    finally:
+        if created:
+            probe.unlink(missing_ok=True)
+
+
+def stage_installation(
+    artifact: Path,
+    manifest_path: Path,
+    installation_root: Path,
+    *,
+    user_data_root: Path,
+) -> Path:
+    """Publish a verified candidate; retain every previous installation and DB.
+
+    The supplied manifest is from the user's chosen distribution source. Hashes
+    verify bytes against it; they do not independently authenticate that source.
+    No candidate executable runs here. Updater orchestration/health/activation
+    must happen separately, after the user-data backup and compatibility gate.
+    """
+    root = _installation_root(installation_root, user_data_root)
     manifest = load_release_manifest(manifest_path)
     files = manifest["files"]
     assert isinstance(files, dict)

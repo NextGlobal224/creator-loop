@@ -88,25 +88,45 @@ def _create_locked(root: Path, timeout_seconds: float) -> Path:
         guard.execute("PRAGMA foreign_keys=ON")
         guard.execute("BEGIN IMMEDIATE")
         try:
-            version = guard.execute("PRAGMA user_version").fetchone()[0]
-            if not 1 <= version <= SCHEMA_VERSION:
-                raise RuntimeError("Unsupported source schema")
-            validate(guard, expected_version=version)
-            if guard.execute(
-                "SELECT 1 FROM processing_runs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
-            ).fetchone():
-                raise RuntimeError(
-                    "Active processing runs require recovery before backup"
-                )
-            required = (
-                guard.execute("PRAGMA page_count").fetchone()[0]
-                * guard.execute("PRAGMA page_size").fetchone()[0]
-            )
-            if shutil.disk_usage(folder).free < required * 2 + 1024 * 1024:
-                raise OSError("Insufficient space for validated DB backup")
-            return _snapshot(root, source, folder, version, timeout_seconds)
+            return _backup_from_guard(root, guard, timeout_seconds)
         finally:
             guard.rollback()
+
+
+def _backup_from_guard(
+    root: Path, guard: sqlite3.Connection, timeout_seconds: float
+) -> Path:
+    """Caller owns app lock and the source DB's BEGIN IMMEDIATE transaction."""
+    if not guard.in_transaction:
+        raise RuntimeError("Backup requires the source writer transaction")
+    source = root / "creator_loop.sqlite3"
+    folder = root / "backups"
+    if (
+        not source.is_file()
+        or source.is_symlink()
+        or source.is_junction()
+        or not folder.is_dir()
+        or folder.is_symlink()
+        or folder.is_junction()
+    ):
+        raise OSError("A real database and backup directory are required")
+    if any(path.name != "app-data.lock" for path in (root / "runtime").iterdir()):
+        raise RuntimeError("Worker runtime records require recovery before backup")
+    version = guard.execute("PRAGMA user_version").fetchone()[0]
+    if not 1 <= version <= SCHEMA_VERSION:
+        raise RuntimeError("Unsupported source schema")
+    validate(guard, expected_version=version)
+    if guard.execute(
+        "SELECT 1 FROM processing_runs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
+    ).fetchone():
+        raise RuntimeError("Active processing runs require recovery before backup")
+    required = (
+        guard.execute("PRAGMA page_count").fetchone()[0]
+        * guard.execute("PRAGMA page_size").fetchone()[0]
+    )
+    if shutil.disk_usage(folder).free < required * 2 + 1024 * 1024:
+        raise OSError("Insufficient space for validated DB backup")
+    return _snapshot(root, source, folder, version, timeout_seconds)
 
 
 def _snapshot(

@@ -34,13 +34,20 @@ def main() -> int:
     parser.add_argument(
         "--stage-update", type=Path, help="Verify and stage a supplied ZIP"
     )
+    parser.add_argument(
+        "--prepare-update",
+        type=Path,
+        help="Backup, stage and migrate; activation pending",
+    )
     parser.add_argument("--release-manifest", type=Path)
     parser.add_argument("--installation-root", type=Path)
     args = parser.parse_args()
     if args.backup and (args.smoke or args.ui_smoke):
         parser.error("--backup cannot be combined with smoke modes")
     root = data_root()
-    if args.stage_update:
+    if args.stage_update and args.prepare_update:
+        parser.error("Choose stage-only or update preparation")
+    if args.stage_update or args.prepare_update:
         if (
             args.backup
             or args.smoke
@@ -52,18 +59,41 @@ def main() -> int:
                 "Staging requires --release-manifest and --installation-root, without other modes"
             )
         from .installation_stage import stage_installation
+        from .update_preparation import prepare_update
 
         try:
-            candidate = stage_installation(
-                args.stage_update,
-                args.release_manifest,
-                args.installation_root,
-                user_data_root=root,
-            )
-        except (OSError, ValueError, zipfile.BadZipFile) as exc:
-            print(f"Staging refused: {exc}", file=sys.stderr)
+            if args.prepare_update:
+                candidate = prepare_update(
+                    root,
+                    args.prepare_update,
+                    args.release_manifest,
+                    args.installation_root,
+                )
+            else:
+                candidate = stage_installation(
+                    args.stage_update,
+                    args.release_manifest,
+                    args.installation_root,
+                    user_data_root=root,
+                )
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (
+            OSError,
+            ValueError,
+            RuntimeError,
+            sqlite3.Error,
+            zipfile.BadZipFile,
+        ) as exc:
+            print(f"Update/staging refused: {exc}", file=sys.stderr)
             return 4
-        print(f"Verified installation staged: {candidate.name}; activation pending")
+        result_type = (
+            "Prepared update journal"
+            if args.prepare_update
+            else "Verified installation staged"
+        )
+        print(f"{result_type}: {candidate.name}; activation pending")
         return 0
     if args.release_manifest is not None or args.installation_root is not None:
         parser.error("Staging paths require --stage-update")

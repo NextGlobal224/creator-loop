@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from creator_loop import __version__
-from creator_loop.database import MIGRATIONS, SCHEMA_VERSION
+from creator_loop.database import MIGRATIONS, SCHEMA_VERSION, _migration_sql
 from creator_loop.installation_stage import load_release_manifest
 
 
@@ -59,6 +59,9 @@ def write_manifest(
             "status": "Engine/model selection unresolved; no external engine required for smoke"
         },
         "migration_ids": list(MIGRATIONS),
+        "migration_checksums": {
+            migration: _migration_sql(migration)[1] for migration in MIGRATIONS
+        },
         "files": files,
         "provenance": {
             "repository": "NextGlobal224/creator-loop",
