@@ -56,6 +56,51 @@ class MediaOriginalIntakeTests(unittest.TestCase):
         self.db_path = self.root / "creator_loop.sqlite3"
         initialize(self.db_path)
 
+    def test_video_cancel_during_copy_preserves_source_and_discards_unregistered_copy(
+        self,
+    ):
+        source = self.base / "cancel-copy.mp4"
+        payload = b"\x00\x00\x00\x18ftypisom" + b"x" * (3 * 1024 * 1024)
+        source.write_bytes(payload)
+        calls = []
+
+        def cancel():
+            calls.append(1)
+            return len(calls) >= 3
+
+        with (
+            patch("creator_loop.media_intake.preflight_video") as preflight,
+            self.assertRaises(InterruptedError),
+        ):
+            intake_video_original(source, root=self.root, cancel=cancel)
+        preflight.assert_not_called()
+        self.assertEqual(source.read_bytes(), payload)
+        self.assertEqual(list((self.root / "storage/originals").iterdir()), [])
+        with closing(sqlite3.connect(self.db_path)) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 0)
+
+    def test_video_cancel_after_decode_does_not_register_or_keep_owned_copy(self):
+        from creator_loop.media_preflight import MediaInfo
+
+        source = self.base / "cancel-decoded.mp4"
+        payload = b"\x00\x00\x00\x18ftypisom" + b"fixture"
+        source.write_bytes(payload)
+        cancelled = [False]
+
+        def decoded(*args, **kwargs):
+            cancelled[0] = True
+            return MediaInfo(64, 48, 1000)
+
+        with (
+            patch("creator_loop.media_intake.preflight_video", side_effect=decoded),
+            self.assertRaises(InterruptedError),
+        ):
+            intake_video_original(source, root=self.root, cancel=lambda: cancelled[0])
+        self.assertEqual(source.read_bytes(), payload)
+        self.assertEqual(list((self.root / "storage/originals").iterdir()), [])
+        with closing(sqlite3.connect(self.db_path)) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 0)
+
     def _check_import(
         self, source: Path, content: bytes, media_type: str, mime_type: str
     ) -> None:

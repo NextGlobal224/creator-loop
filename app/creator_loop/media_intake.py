@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Callable
 
 from creator_loop.media_preflight import preflight_image, preflight_video
 from creator_loop.paths import data_root
@@ -33,12 +33,16 @@ def _image_type(stored: BinaryIO) -> tuple[str, str]:
 
 
 def intake_video_original(
-    source_path: Path, *, root: Path | None = None
+    source_path: Path,
+    *,
+    root: Path | None = None,
+    cancel: Callable[[], bool] | None = None,
 ) -> ImportedOriginal:
     """Register a physical MP4 original after signature and byte verification."""
     return _intake_original(
         source_path,
         classify=_video_type,
+        cancel=cancel,
         preflight=lambda stream, path: preflight_video(
             stream, path, root=Path(root) if root is not None else data_root()
         ),

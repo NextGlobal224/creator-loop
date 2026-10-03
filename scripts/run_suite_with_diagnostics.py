@@ -59,6 +59,7 @@ def main() -> int:
         (diagnostics / "progress.jsonl").open("x", encoding="utf-8") as progress,
         (diagnostics / "tracebacks.log").open("x", encoding="utf-8") as traces,
     ):
+        faulthandler.enable(file=traces, all_threads=True)
         faulthandler.dump_traceback_later(60, repeat=True, file=traces)
         try:
             suite = unittest.defaultTestLoader.discover("tests", pattern=args.pattern)
@@ -70,6 +71,7 @@ def main() -> int:
             return 0 if result.wasSuccessful() else 1
         finally:
             faulthandler.cancel_dump_traceback_later()
+            faulthandler.disable()
 
 
 if __name__ == "__main__":
