@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .database import _connect_write
+from .database import _connect_write, open_readonly
 from .publication_media import hold_publication_media
 from .publication_policy import PublicationBlocker, factual_review_blockers
 
@@ -224,6 +224,29 @@ class PublicationRepository:
                 expected_fingerprint=expected_fingerprint,
                 data_root=data_root,
             )
+        finally:
+            db.close()
+
+    def publication_blockers(
+        self,
+        *,
+        package_id: str,
+        data_root: Path,
+    ) -> tuple[str, ...]:
+        """Current inspection for human review; actions always recheck under write lock."""
+        from .publication import _publication_ready, package_snapshot
+
+        db = open_readonly(self.db_path)
+        try:
+            db.execute("BEGIN")
+            with ExitStack() as handles:
+                try:
+                    _publication_ready(
+                        db, package_snapshot(db, package_id), data_root, handles
+                    )
+                except ValueError as exc:
+                    return tuple(str(exc).splitlines())
+            return ()
         finally:
             db.close()
 
