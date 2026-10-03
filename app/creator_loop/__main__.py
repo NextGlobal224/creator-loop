@@ -43,6 +43,11 @@ def main() -> int:
     parser.add_argument("--release-manifest", type=Path)
     parser.add_argument("--installation-root", type=Path)
     parser.add_argument(
+        "--activate-update",
+        type=Path,
+        help="Activate a prepared journal and health-check",
+    )
+    parser.add_argument(
         "--health-check",
         action="store_true",
         help="Read-only schema/storage health; no migration or UI",
@@ -58,6 +63,7 @@ def main() -> int:
             or args.ui_smoke
             or args.stage_update
             or args.prepare_update
+            or args.activate_update
             or args.release_manifest is not None
             or args.installation_root is not None
         ):
@@ -70,6 +76,36 @@ def main() -> int:
             print(f"Health refused: {type(exc).__name__}", file=sys.stderr)
             return 4
         print(json.dumps(health_result, sort_keys=True))
+        return 0
+    if args.activate_update:
+        if (
+            args.backup
+            or args.smoke
+            or args.ui_smoke
+            or args.stage_update
+            or args.prepare_update
+            or args.release_manifest is not None
+            or args.installation_root is None
+        ):
+            parser.error(
+                "Activation requires only --activate-update and --installation-root"
+            )
+        from .update_activation import activate_prepared_update
+
+        try:
+            active = activate_prepared_update(
+                root, args.activate_update, args.installation_root
+            )
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+            print(
+                f"Activation refused: {type(exc).__name__}; retain backup and inspect journal",
+                file=sys.stderr,
+            )
+            return 4
+        print(f"Health-validated active installation: {active.name}")
         return 0
     if args.stage_update and args.prepare_update:
         parser.error("Choose stage-only or update preparation")
