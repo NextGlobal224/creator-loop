@@ -94,7 +94,11 @@ def _create_locked(root: Path, timeout_seconds: float) -> Path:
 
 
 def _backup_from_guard(
-    root: Path, guard: sqlite3.Connection, timeout_seconds: float
+    root: Path,
+    guard: sqlite3.Connection,
+    timeout_seconds: float,
+    *,
+    validate_storage: bool = True,
 ) -> Path:
     """Caller owns app lock and the source DB's BEGIN IMMEDIATE transaction."""
     if not guard.in_transaction:
@@ -126,11 +130,24 @@ def _backup_from_guard(
     )
     if shutil.disk_usage(folder).free < required * 2 + 1024 * 1024:
         raise OSError("Insufficient space for validated DB backup")
-    return _snapshot(root, source, folder, version, timeout_seconds)
+    return _snapshot(
+        root,
+        source,
+        folder,
+        version,
+        timeout_seconds,
+        validate_storage=validate_storage,
+    )
 
 
 def _snapshot(
-    root: Path, source: Path, folder: Path, version: int, timeout_seconds: float
+    root: Path,
+    source: Path,
+    folder: Path,
+    version: int,
+    timeout_seconds: float,
+    *,
+    validate_storage: bool = True,
 ) -> Path:
     backup_id = uuid4().hex
     stage = folder / f".{backup_id}.staging"
@@ -161,7 +178,22 @@ def _snapshot(
             reader.backup(target, pages=256, progress=progress, sleep=0.01)
         with closing(open_readonly(snapshot)) as copy:
             validate(copy, expected_version=version)
-            inventory = _inventory(copy, root)
+            inventory = (
+                _inventory(copy, root)
+                if validate_storage
+                else [
+                    dict(
+                        zip(
+                            ("file_id", "role", "storage_key", "byte_size", "sha256"),
+                            row,
+                            strict=True,
+                        )
+                    )
+                    for row in copy.execute(
+                        "SELECT file_id,role,storage_key,byte_size,sha256 FROM asset_files ORDER BY file_id"
+                    )
+                ]
+            )
         with snapshot.open("r+b") as snapshot_stream:
             os.fsync(snapshot_stream.fileno())
         roots = [asdict(entry) for entry in list_storage_roots(root)]
@@ -181,7 +213,9 @@ def _snapshot(
             "database_size": snapshot.stat().st_size,
             "database_sha256": _digest(snapshot),
             "media_included": False,
-            "storage_reference_check": "availability_and_size",
+            "storage_reference_check": "availability_and_size"
+            if validate_storage
+            else "not_checked",
             "storage_references": inventory,
             "storage_roots": roots,
             "storage_manifest": storage_manifest,

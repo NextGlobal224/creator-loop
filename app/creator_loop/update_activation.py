@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from contextlib import closing
+from contextlib import ExitStack, closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -144,7 +144,11 @@ def verify_prepared_backup(canonical: Path, record: dict[str, Any]) -> Path:
 
 
 def activate_prepared_update(
-    root: Path, journal_path: Path, installation_root: Path
+    root: Path,
+    journal_path: Path,
+    installation_root: Path,
+    *,
+    restore_id: str | None = None,
 ) -> Path:
     """Switch the managed pointer then health-check while app/DB locks remain held.
 
@@ -171,6 +175,7 @@ def activate_prepared_update(
         raise ValueError("A real source database is required")
     with (
         AppDataLock(canonical),
+        ExitStack() as media_handles,
         closing(
             sqlite3.connect(source.as_uri() + "?mode=rw", uri=True, timeout=10)
         ) as db,
@@ -179,9 +184,18 @@ def activate_prepared_update(
         db.execute("BEGIN IMMEDIATE")
         try:
             validate(db)
+            allowed_runtime = {"app-data.lock"}
+            if restore_id is not None:
+                marker = _read_record(canonical / "runtime/restore-in-progress.json")
+                if (
+                    marker.get("restore_id") != restore_id
+                    or journal_path.name != f"update-{restore_id}.json"
+                ):
+                    raise ValueError("Restore marker does not identify this activation")
+                allowed_runtime.add("restore-in-progress.json")
             if (
                 any(
-                    path.name != "app-data.lock"
+                    path.name not in allowed_runtime
                     for path in (canonical / "runtime").iterdir()
                 )
                 or db.execute(
@@ -220,6 +234,16 @@ def activate_prepared_update(
             ):
                 raise ValueError("Prepared candidate compatibility mismatch")
             verify_prepared_backup(canonical, record)
+            if restore_id is not None:
+                from creator_loop.restore_apply import _verify_restored_state
+
+                if (
+                    record.get("restore_format") != 1
+                    or record.get("restore_id") != restore_id
+                    or record.get("confirmed_lost_changes") is not True
+                ):
+                    raise ValueError("Confirmed restore activation required")
+                _verify_restored_state(canonical, db, record, media_handles)
             before = _inventory(db, canonical)
             pointer_path = installation / "active-installation.json"
             previous = None
