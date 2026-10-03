@@ -82,6 +82,9 @@ def verify_candidate(candidate: Path, installation: Path) -> dict[str, Any]:
 def active_candidate(
     installation: Path, schema_version: int
 ) -> tuple[Path, dict[str, Any]]:
+    if installation.is_symlink() or installation.is_junction():
+        raise ValueError("Active installation root must be a real directory")
+    installation = installation.resolve(strict=True)
     pointer = _read_record(installation / "active-installation.json")
     if pointer.get("pointer_format") != 1 or pointer.get("status") != "ACTIVE":
         raise RuntimeError("Installation has no health-validated active candidate")
