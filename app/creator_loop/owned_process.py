@@ -204,6 +204,7 @@ class OwnedWindowsProcess:
         component_version: str,
         environment: dict[str, str] | None = None,
         cwd: Path | None = None,
+        capture_output: bool = True,
     ) -> None:
         if sys.platform != "win32":
             raise OSError("Owned process trees require Windows")
@@ -237,8 +238,16 @@ class OwnedWindowsProcess:
             ):
                 raise ctypes.WinError(ctypes.get_last_error())
             self.streams.append(open(os.devnull, "rb"))
-            self.streams.append(self.stdout_path.open("xb"))
-            self.streams.append(self.stderr_path.open("xb"))
+            self.streams.append(
+                self.stdout_path.open("xb")
+                if capture_output
+                else open(os.devnull, "wb")
+            )
+            self.streams.append(
+                self.stderr_path.open("xb")
+                if capture_output
+                else open(os.devnull, "wb")
+            )
             self._create(arguments, environment, cwd, component_version)
         except BaseException:
             self.close()
@@ -412,6 +421,23 @@ class OwnedWindowsProcess:
                 if time.monotonic() >= deadline:
                     raise TimeoutError("Owned tree did not finish termination")
                 time.sleep(0.01)
+
+    def poll(self) -> ProcessOutcome | None:
+        """Observe a desktop session without assigning a lifetime deadline."""
+        if sys.platform != "win32":
+            raise OSError("Owned process trees require Windows")
+        if self.process is None:
+            raise RuntimeError("Owned process is closed")
+        state = self.kernel.WaitForSingleObject(self.process, 0)
+        if state == 0x102:
+            return None
+        if state != 0:
+            raise ctypes.WinError(ctypes.get_last_error())
+        code = w.DWORD()
+        if not self.kernel.GetExitCodeProcess(self.process, ctypes.byref(code)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        self.stop(code.value)
+        return ProcessOutcome(code.value, False, time.monotonic() - self.started)
 
     def close(self) -> None:
         # Non-inherited Job handle: OS closing it on owner crash kills the tree.

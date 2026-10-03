@@ -1,8 +1,8 @@
 # Native ownership và readonly health
 
 Checkpoint này bổ sung primitive process tree và health cho updater. Phần
-[activation](UPDATE_ACTIVATION.md) được nối ở checkpoint tiếp theo; managed
-launcher, recovery/restore và engine/model thật vẫn chưa hoàn tất.
+[activation](UPDATE_ACTIVATION.md) và [managed launcher](MANAGED_LAUNCHER.md) dùng
+primitive này; recovery/restore và engine/model thật vẫn chưa hoàn tất.
 
 `OwnedWindowsProcess` chỉ chạy trên Windows. Nó tạo child suspended, gán vào
 private Job Object có kill-on-close trước resume và giữ process handle suốt lượt.
