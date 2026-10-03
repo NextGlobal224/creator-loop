@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import faulthandler
 import json
+import sys
 import time
 import unittest
 from pathlib import Path
@@ -45,6 +46,9 @@ class TimedResult(unittest.TextTestResult):
 
 
 def main() -> int:
+    # Match `python -m unittest`: script execution otherwise puts scripts/
+    # rather than the checkout root on sys.path. Tests also import app/scripts.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     parser = argparse.ArgumentParser()
     parser.add_argument("--pattern", default="test*.py")
     args = parser.parse_args()
