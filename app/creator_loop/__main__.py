@@ -1,6 +1,7 @@
 """Minimal Windows desktop launcher; --smoke validates packaged execution."""
 
 import argparse
+import sqlite3
 import sys
 from contextlib import closing
 from pathlib import Path
@@ -24,8 +25,28 @@ def main() -> int:
     parser.add_argument(
         "--ui-smoke", action="store_true", help="Open the Library UI briefly and exit"
     )
+    parser.add_argument(
+        "--backup",
+        action="store_true",
+        help="Validate a DB-only backup with the app closed",
+    )
     args = parser.parse_args()
+    if args.backup and (args.smoke or args.ui_smoke):
+        parser.error("--backup cannot be combined with smoke modes")
     root = data_root()
+    if args.backup:
+        from .update_backup import create_update_backup
+
+        try:
+            result = create_update_backup(root)
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+            print(f"Backup refused: {exc}", file=sys.stderr)
+            return 4
+        print(f"Validated DB-only backup: {result.name}; media is not included")
+        return 0
     ensure_data_root(root)
     try:
         with AppDataLock(root):
