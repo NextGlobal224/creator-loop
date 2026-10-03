@@ -11,6 +11,7 @@ MIGRATIONS = (
     "0002_claim_citation_seal",
     "0003_draft_snapshot_seal",
     "0004_selection_snapshot_seal",
+    "0005_publication_snapshot_guards",
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 
