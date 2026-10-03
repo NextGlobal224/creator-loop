@@ -29,7 +29,7 @@ sau JSON hợp lệ, candidate revalidation và storage inventory không đổi 
 ACTIVE và journal COMPLETED/activation_pending=false. Health stdout/stderr,
 ownership/result nằm dưới `logs/update-health-<id>-<run>/`. Không chạy model nặng.
 
-Nếu health hoặc metadata write lỗi, journal ghi HEALTH_FAILED/error_type khi ghi
+Nếu health hoặc core pointer/journal write lỗi, journal ghi HEALTH_FAILED/error_type khi ghi
 được. Chỉ phục hồi pointer cũ khi inventory/digest và schema readable range của
 version cũ đã được xác minh; không restore DB. Nếu không có bản cũ tương thích,
 pointer HEALTH_FAILED chặn managed launch. Không mở DB bằng executable cũ không
@@ -39,7 +39,12 @@ lại phase cuối bền vững, nên phải đọc DB/pointer/log thực tế k
 CI chạy activation từ EXE exact ZIP trên prepared fixture và kiểm pointer ACTIVE,
 lưu journal và log native health. Các test orchestration dùng health fixture có
 kiểm lock; native health/owner crash được kiểm riêng và trên packaged candidate.
+Sau core activation hoàn tất, lỗi ghi user-data manifest riêng được ghi
+COMPLETED_METADATA_PENDING và giữ pointer đã health-valid; xem
+[metadata repair](UPDATE_METADATA.md), không hiểu lỗi này là health failure.
+
 Đây là checkpoint activation, chưa phải nghiệm thu updater hoàn chỉnh. Dùng
-[managed launcher](MANAGED_LAUNCHER.md) để mở từ pointer; metadata
-last-successful-update, crash recovery và restore có xác nhận/UI đang làm tiếp.
+[managed launcher](MANAGED_LAUNCHER.md) để mở từ pointer;
+[update metadata](UPDATE_METADATA.md) ghi last-successful-update; crash recovery
+và restore có xác nhận/UI đang làm tiếp.
 Không gọi artifact này là release V1.
