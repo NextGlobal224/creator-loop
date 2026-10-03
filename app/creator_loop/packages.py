@@ -15,6 +15,7 @@ from .publication_policy import PublicationBlocker, factual_review_blockers
 CanonicalItem = tuple[str, int, str | None, str | None, str]
 
 if TYPE_CHECKING:
+    from .observations import MetricInput, Observation
     from .publication import Approval, ApprovalDecision, Post
 
 
@@ -223,6 +224,23 @@ class PublicationRepository:
                 package_id=package_id,
                 expected_fingerprint=expected_fingerprint,
                 data_root=data_root,
+            )
+        finally:
+            db.close()
+
+    def record_manual_observation(
+        self,
+        *,
+        post_id: str,
+        observed_at: str,
+        metrics: tuple["MetricInput", ...],
+    ) -> "Observation":
+        from .observations import _record_manual_observation
+
+        db = _connect_write(self.db_path)
+        try:
+            return _record_manual_observation(
+                db, post_id=post_id, observed_at=observed_at, metrics=metrics
             )
         finally:
             db.close()

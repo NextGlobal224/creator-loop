@@ -119,8 +119,8 @@ class PublicationSnapshotMigrationTests(unittest.TestCase):
             table: db.execute(f"SELECT * FROM {table}").fetchall() for table in tables
         }
 
-    def test_upgrade_schemas_1_2_3_4_and_validated_backup_preserve_history(self):
-        for version in (1, 2, 3, 4):
+    def test_upgrade_schemas_1_2_3_4_5_and_validated_backup_preserve_history(self):
+        for version in (1, 2, 3, 4, 5):
             with self.subTest(version=version):
                 path = self._legacy(version)
                 with closing(sqlite3.connect(path)) as db:
@@ -152,6 +152,36 @@ class PublicationSnapshotMigrationTests(unittest.TestCase):
                     ),
                     1,
                 )
+
+    def test_invalid_schema5_metric_aborts_without_repairing_history(self):
+        path = self._legacy(5)
+        with closing(sqlite3.connect(path)) as db:
+            db.execute("PRAGMA foreign_keys=ON")
+            db.execute(
+                "INSERT INTO observations VALUES('bad','post','now','MANUAL',NULL,'now')"
+            )
+            db.execute(
+                "INSERT INTO observation_metrics VALUES('bad','reach','POST',-1,'count','v1',NULL)"
+            )
+            db.commit()
+            before = self._snapshot(db)
+        with self.assertRaises(sqlite3.IntegrityError):
+            initialize(path)
+        with closing(sqlite3.connect(path)) as db:
+            db.execute("PRAGMA foreign_keys=ON")
+            validate(db, expected_version=5)
+            self.assertEqual(self._snapshot(db), before)
+            self.assertIsNone(
+                db.execute(
+                    "SELECT name FROM sqlite_master WHERE name='observation_metric_validate'"
+                ).fetchone()
+            )
+        backups = list(path.parent.glob(f"{path.name}.pre-v{SCHEMA_VERSION}-*.sqlite3"))
+        self.assertEqual(len(backups), 1)
+        with closing(sqlite3.connect(backups[0])) as db:
+            db.execute("PRAGMA foreign_keys=ON")
+            validate(db, expected_version=5)
+            self.assertEqual(self._snapshot(db), before)
 
     def test_replace_cannot_delete_and_reinsert_snapshot_or_review_rows(self):
         path = self._legacy(4)
