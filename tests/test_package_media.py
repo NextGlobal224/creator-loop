@@ -5,6 +5,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -15,9 +16,16 @@ from creator_loop.media_intake import intake_image_original
 from creator_loop.packages import PackageItem, PublicationRepository
 from creator_loop.projects import create_project
 from creator_loop.source_association import SourceDetails, create_source_for_asset
+from creator_loop.text_intake import intake_text_original
 from test_media_intake import _NonWindowsOwnedFile
 
+try:
+    from PySide6.QtGui import QImage
+except ImportError:
+    QImage = None
 
+
+@unittest.skipUnless(QImage is not None, "decoded PNG tests require PySide6")
 class PackageMediaTests(unittest.TestCase):
     def setUp(self):
         from PySide6.QtGui import QImage
@@ -263,3 +271,67 @@ class PackageMediaTests(unittest.TestCase):
         self.assertEqual(outcomes, ["blocked", "blocked"])
         with self.stored.open("r+b") as stream:
             self.assertTrue(stream.read())
+
+
+class PortablePackageMediaTests(unittest.TestCase):
+    def test_real_file_rights_and_byte_gate_without_qt(self):
+        """Portable file-payload test; does not certify image/video codecs."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "Publication Unicode"
+            root.mkdir()
+            path = root / "creator_loop.sqlite3"
+            initialize(path)
+            source = Path(temp) / "source.txt"
+            source.write_text("Café ở Huế", encoding="utf-8")
+            if os.name == "nt":
+                imported = intake_text_original(source, root=root)
+            else:
+                with patch(
+                    "creator_loop.text_intake.OwnedWindowsFile", _NonWindowsOwnedFile
+                ):
+                    imported = intake_text_original(source, root=root)
+            stored = root.joinpath(*imported.storage_key.split("/"))
+            digest = hashlib.sha256(stored.read_bytes()).hexdigest()
+            with closing(sqlite3.connect(path)) as db:
+                db.execute("PRAGMA foreign_keys=ON")
+                project = create_project(db, title="Portable")
+                draft = create_draft(
+                    db,
+                    project_id=project.project_id,
+                    body_text="Café",
+                    format="POST",
+                    actor="editor",
+                )
+                repo = PublicationRepository(path)
+                payload = dict(
+                    project_id=project.project_id,
+                    draft_version_id=draft.draft_version_id,
+                    platform="MANUAL",
+                    format="POST",
+                    created_at="now",
+                    data_root=root,
+                    items=[
+                        PackageItem(
+                            "OTHER", 0, file_id=imported.file_id, content_digest=digest
+                        )
+                    ],
+                )
+                with self.assertRaisesRegex(ValueError, "reuse rights unresolved"):
+                    repo.create_package(package_id="unknown", **payload)
+                create_source_for_asset(
+                    db,
+                    asset_id=imported.asset_id,
+                    details=SourceDetails(platform="LOCAL", rights_status="OWNED"),
+                    relationship_type="ORIGIN",
+                )
+                repo.create_package(package_id="accepted", **payload)
+                original = stored.read_bytes()
+                stored.write_bytes(b"X" * len(original))
+                with self.assertRaisesRegex(ValueError, "physical bytes"):
+                    repo.create_package(package_id="tampered", **payload)
+                self.assertEqual(
+                    db.execute(
+                        "SELECT package_id FROM publication_packages"
+                    ).fetchall(),
+                    [("accepted",)],
+                )
