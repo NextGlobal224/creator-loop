@@ -76,9 +76,9 @@ jobs:
         timeout-minutes: 6
         run: |
           $ErrorActionPreference = 'Stop'
-          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 300 -CommandArgs @('-u','-m','unittest','discover','-s','tests','-v')
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 300 -CommandArgs @('-u','scripts/run_suite_with_diagnostics.py')
           $testExit = $LASTEXITCODE
-          $run = Get-ChildItem .local-test-logs -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          $run = Get-ChildItem .local-test-logs -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'result.json') } | Sort-Object Name -Descending | Select-Object -First 1
           if ($run) {
             Get-Content (Join-Path $run.FullName 'result.json')
             Get-Content (Join-Path $run.FullName 'output.log') -Tail 60
@@ -127,7 +127,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged update preparation failed' }
           & .\scripts\run_test_with_timeout.ps1 -Executable (Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe') -TimeoutSeconds 60 -CommandArgs @('--smoke')
           if ($LASTEXITCODE -ne 0) { throw 'Staged candidate launcher/schema smoke failed' }
-          $healthLog = Get-ChildItem .local-test-logs -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          $healthLog = Get-ChildItem .local-test-logs -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'result.json') } | Sort-Object Name -Descending | Select-Object -First 1
           Copy-Item -LiteralPath $healthLog.FullName -Destination release/staged-health-log -Recurse
           $ownedHealth = Join-Path $PWD '.local-test-logs/candidate-owned-health'
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 120 -CommandArgs @('scripts/check_candidate_health.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--log-directory',$ownedHealth,'--component-version','${{ github.sha }}')
