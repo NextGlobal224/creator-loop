@@ -60,15 +60,7 @@ def hold_publication_media(
     ).fetchone()
     if row is None or row[5] is not None:
         raise ValueError(f"Media {file_id}: live registered file is required")
-    asset_id, role, key, digest, size, _deleted = row
-    if (
-        not isinstance(digest, str)
-        or re.fullmatch(r"[0-9a-f]{64}", digest) is None
-        or digest != expected_digest
-        or type(size) is not int
-        or size < 0
-    ):
-        raise ValueError(f"Media {file_id}: digest/size metadata mismatch")
+    asset_id = row[0]
     rights = db.execute(
         """SELECT DISTINCT s.source_id,s.rights_status FROM sources s
         JOIN source_assets sa ON sa.source_id=s.source_id WHERE sa.asset_id=?
@@ -82,6 +74,40 @@ def hold_publication_media(
             "; ".join(f"{source}: {status}" for source, status in rights) or "UNKNOWN"
         )
         raise ValueError(f"Media {file_id}: reuse rights unresolved ({detail})")
+    return hold_registered_file(
+        db,
+        file_id=file_id,
+        expected_digest=expected_digest,
+        data_root=data_root,
+        handles=handles,
+    )
+
+
+def hold_registered_file(
+    db: sqlite3.Connection,
+    *,
+    file_id: str,
+    expected_digest: str | None,
+    data_root: Path,
+    handles: ExitStack,
+) -> str:
+    """Keep exact citation bytes stable without granting media reuse rights."""
+    row = db.execute(
+        """SELECT f.role,f.storage_key,f.sha256,f.byte_size,a.deleted_at
+        FROM asset_files f JOIN assets a ON a.asset_id=f.asset_id WHERE f.file_id=?""",
+        (file_id,),
+    ).fetchone()
+    if row is None or row[4] is not None:
+        raise ValueError(f"Media {file_id}: live registered file is required")
+    role, key, digest, size, _deleted = row
+    if (
+        not isinstance(digest, str)
+        or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        or digest != expected_digest
+        or type(size) is not int
+        or size < 0
+    ):
+        raise ValueError(f"Media {file_id}: digest/size metadata mismatch")
     path = resolve_storage_path(data_root, role, key)
     try:
         stream = handles.enter_context(_open_read_lock(path))

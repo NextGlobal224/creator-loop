@@ -6,12 +6,16 @@ import sqlite3
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .database import _connect_write
 from .publication_media import hold_publication_media
 from .publication_policy import PublicationBlocker, factual_review_blockers
 
 CanonicalItem = tuple[str, int, str | None, str | None, str]
+
+if TYPE_CHECKING:
+    from .publication import Approval, ApprovalDecision, Post
 
 
 @dataclass(frozen=True)
@@ -146,6 +150,82 @@ class PublicationRepository:
 
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
+
+    def record_approval(
+        self,
+        *,
+        package_id: str,
+        expected_fingerprint: str,
+        decision: "ApprovalDecision",
+        actor: str,
+        data_root: Path,
+        reason: str = "",
+    ) -> "Approval":
+        from .publication import _record_approval
+
+        db = _connect_write(self.db_path)
+        try:
+            return _record_approval(
+                db,
+                package_id=package_id,
+                expected_fingerprint=expected_fingerprint,
+                decision=decision,
+                actor=actor,
+                reason=reason,
+                data_root=data_root,
+            )
+        finally:
+            db.close()
+
+    def record_manual_post(
+        self,
+        *,
+        post_id: str,
+        package_id: str,
+        expected_fingerprint: str,
+        external_post_id: str | None,
+        external_url: str | None,
+        published_at: str,
+        data_root: Path,
+    ) -> "Post":
+        from .publication import _record_manual_post
+
+        db = _connect_write(self.db_path)
+        try:
+            return _record_manual_post(
+                db,
+                post_id=post_id,
+                package_id=package_id,
+                expected_fingerprint=expected_fingerprint,
+                external_post_id=external_post_id,
+                external_url=external_url,
+                published_at=published_at,
+                data_root=data_root,
+            )
+        finally:
+            db.close()
+
+    def prepare_manual_post(
+        self,
+        *,
+        post_id: str,
+        package_id: str,
+        expected_fingerprint: str,
+        data_root: Path,
+    ) -> "Post":
+        from .publication import _prepare_manual_post
+
+        db = _connect_write(self.db_path)
+        try:
+            return _prepare_manual_post(
+                db,
+                post_id=post_id,
+                package_id=package_id,
+                expected_fingerprint=expected_fingerprint,
+                data_root=data_root,
+            )
+        finally:
+            db.close()
 
     def factual_review_blockers(
         self, *, package_id: str, data_root: Path
