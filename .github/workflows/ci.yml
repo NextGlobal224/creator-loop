@@ -133,6 +133,14 @@ jobs:
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 120 -CommandArgs @('scripts/check_candidate_health.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--log-directory',$ownedHealth,'--component-version','${{ github.sha }}')
           if ($LASTEXITCODE -ne 0) { throw 'Owned read-only candidate health failed' }
           Copy-Item -LiteralPath $ownedHealth -Destination release/candidate-owned-health -Recurse
+          $preparedJournal = Get-ChildItem (Join-Path $env:CREATOR_LOOP_DATA_ROOT 'manifests') -Filter 'update-*.json' | Select-Object -First 1
+          if (-not $preparedJournal) { throw 'Prepared update journal missing' }
+          & .\scripts\run_test_with_timeout.ps1 -Executable (Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe') -TimeoutSeconds 120 -CommandArgs @('--activate-update',$preparedJournal.FullName,'--installation-root',$installation)
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged prepared activation/health failed' }
+          $activePointer = Get-Content (Join-Path $installation 'active-installation.json') -Raw | ConvertFrom-Json
+          if ($activePointer.status -ne 'ACTIVE') { throw 'Candidate activation not health-validated' }
+          Copy-Item -LiteralPath $preparedJournal.FullName -Destination release/activated-update-journal.json
+          Copy-Item -LiteralPath (Join-Path $env:CREATOR_LOOP_DATA_ROOT 'logs') -Destination release/update-health-logs -Recurse
           if ($before -ne (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'ZIP changed during staging' }
           "$before  CreatorLoop-${{ github.sha }}-win-x64.zip" | Set-Content -Encoding ascii release/SHA256SUMS.txt
       - name: Preserve bounded staging logs
