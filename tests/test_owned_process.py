@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -10,6 +11,7 @@ import unittest
 from ctypes import wintypes
 from pathlib import Path
 from unittest.mock import patch
+from uuid import uuid4
 
 from creator_loop.owned_process import OwnedWindowsProcess, _api
 
@@ -35,7 +37,24 @@ class OwnedProcessTests(unittest.TestCase):
                 except json.JSONDecodeError:
                     pass
             time.sleep(0.02)
-        self.fail("Owned fixture did not become ready")
+        diagnostics = []
+        diagnostic_root = (
+            Path(__file__).resolve().parents[1]
+            / ".local-test-logs"
+            / f"owned-fixture-failure-{uuid4().hex}"
+        )
+        diagnostic_root.mkdir(parents=True)
+        for log in self.base.rglob("*.log"):
+            destination = diagnostic_root / log.relative_to(self.base)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(log, destination)
+            diagnostics.append(
+                f"{log.name}: {log.read_text(encoding='utf-8', errors='replace')[-4000:]}"
+            )
+        self.fail(
+            f"Owned fixture did not become ready; logs={diagnostic_root}\n"
+            + "\n".join(diagnostics)
+        )
 
     def _hold_child(self, pid):
         kernel = _api()
@@ -214,3 +233,47 @@ os._exit(17)
             for value in (0, -1, float("nan"), float("inf"), 86401):
                 with self.assertRaises(ValueError):
                     process.wait(value)
+
+    def test_poll_does_not_stop_live_session_and_normal_exit_cleans_descendants(self):
+        ready = self.base / "poll-ready.json"
+        finish = self.base / "finish.txt"
+        script = self._worker_script().replace(
+            "time.sleep(60)\n",
+            "while not Path(sys.argv[2]).exists(): time.sleep(.01)\n",
+        )
+        with OwnedWindowsProcess(
+            self.exe,
+            ["-u", "-c", script, str(ready), str(finish)],
+            self.base / "poll",
+            component_version="fake-1",
+            environment=self.env,
+        ) as process:
+            ids = self._wait_file(ready)
+            kernel, child = self._hold_child(ids["child"])
+            _, grand = self._hold_child(ids["grand"])
+            self.assertIsNone(process.poll())
+            self.assertEqual(kernel.WaitForSingleObject(child, 0), 0x102)
+            finish.write_text("exit")
+            deadline = time.monotonic() + 5
+            outcome = process.poll()
+            while outcome is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+                outcome = process.poll()
+            self.assertIsNotNone(outcome)
+            self.assertEqual(outcome.exit_code, 0)
+            self.assertEqual(kernel.WaitForSingleObject(child, 5000), 0)
+            self.assertEqual(kernel.WaitForSingleObject(grand, 5000), 0)
+
+    def test_private_ui_output_is_discarded_while_ownership_is_persisted(self):
+        with OwnedWindowsProcess(
+            self.exe,
+            ["-c", "import sys; print('private'); print('private',file=sys.stderr)"],
+            self.base / "private",
+            component_version="fake-1",
+            environment=self.env,
+            capture_output=False,
+        ) as process:
+            self.assertEqual(process.wait(10).exit_code, 0)
+        self.assertFalse(process.stdout_path.exists())
+        self.assertFalse(process.stderr_path.exists())
+        self.assertTrue((self.base / "private/ownership.json").exists())

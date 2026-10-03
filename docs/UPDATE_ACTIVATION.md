@@ -39,6 +39,7 @@ lại phase cuối bền vững, nên phải đọc DB/pointer/log thực tế k
 CI chạy activation từ EXE exact ZIP trên prepared fixture và kiểm pointer ACTIVE,
 lưu journal và log native health. Các test orchestration dùng health fixture có
 kiểm lock; native health/owner crash được kiểm riêng và trên packaged candidate.
-Đây là checkpoint activation, chưa phải nghiệm thu updater hoàn chỉnh: managed
-launcher sử dụng pointer, metadata last-successful-update, crash recovery và
-restore có xác nhận/UI đang làm tiếp. Không gọi artifact này là release V1.
+Đây là checkpoint activation, chưa phải nghiệm thu updater hoàn chỉnh. Dùng
+[managed launcher](MANAGED_LAUNCHER.md) để mở từ pointer; metadata
+last-successful-update, crash recovery và restore có xác nhận/UI đang làm tiếp.
+Không gọi artifact này là release V1.

@@ -43,6 +43,16 @@ def main() -> int:
     parser.add_argument("--release-manifest", type=Path)
     parser.add_argument("--installation-root", type=Path)
     parser.add_argument(
+        "--launch-managed",
+        action="store_true",
+        help="Launch the health-validated active installation",
+    )
+    parser.add_argument(
+        "--compatible-only",
+        action="store_true",
+        help="Require existing compatible schema without migration",
+    )
+    parser.add_argument(
         "--activate-update",
         type=Path,
         help="Activate a prepared journal and health-check",
@@ -56,6 +66,43 @@ def main() -> int:
     if args.backup and (args.smoke or args.ui_smoke):
         parser.error("--backup cannot be combined with smoke modes")
     root = data_root()
+    if args.compatible_only and (
+        args.backup
+        or args.stage_update
+        or args.prepare_update
+        or args.activate_update
+        or args.launch_managed
+        or args.health_check
+        or args.release_manifest is not None
+        or args.installation_root is not None
+    ):
+        parser.error("--compatible-only allows only normal UI or smoke modes")
+    if args.launch_managed:
+        if (
+            args.backup
+            or args.stage_update
+            or args.prepare_update
+            or args.activate_update
+            or args.health_check
+            or args.release_manifest is not None
+            or args.installation_root is None
+            or (args.smoke and args.ui_smoke)
+        ):
+            parser.error(
+                "Managed launch requires --installation-root and at most one smoke mode"
+            )
+        from .managed_launcher import launch_managed
+
+        try:
+            return launch_managed(
+                root, args.installation_root, smoke=args.smoke, ui_smoke=args.ui_smoke
+            )
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(f"Managed launch refused: {type(exc).__name__}", file=sys.stderr)
+            return 4
     if args.health_check:
         if (
             args.backup
@@ -172,19 +219,26 @@ def main() -> int:
             return 4
         print(f"Validated DB-only backup: {result.name}; media is not included")
         return 0
-    ensure_data_root(root)
+    if not args.compatible_only:
+        ensure_data_root(root)
     try:
         with AppDataLock(root):
             return _run(args, root)
     except DataRootBusy as exc:
         print(str(exc), file=sys.stderr)
         return 3
+    except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+        if not args.compatible_only:
+            raise
+        print(f"Compatible launch refused: {type(exc).__name__}", file=sys.stderr)
+        return 4
 
 
 def _run(args: argparse.Namespace, root: Path) -> int:
     """Initialize and run only while the app/updater coordination lock is held."""
     db_path = root / "creator_loop.sqlite3"
-    initialize(db_path)
+    if not args.compatible_only:
+        initialize(db_path)
     with closing(open_readonly(db_path)) as db:
         validate(db)
     if args.smoke:
