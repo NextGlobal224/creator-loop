@@ -43,6 +43,11 @@ def main() -> int:
     parser.add_argument("--release-manifest", type=Path)
     parser.add_argument("--installation-root", type=Path)
     parser.add_argument(
+        "--repair-update-metadata",
+        type=Path,
+        help="Recheck a completed update and repair its coordination metadata",
+    )
+    parser.add_argument(
         "--launch-managed",
         action="store_true",
         help="Launch the health-validated active installation",
@@ -71,6 +76,7 @@ def main() -> int:
         or args.stage_update
         or args.prepare_update
         or args.activate_update
+        or args.repair_update_metadata
         or args.launch_managed
         or args.health_check
         or args.release_manifest is not None
@@ -83,6 +89,7 @@ def main() -> int:
             or args.stage_update
             or args.prepare_update
             or args.activate_update
+            or args.repair_update_metadata
             or args.health_check
             or args.release_manifest is not None
             or args.installation_root is None
@@ -111,6 +118,7 @@ def main() -> int:
             or args.stage_update
             or args.prepare_update
             or args.activate_update
+            or args.repair_update_metadata
             or args.release_manifest is not None
             or args.installation_root is not None
         ):
@@ -124,7 +132,7 @@ def main() -> int:
             return 4
         print(json.dumps(health_result, sort_keys=True))
         return 0
-    if args.activate_update:
+    if args.activate_update or args.repair_update_metadata:
         if (
             args.backup
             or args.smoke
@@ -133,26 +141,35 @@ def main() -> int:
             or args.prepare_update
             or args.release_manifest is not None
             or args.installation_root is None
+            or (args.activate_update and args.repair_update_metadata)
         ):
             parser.error(
-                "Activation requires only --activate-update and --installation-root"
+                "Choose activation or metadata repair with --installation-root"
             )
         from .update_activation import activate_prepared_update
+        from .update_metadata import repair_update_metadata
+
+        operation = "Metadata repair" if args.repair_update_metadata else "Activation"
 
         try:
-            active = activate_prepared_update(
-                root, args.activate_update, args.installation_root
-            )
+            if args.repair_update_metadata:
+                active = repair_update_metadata(
+                    root, args.repair_update_metadata, args.installation_root
+                )
+            else:
+                active = activate_prepared_update(
+                    root, args.activate_update, args.installation_root
+                )
         except DataRootBusy as exc:
             print(str(exc), file=sys.stderr)
             return 3
         except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
             print(
-                f"Activation refused: {type(exc).__name__}; retain backup and inspect journal",
+                f"{operation} refused: {type(exc).__name__}; retain backup and inspect journal",
                 file=sys.stderr,
             )
             return 4
-        print(f"Health-validated active installation: {active.name}")
+        print(f"{operation} completed for health-validated installation: {active.name}")
         return 0
     if args.stage_update and args.prepare_update:
         parser.error("Choose stage-only or update preparation")

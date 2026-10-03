@@ -100,6 +100,42 @@ def active_candidate(
     return candidate, pointer
 
 
+def verify_prepared_backup(canonical: Path, record: dict[str, Any]) -> Path:
+    backup_id = record.get("backup_id")
+    if (
+        not isinstance(backup_id, str)
+        or re.fullmatch(r"[0-9a-f]{32}", backup_id) is None
+    ):
+        raise ValueError("Prepared backup identity missing")
+    backup = canonical / "backups" / backup_id
+    if (
+        backup.is_symlink()
+        or backup.is_junction()
+        or backup.resolve(strict=True).parent != canonical / "backups"
+    ):
+        raise ValueError("Unsafe prepared backup directory")
+    metadata = _read_record(backup / "backup-manifest.json")
+    backup_version = metadata.get("schema_version")
+    if (
+        type(backup_version) is not int
+        or not 1 <= backup_version <= SCHEMA_VERSION
+        or record.get("schema_from") != backup_version
+    ):
+        raise ValueError("Prepared backup schema identity changed")
+    snapshot = backup / "creator_loop.sqlite3"
+    if (
+        snapshot.is_symlink()
+        or snapshot.is_junction()
+        or _digest(snapshot) != metadata.get("database_sha256")
+        or metadata.get("backup_id") != backup_id
+        or snapshot.stat().st_size != metadata.get("database_size")
+    ):
+        raise ValueError("Prepared backup digest or identity changed")
+    with closing(open_readonly(snapshot.resolve(strict=True))) as copy:
+        validate(copy, expected_version=backup_version)
+    return snapshot
+
+
 def activate_prepared_update(
     root: Path, journal_path: Path, installation_root: Path
 ) -> Path:
@@ -171,38 +207,7 @@ def activate_prepared_update(
                 <= manifest["schema_read_max"]
             ):
                 raise ValueError("Prepared candidate compatibility mismatch")
-            backup_id = record.get("backup_id")
-            if (
-                not isinstance(backup_id, str)
-                or re.fullmatch(r"[0-9a-f]{32}", backup_id) is None
-            ):
-                raise ValueError("Prepared backup identity missing")
-            backup = canonical / "backups" / backup_id
-            if (
-                backup.is_symlink()
-                or backup.is_junction()
-                or backup.resolve(strict=True).parent != canonical / "backups"
-            ):
-                raise ValueError("Unsafe prepared backup directory")
-            metadata = _read_record(backup / "backup-manifest.json")
-            backup_version = metadata.get("schema_version")
-            if (
-                type(backup_version) is not int
-                or not 1 <= backup_version <= SCHEMA_VERSION
-                or record.get("schema_from") != backup_version
-            ):
-                raise ValueError("Prepared backup schema identity changed")
-            snapshot = backup / "creator_loop.sqlite3"
-            if (
-                snapshot.is_symlink()
-                or snapshot.is_junction()
-                or _digest(snapshot) != metadata.get("database_sha256")
-                or metadata.get("backup_id") != backup_id
-                or snapshot.stat().st_size != metadata.get("database_size")
-            ):
-                raise ValueError("Prepared backup digest or identity changed")
-            with closing(open_readonly(snapshot.resolve(strict=True))) as copy:
-                validate(copy, expected_version=backup_version)
+            verify_prepared_backup(canonical, record)
             before = _inventory(db, canonical)
             pointer_path = installation / "active-installation.json"
             previous = None
@@ -252,7 +257,6 @@ def activate_prepared_update(
                 record.pop("error_type", None)
                 record["activated_at"] = datetime.now(timezone.utc).isoformat()
                 _journal(journal_path, record)
-                return candidate
             except BaseException as exc:
                 if previous is not None and previous_candidate is not None:
                     try:
@@ -280,5 +284,17 @@ def activate_prepared_update(
                 record["error_type"] = type(exc).__name__
                 _journal(journal_path, record)
                 raise
+            # Core activation/health is already durable. A metadata failure
+            # must not pretend health failed or undo a compatible active app.
+            from creator_loop.update_metadata import record_successful_update
+
+            try:
+                record_successful_update(canonical, db, record, candidate, manifest)
+            except BaseException as exc:
+                record["phase"] = "COMPLETED_METADATA_PENDING"
+                record["error_type"] = type(exc).__name__
+                _journal(journal_path, record)
+                raise
+            return candidate
         finally:
             db.rollback()

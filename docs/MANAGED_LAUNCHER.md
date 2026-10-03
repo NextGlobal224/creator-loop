@@ -34,4 +34,5 @@ parse JSON bounded; đây là hai mode khác nhau.
 Exit3 là lock contention trước launch, exit4 là validation refusal, hoặc exit code
 của child nếu nó đã chạy. UI smoke/normal exit không chứng minh engine/model thật
 hay resource budget máy8GB. CI chạy cả schema smoke và desktop smoke từ exact ZIP
-qua pointer đã activation/health; updater metadata/recovery/restore UI còn tiếp.
+qua pointer đã activation/health; [metadata](UPDATE_METADATA.md) giữ update/backup
+IDs, còn recovery/restore UI triển khai tiếp.

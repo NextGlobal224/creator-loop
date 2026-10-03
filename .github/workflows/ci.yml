@@ -96,7 +96,7 @@ jobs:
         run: python -m PyInstaller --noconfirm --clean --onedir --name CreatorLoop --paths app --add-data "migrations/0001_initial.sql;migrations" --add-data "migrations/0002_claim_citation_seal.sql;migrations" --add-data "migrations/0003_draft_snapshot_seal.sql;migrations" --add-data "migrations/0004_selection_snapshot_seal.sql;migrations" --add-data "migrations/0005_publication_snapshot_guards.sql;migrations" --add-data "migrations/0006_observation_metric_validation.sql;migrations" packaging/entrypoint.py
       - name: Pack and smoke the exact ZIP
         shell: pwsh
-        timeout-minutes: 12
+        timeout-minutes: 24
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force release | Out-Null
@@ -106,12 +106,12 @@ jobs:
           $target = Join-Path $env:RUNNER_TEMP 'thư mục thử có dấu'
           Expand-Archive -Path $zip -DestinationPath $target
           $env:CREATOR_LOOP_DATA_ROOT = Join-Path $env:RUNNER_TEMP 'dữ liệu người dùng'
-          & (Join-Path $target 'CreatorLoop/CreatorLoop.exe') --smoke
+          & .\scripts\run_test_with_timeout.ps1 -Executable (Join-Path $target 'CreatorLoop/CreatorLoop.exe') -TimeoutSeconds 60 -CommandArgs @('--smoke')
           if ($LASTEXITCODE -ne 0) { throw 'Extracted artifact smoke failed' }
-          & (Join-Path $target 'CreatorLoop/CreatorLoop.exe') --backup
+          & .\scripts\run_test_with_timeout.ps1 -Executable (Join-Path $target 'CreatorLoop/CreatorLoop.exe') -TimeoutSeconds 120 -CommandArgs @('--backup')
           if ($LASTEXITCODE -ne 0) { throw 'Extracted artifact backup failed' }
           $env:QT_QPA_PLATFORM = 'offscreen'
-          & (Join-Path $target 'CreatorLoop/CreatorLoop.exe') --ui-smoke
+          & .\scripts\run_test_with_timeout.ps1 -Executable (Join-Path $target 'CreatorLoop/CreatorLoop.exe') -TimeoutSeconds 60 -CommandArgs @('--ui-smoke')
           if ($LASTEXITCODE -ne 0) { throw 'Extracted UI smoke failed' }
           $after = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($before -ne $after) { throw 'Release ZIP changed after smoke' }
@@ -139,6 +139,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged prepared activation/health failed' }
           $activePointer = Get-Content (Join-Path $installation 'active-installation.json') -Raw | ConvertFrom-Json
           if ($activePointer.status -ne 'ACTIVE') { throw 'Candidate activation not health-validated' }
+          $activated = Get-Content $preparedJournal.FullName -Raw | ConvertFrom-Json
+          $userManifestPath = Join-Path $env:CREATOR_LOOP_DATA_ROOT 'manifests/storage-roots.json'
+          $userManifest = Get-Content $userManifestPath -Raw | ConvertFrom-Json
+          if ($userManifest.data_root_id -notmatch '^[0-9a-f]{32}$' -or $userManifest.last_backup_id -ne $activated.backup_id -or $userManifest.last_successful_update.update_id -ne $activated.update_id) { throw 'Successful update metadata missing or mismatched' }
+          & .\scripts\run_test_with_timeout.ps1 -Executable (Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe') -TimeoutSeconds 120 -CommandArgs @('--repair-update-metadata',$preparedJournal.FullName,'--installation-root',$installation)
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged metadata recheck/repair failed' }
+          $repairedManifest = Get-Content $userManifestPath -Raw | ConvertFrom-Json
+          if ($repairedManifest.data_root_id -ne $userManifest.data_root_id) { throw 'Metadata repair changed data-root identity' }
+          Copy-Item -LiteralPath $userManifestPath -Destination release/test-user-data-manifest.json
           Copy-Item -LiteralPath $preparedJournal.FullName -Destination release/activated-update-journal.json
           Copy-Item -LiteralPath (Join-Path $env:CREATOR_LOOP_DATA_ROOT 'logs') -Destination release/update-health-logs -Recurse
           & .\scripts\run_test_with_timeout.ps1 -Executable (Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe') -TimeoutSeconds 120 -CommandArgs @('--launch-managed','--installation-root',$installation,'--smoke')
