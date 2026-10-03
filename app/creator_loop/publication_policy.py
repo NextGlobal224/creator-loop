@@ -7,12 +7,14 @@ inside the publication transaction; a previous successful inspection is no permi
 from __future__ import annotations
 
 import sqlite3
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 
 from creator_loop.claim_review import current_claim_review
 from creator_loop.evidence_reopen import EvidenceReopenError, reopen_evidence_version
 from creator_loop.evidence_review import current_evidence_review
+from creator_loop.publication_media import hold_registered_file
 
 
 @dataclass(frozen=True)
@@ -29,7 +31,11 @@ class FactualPublicationBlocked(ValueError):
 
 
 def factual_review_blockers(
-    db: sqlite3.Connection, *, package_id: str, data_root: Path
+    db: sqlite3.Connection,
+    *,
+    package_id: str,
+    data_root: Path,
+    handles: ExitStack | None = None,
 ) -> tuple[PublicationBlocker, ...]:
     """Inspect every FACTUAL citation, never substituting a newer version.
 
@@ -78,10 +84,12 @@ def factual_review_blockers(
                 )
             )
         supports = db.execute(
-            """SELECT v.evidence_version_id,e.deleted_at
+            """SELECT v.evidence_version_id,
+            CASE WHEN e.deleted_at IS NOT NULL OR a.deleted_at IS NOT NULL THEN 1 ELSE NULL END
             FROM claim_evidence ce JOIN evidence_versions v
               ON v.evidence_version_id=ce.evidence_version_id
             JOIN evidences e ON e.evidence_id=v.evidence_id
+            JOIN assets a ON a.asset_id=v.asset_id
             WHERE ce.claim_version_id=? AND ce.relation_type='SUPPORTS'
             ORDER BY v.evidence_version_id""",
             (version_id,),
@@ -94,9 +102,23 @@ def factual_review_blockers(
                 failures.append(f"{evidence_id}: {'deleted' if deleted else state}")
                 continue
             try:
-                reopen_evidence_version(db, evidence_id, data_root)
+                reopened = reopen_evidence_version(db, evidence_id, data_root)
+                if handles is not None:
+                    digest = db.execute(
+                        "SELECT sha256 FROM asset_files WHERE file_id=?",
+                        (reopened.anchor_file_id,),
+                    ).fetchone()[0]
+                    hold_registered_file(
+                        db,
+                        file_id=reopened.anchor_file_id,
+                        expected_digest=digest,
+                        data_root=data_root,
+                        handles=handles,
+                    )
             except EvidenceReopenError as exc:
                 failures.append(f"{evidence_id}: {exc.reason}")
+            except ValueError as exc:
+                failures.append(f"{evidence_id}: {exc}")
             else:
                 accepted += 1
         if accepted < 1:
@@ -113,8 +135,14 @@ def factual_review_blockers(
 
 
 def require_factual_reviews(
-    db: sqlite3.Connection, *, package_id: str, data_root: Path
+    db: sqlite3.Connection,
+    *,
+    package_id: str,
+    data_root: Path,
+    handles: ExitStack | None = None,
 ) -> None:
-    blockers = factual_review_blockers(db, package_id=package_id, data_root=data_root)
+    blockers = factual_review_blockers(
+        db, package_id=package_id, data_root=data_root, handles=handles
+    )
     if blockers:
         raise FactualPublicationBlocked(blockers)
