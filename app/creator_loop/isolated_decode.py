@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 from uuid import uuid4
 
-from PySide6.QtCore import QCoreApplication, qVersion
+from PySide6.QtCore import QCoreApplication, QThread, qVersion
 from PySide6.QtGui import QImage, QImageReader
 
 from creator_loop import __version__
@@ -54,6 +54,8 @@ def decode_isolated(
         raise ValueError("Invalid decoder audio range")
     if _decoding:
         raise RuntimeError("Another media decoder is already running")
+    if QThread.currentThread().isInterruptionRequested():
+        raise InterruptedError("Media decoder cancelled before startup")
     canonical = Path(root).resolve(strict=True)
     for name in ("runtime", "logs"):
         folder = canonical / name
@@ -118,6 +120,8 @@ def decode_isolated(
                     app.aboutToQuit.connect(cancel)
                 try:
                     while True:
+                        if QThread.currentThread().isInterruptionRequested():
+                            raise InterruptedError("Media decoder cancelled by user")
                         if cancelled[0]:
                             raise InterruptedError(
                                 "Media decoder cancelled on app shutdown"
@@ -136,6 +140,8 @@ def decode_isolated(
                 finally:
                     if app is not None:
                         app.aboutToQuit.disconnect(cancel)
+            if QThread.currentThread().isInterruptionRequested():
+                raise InterruptedError("Media decoder cancelled by user")
             response = directory / "response.json"
             if not response.is_file() or response.stat().st_size > 4096:
                 raise ValueError(

@@ -6,7 +6,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Callable, cast
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QCloseEvent, QImage
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -52,6 +52,7 @@ from creator_loop.image_evidence_correction import correct_image_evidence
 from creator_loop.image_evidence_ui import ImageEvidenceDialog, ImageRegionView
 from creator_loop.image_thumbnail import create_image_thumbnail
 from creator_loop.media_intake import intake_image_original, intake_video_original
+from creator_loop.owned_thread import OwnedThreadExit
 from creator_loop.project_ui import ProjectDialog
 from creator_loop.publication_ui import PublicationDialog
 from creator_loop.selection_ui import SelectionDialog
@@ -98,7 +99,12 @@ class OriginalImportWorker(QThread):
                 "VIDEO": intake_video_original,
                 "IMAGE": intake_image_original,
             }[self.kind]
-            result = import_fn(self.source, root=self.root)
+            if self.kind == "VIDEO":
+                result = intake_video_original(
+                    self.source, root=self.root, cancel=self.isInterruptionRequested
+                )
+            else:
+                result = import_fn(self.source, root=self.root)
         except Exception as exc:
             self.failed.emit(f"Không thể nhập tệp: {exc}")
         else:
@@ -554,7 +560,11 @@ class LibraryWindow(QMainWindow):
         super().__init__()
         self.root = root
         self.maintenance_requested = False
+        self._close_after_worker = False
+        self._media_cancel_requested = False
         self._worker: QThread | None = None
+        self._after_worker_finished: Callable[[], None] | None = None
+        self._worker_exit: OwnedThreadExit | None = None
         self._evidence_result: object | None = None
         self._image_result: object | None = None
         self._video_result: object | None = None
@@ -615,6 +625,10 @@ class LibraryWindow(QMainWindow):
         self.maintenance_button.clicked.connect(self.choose_maintenance)
         self._buttons.append(self.maintenance_button)
         layout.addWidget(self.maintenance_button)
+        self.cancel_media_button = QPushButton("Hủy giải mã media")
+        self.cancel_media_button.setEnabled(False)
+        self.cancel_media_button.clicked.connect(self._cancel_media_worker)
+        layout.addWidget(self.cancel_media_button)
 
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(("Loại", "Tên", "MIME", "Byte"))
@@ -812,13 +826,36 @@ class LibraryWindow(QMainWindow):
         after_finished: Callable[[], None] | None = None,
     ) -> None:
         self._worker = worker
+        self._close_after_worker = False
+        self._media_cancel_requested = False
+        self._after_worker_finished = after_finished
+        self._worker_exit = OwnedThreadExit()
+        worker.started.connect(
+            self._worker_exit.capture, Qt.ConnectionType.DirectConnection
+        )
         worker.finished.connect(self._on_finished)
-        if after_finished is not None:
-            worker.finished.connect(after_finished)
         for button in self._buttons:
             button.setEnabled(False)
         self.status.setText(message)
+        self.cancel_media_button.setEnabled(self._media_worker_cancelable(worker))
         worker.start()
+
+    @staticmethod
+    def _media_worker_cancelable(worker: QThread) -> bool:
+        return isinstance(
+            worker, (VideoEvidenceWorker, AudioEvidenceWorker, WholeEvidenceWorker)
+        ) or (isinstance(worker, OriginalImportWorker) and worker.kind == "VIDEO")
+
+    def _cancel_media_worker(self) -> None:
+        worker = self._worker
+        if worker is None or not self._media_worker_cancelable(worker):
+            return
+        worker.requestInterruption()
+        self._media_cancel_requested = True
+        self.cancel_media_button.setEnabled(False)
+        self.status.setText(
+            "Đã yêu cầu hủy giải mã; đang đợi tác vụ dọn worker an toàn…"
+        )
 
     def _start_evidence_worker(self, worker: TextEvidenceWorker, message: str) -> None:
         self._evidence_result = None
@@ -1592,15 +1629,42 @@ class LibraryWindow(QMainWindow):
 
     def _on_failed(self, message: str) -> None:
         self.status.setText(message)
+        if self._media_cancel_requested and "Media decoder cancelled" in message:
+            self.status.setText(
+                "Đã hủy giải mã media; original và Evidence giữ nguyên."
+            )
+            return
         QMessageBox.warning(self, "Không thể hoàn tất tác vụ", message)
 
     def _on_finished(self) -> None:
         worker = self._worker
+        if worker is None:
+            return
+        # Qt finished/wait can precede Windows FLS cleanup. Retain the actual
+        # thread handle, and never block the GUI waiting for native exit.
+        guard = self._worker_exit
+        if guard is None or guard.error is not None:
+            self.status.setText(
+                "Chưa xác minh được cleanup thread; giữ nguyên cửa sổ và tác vụ."
+            )
+            return
+        if not guard.terminal() or not worker.wait(0):
+            QTimer.singleShot(10, self._on_finished)
+            return
+        guard.close()
+        self._worker_exit = None
+        after_finished = self._after_worker_finished
+        self._after_worker_finished = None
         self._worker = None
+        self.cancel_media_button.setEnabled(False)
         for button in self._buttons:
             button.setEnabled(True)
         if worker is not None:
             worker.deleteLater()
+        if self._close_after_worker:
+            self.close()
+        elif after_finished is not None:
+            after_finished()
 
     def choose_maintenance(self) -> None:
         self.maintenance_requested = True
@@ -1608,7 +1672,17 @@ class LibraryWindow(QMainWindow):
             self.maintenance_requested = False
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self._worker is not None and self._worker.isRunning():
+        if self._worker is not None:
+            if self._worker_exit is not None and self._worker_exit.terminal():
+                self._close_after_worker = True
+                QTimer.singleShot(0, self._on_finished)
+                event.ignore()
+                return
+            if self._media_worker_cancelable(self._worker):
+                self._close_after_worker = True
+                self._cancel_media_worker()
+                event.ignore()
+                return
             QMessageBox.information(
                 self,
                 "Đang xử lý",

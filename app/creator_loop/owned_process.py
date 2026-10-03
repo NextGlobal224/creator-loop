@@ -146,6 +146,7 @@ def _api() -> Any:
         ),
         "SetHandleInformation": ((w.HANDLE, w.DWORD, w.DWORD), w.BOOL),
         "GetCurrentProcess": ((), w.HANDLE),
+        "GetCurrentThread": ((), w.HANDLE),
         "OpenProcess": ((w.DWORD, w.BOOL, w.DWORD), w.HANDLE),
         "QueryFullProcessImageNameW": (
             (w.HANDLE, w.DWORD, w.LPWSTR, ctypes.POINTER(w.DWORD)),

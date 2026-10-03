@@ -35,11 +35,19 @@ def _new_id() -> str:
     return uuid4().hex
 
 
-def _stored_digest_and_size(owned: OwnedWindowsFile) -> tuple[str, int]:
+def _check_cancelled(cancel: Callable[[], bool] | None) -> None:
+    if cancel is not None and cancel():
+        raise InterruptedError("Media decoder cancelled by user")
+
+
+def _stored_digest_and_size(
+    owned: OwnedWindowsFile, cancel: Callable[[], bool] | None = None
+) -> tuple[str, int]:
     digest = hashlib.sha256()
     size = 0
     owned.stream.seek(0)
     for chunk in iter(lambda: owned.stream.read(READ_CHUNK_SIZE), b""):
+        _check_cancelled(cancel)
         digest.update(chunk)
         size += len(chunk)
     return digest.hexdigest(), size
@@ -65,6 +73,7 @@ def _intake_original(
     classify: Callable[[BinaryIO], tuple[str, str]],
     preflight: Callable[[BinaryIO, Path], MediaInfo] | None = None,
     root: Path | None = None,
+    cancel: Callable[[], bool] | None = None,
 ) -> ImportedOriginal:
     """Copy exact bytes, classify the held destination, then register it."""
     source_path = Path(source_path)
@@ -86,9 +95,11 @@ def _intake_original(
     commit_started = False
 
     try:
+        _check_cancelled(cancel)
         with source_path.open("rb") as source:
             owned = OwnedWindowsFile.create_new(destination)
             for chunk in iter(lambda: source.read(READ_CHUNK_SIZE), b""):
+                _check_cancelled(cancel)
                 remaining = memoryview(chunk)
                 while remaining:
                     written = owned.stream.write(remaining)
@@ -98,12 +109,14 @@ def _intake_original(
             owned.stream.flush()
             os.fsync(owned.stream.fileno())
 
-        digest, size = _stored_digest_and_size(owned)
+        digest, size = _stored_digest_and_size(owned, cancel)
         owned.stream.seek(0)
         media_type, mime_type = classify(owned.stream)
         if media_type not in ("VIDEO", "IMAGE", "TEXT") or not mime_type:
             raise ValueError("Invalid original media classification")
+        _check_cancelled(cancel)
         info = preflight(owned.stream, destination) if preflight is not None else None
+        _check_cancelled(cancel)
         timestamp = (
             datetime.now(timezone.utc)
             .isoformat(timespec="milliseconds")
@@ -147,6 +160,7 @@ def _intake_original(
                 raise RuntimeError(
                     "Pending original registration does not match stored bytes"
                 )
+            _check_cancelled(cancel)
             commit_started = True
             db.commit()
             committed = True
