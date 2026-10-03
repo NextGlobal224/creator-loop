@@ -53,6 +53,7 @@ from creator_loop.image_evidence_ui import ImageEvidenceDialog, ImageRegionView
 from creator_loop.image_thumbnail import create_image_thumbnail
 from creator_loop.media_intake import intake_image_original, intake_video_original
 from creator_loop.project_ui import ProjectDialog
+from creator_loop.publication_ui import PublicationDialog
 from creator_loop.selection_ui import SelectionDialog
 from creator_loop.source_association import (
     SourceDetails,
@@ -598,6 +599,10 @@ class LibraryWindow(QMainWindow):
         selection.clicked.connect(self.choose_selection)
         self._buttons.append(selection)
         actions.addWidget(selection)
+        publication = QPushButton("Package / Publication")
+        publication.clicked.connect(self.choose_publication)
+        self._buttons.append(publication)
+        actions.addWidget(publication)
         storage = QPushButton("Kho media")
         storage.clicked.connect(self.choose_storage)
         self._buttons.append(storage)
@@ -980,6 +985,13 @@ class LibraryWindow(QMainWindow):
         if self._worker is not None:
             return
         dialog = SelectionDialog(self.root)
+        dialog.draft_requested.connect(self.open_selected_draft)
+        dialog.exec()
+
+    def choose_publication(self) -> None:
+        if self._worker is not None:
+            return
+        dialog = PublicationDialog(self.root)
         dialog.draft_requested.connect(self.open_selected_draft)
         dialog.exec()
 
