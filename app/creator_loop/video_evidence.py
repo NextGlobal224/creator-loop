@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import BinaryIO
 from uuid import uuid4
 
 from PySide6.QtCore import QCoreApplication, QIODevice, QUrl
@@ -68,13 +69,40 @@ def decode_video_frame(
     verify_original_file(db, file_id, data_root)
     path = _anchor_path(Path(data_root), role, key)
     decoded = decode_video_path(
-        path, start_ms=start_ms, timeout_seconds=timeout_seconds
+        path, start_ms=start_ms, timeout_seconds=timeout_seconds, root=data_root
     )
     verify_original_file(db, file_id, data_root)
     return str(asset_id), decoded
 
 
 def decode_video_path(
+    path: Path,
+    *,
+    start_ms: int = 0,
+    timeout_seconds: float = 8.0,
+    source: BinaryIO | None = None,
+    require_audio: bool = False,
+    root: Path | None = None,
+) -> DecodedVideoFrame:
+    """Decode actual pixels in a private owned process, including native cleanup."""
+    from creator_loop.isolated_decode import decode_isolated
+    from creator_loop.paths import data_root
+
+    body, image = decode_isolated(
+        path,
+        root if root is not None else data_root(),
+        mode="video",
+        start_ms=start_ms,
+        timeout_seconds=timeout_seconds,
+        require_audio=require_audio,
+        source=source,
+    )
+    if image is None:
+        raise ValueError("Video decoder returned no frame")
+    return DecodedVideoFrame(body["duration_ms"], body["frame_time_ms"], image, path)
+
+
+def _decode_video_local(
     path: Path,
     *,
     start_ms: int = 0,
@@ -92,6 +120,7 @@ def decode_video_path(
     sink = QVideoSink()
     player.setVideoOutput(sink)
     frames: list[tuple[int, QImage]] = []
+    oversized_frame = [False]
     audio_frames = [0]
     audio = QAudioBufferOutput(player) if require_audio else None
     if audio is not None:
@@ -105,6 +134,11 @@ def decode_video_path(
 
     def capture(frame: QVideoFrame) -> None:
         if not frames and frame.isValid() and frame.startTime() // 1000 >= start_ms:
+            from creator_loop.isolated_decode import MAX_FRAME_PIXELS
+
+            if frame.width() * frame.height() > MAX_FRAME_PIXELS:
+                oversized_frame[0] = True
+                return
             image = frame.toImage()
             if not image.isNull():
                 frames.append((frame.startTime() // 1000, image))
@@ -118,6 +152,8 @@ def decode_video_path(
             player.setSourceDevice(device, QUrl.fromLocalFile(str(path)))
         while time.monotonic() < deadline:
             QCoreApplication.processEvents()
+            if oversized_frame[0]:
+                raise ValueError("Video frame exceeds local pixel budget")
             if player.error() != QMediaPlayer.Error.NoError:
                 raise ValueError(f"Video decoder failed: {player.errorString()}")
             if player.duration() > 0 and player.hasVideo():
@@ -132,6 +168,8 @@ def decode_video_path(
         player.play()
         while time.monotonic() < deadline:
             QCoreApplication.processEvents()
+            if oversized_frame[0]:
+                raise ValueError("Video frame exceeds local pixel budget")
             if player.error() != QMediaPlayer.Error.NoError:
                 raise ValueError(f"Video decoder failed: {player.errorString()}")
             for frame_time, image in frames:

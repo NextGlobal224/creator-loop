@@ -14,6 +14,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from creator_loop.owned_process import OwnedWindowsProcess, _api
+from creator_loop.windows_owned_file import OwnedWindowsFile
 
 
 @unittest.skipUnless(sys.platform == "win32", "requires native Windows Job Objects")
@@ -136,6 +137,105 @@ time.sleep(60)
             if sentinel.poll() is None:
                 sentinel.terminate()
             sentinel.wait(timeout=5)
+
+    def test_exclusive_input_is_readable_but_native_write_is_denied(self):
+        path = self.base / "exclusive original.mp4"
+        with OwnedWindowsFile.create_new(path).stream as source:
+            source.write(b"verified input bytes")
+            source.flush()
+            source.seek(0)
+            self.assertFalse(os.get_inheritable(source.fileno()))
+            # A path reopen is forbidden; the child must use only the duplicate.
+            with self.assertRaises(OSError):
+                path.open("rb")
+            script = """import ctypes,json,sys
+from ctypes import wintypes as w
+k=ctypes.WinDLL('kernel32',use_last_error=True)
+k.GetStdHandle.argtypes=(w.DWORD,); k.GetStdHandle.restype=w.HANDLE
+k.WriteFile.argtypes=(w.HANDLE,ctypes.c_void_p,w.DWORD,ctypes.POINTER(w.DWORD),ctypes.c_void_p)
+k.WriteFile.restype=w.BOOL
+h=k.GetStdHandle(0xfffffff6); count=w.DWORD()
+ok=k.WriteFile(h,b'X',1,ctypes.byref(count),None)
+error=ctypes.get_last_error()
+print(json.dumps({'bytes':sys.stdin.buffer.read().decode(),'write':bool(ok),'error':error}))
+"""
+            with OwnedWindowsProcess(
+                self.exe,
+                ["-u", "-c", script],
+                self.base / "input",
+                component_version="fake-1",
+                environment=self.env,
+                stdin_source=source,
+            ) as process:
+                outcome = process.wait(10)
+            self.assertEqual(outcome.exit_code, 0)
+            result = json.loads(process.stdout_path.read_text())
+            self.assertEqual(result["bytes"], "verified input bytes")
+            self.assertFalse(result["write"])
+            self.assertEqual(result["error"], 5)  # ERROR_ACCESS_DENIED
+            self.assertFalse(source.closed)
+            self.assertFalse(os.get_inheritable(source.fileno()))
+            source.seek(0)
+            self.assertEqual(source.read(), b"verified input bytes")
+
+    def test_input_launch_failure_keeps_borrowed_source_open(self):
+        path = self.base / "failure input"
+        with OwnedWindowsFile.create_new(path).stream as source:
+            source.write(b"preserved")
+            source.flush()
+            source.seek(0)
+            with self.assertRaises(FileNotFoundError):
+                OwnedWindowsProcess(
+                    self.exe,
+                    ["-c", "raise AssertionError('must not run')"],
+                    self.base / "bad-input-launch",
+                    component_version="fake-1",
+                    cwd=self.base / "missing",
+                    stdin_source=source,
+                )
+            self.assertFalse(source.closed)
+            self.assertFalse(os.get_inheritable(source.fileno()))
+            self.assertEqual(source.read(), b"preserved")
+
+    def test_native_job_memory_limit_refuses_oversized_allocation(self):
+        script = """import sys
+try:
+    value=bytearray(128*1024*1024)
+except MemoryError:
+    sys.exit(13)
+sys.exit(99)
+"""
+        with OwnedWindowsProcess(
+            self.exe,
+            ["-c", script],
+            self.base / "memory-budget",
+            component_version="fake-1",
+            memory_limit_bytes=64 * 1024 * 1024,
+        ) as process:
+            outcome = process.wait(10)
+        self.assertEqual(outcome.exit_code, 13)
+        self.assertFalse(outcome.timed_out)
+
+    def test_input_timeout_closes_duplicate_keeps_source_and_exclusive_lock(self):
+        path = self.base / "timeout input"
+        with OwnedWindowsFile.create_new(path).stream as source:
+            source.write(b"preserved")
+            source.flush()
+            source.seek(0)
+            with OwnedWindowsProcess(
+                self.exe,
+                ["-c", "import time; time.sleep(60)"],
+                self.base / "input-timeout",
+                component_version="fake-1",
+                stdin_source=source,
+            ) as process:
+                outcome = process.wait(0.2)
+            self.assertTrue(outcome.timed_out)
+            self.assertFalse(source.closed)
+            with self.assertRaises(OSError):
+                path.open("rb")
+            source.seek(0)
+            self.assertEqual(source.read(), b"preserved")
 
     def test_cancel_and_context_exception_close_only_its_job(self):
         ready = self.base / "cancel-ready.json"
