@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .database import _connect_write
+from .publication_policy import PublicationBlocker, factual_review_blockers
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,20 @@ class PublicationRepository:
 
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
+
+    def factual_review_blockers(
+        self, *, package_id: str, data_root: Path
+    ) -> tuple[PublicationBlocker, ...]:
+        """Inspect exact factual citations; this is not an Approval or publish permit."""
+        db = _connect_write(self.db_path)
+        try:
+            db.execute("BEGIN")
+            return factual_review_blockers(
+                db, package_id=package_id, data_root=data_root
+            )
+        finally:
+            db.rollback()
+            db.close()
 
     def create_package(
         self,
