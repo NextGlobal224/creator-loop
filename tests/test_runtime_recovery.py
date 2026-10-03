@@ -27,6 +27,9 @@ class RuntimeRecoveryTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name) / "Runtime Hue space"
         ensure_data_root(self.root)
+        # Hosted Windows temp may contain an 8.3 alias (RUNNER~1). Production
+        # recovery resolves its root; direct handle fixtures must do the same.
+        self.root = self.root.resolve(strict=True)
         self.environment = os.environ.copy()
         self.environment["PYTHONPATH"] = str(
             Path(__file__).resolve().parents[1] / "app"
@@ -179,6 +182,8 @@ if sys.argv[3]=='child':
         directory.mkdir()
         path = directory / "owned-file"
         path.write_bytes(b"owned")
+        with self.assertRaises(OSError):
+            RuntimeHandle(directory / ".." / directory.name, directory=True)
         with RuntimeHandle(directory, directory=True) as folder:
             with self.assertRaises(OSError):
                 directory.rename(self.root / "runtime/replaced")
