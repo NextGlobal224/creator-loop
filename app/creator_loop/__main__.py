@@ -18,6 +18,8 @@ from .app_lock import AppDataLock, DataRootBusy
 from .database import initialize, open_readonly, validate
 from .paths import data_root, ensure_data_root
 
+MAINTENANCE_REQUESTED = 20
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -31,6 +33,11 @@ def main() -> int:
         "--backup",
         action="store_true",
         help="Validate a DB-only backup with the app closed",
+    )
+    parser.add_argument(
+        "--maintenance",
+        action="store_true",
+        help="Open backup/update/restore UI without opening the user DB",
     )
     parser.add_argument(
         "--stage-update", type=Path, help="Verify and stage a supplied ZIP"
@@ -111,6 +118,17 @@ def main() -> int:
     if args.backup and (args.smoke or args.ui_smoke):
         parser.error("--backup cannot be combined with smoke modes")
     root = data_root()
+    if args.maintenance:
+        if any(
+            value
+            for name, value in vars(args).items()
+            if name not in ("maintenance", "installation_root", "ui_smoke")
+        ):
+            parser.error("Maintenance UI cannot be combined with other operations")
+        ensure_data_root(root)
+        from .maintenance_ui import run_maintenance
+
+        return run_maintenance(root, args.installation_root, ui_smoke=args.ui_smoke)
     if (
         args.apply_restore is not None
         or args.recover_restore is not None
@@ -449,7 +467,12 @@ def main() -> int:
         ensure_data_root(root)
     try:
         with AppDataLock(root):
-            return _run(args, root)
+            launch_result = _run(args, root)
+        if launch_result == MAINTENANCE_REQUESTED:
+            from .maintenance_ui import run_maintenance
+
+            return run_maintenance(root, args.installation_root)
+        return launch_result
     except DataRootBusy as exc:
         print(str(exc), file=sys.stderr)
         return 3
@@ -492,7 +515,8 @@ def _run(args: argparse.Namespace, root: Path) -> int:
         from PySide6.QtCore import QTimer
 
         QTimer.singleShot(200, app.quit)
-    return app.exec()
+    result = app.exec()
+    return MAINTENANCE_REQUESTED if window.maintenance_requested else result
 
 
 if __name__ == "__main__":

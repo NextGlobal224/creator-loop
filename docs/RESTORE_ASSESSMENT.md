@@ -3,7 +3,8 @@
 This command provides **inspection only**. It does not restore a database,
 change an installation pointer, grant confirmation, migrate data or delete media.
 For explicit CLI apply/recovery, see [confirmed restore](RESTORE_APPLY.md).
-Confirmation UI remains under development. Do not copy the backup over an open WAL database.
+The [maintenance UI](MAINTENANCE_UI.md) displays the review before explicit
+confirmation. Do not copy the backup over an open WAL database.
 
 Close the app. Choose the intended published backup ID and an explicit staged
 candidate; never choose an installation by newest directory/time alone:

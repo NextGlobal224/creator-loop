@@ -27,7 +27,9 @@ healthy: activation remains blocked until all restored references resolve to
 their recorded bytes. Newer and unreferenced media remains on disk. A changed DB,
 registry, backup, candidate or media makes the review stale; inspect again rather
 than reusing old consent. Source invocation uses `python -m creator_loop` with
-`PYTHONPATH=app`. Confirmation UI is not implemented yet.
+`PYTHONPATH=app`. The [maintenance UI](MAINTENANCE_UI.md) displays this review and
+requires the same separate explicit acknowledgements; it opens without opening
+or initializing the DB, including when a pending guard blocks Library.
 
 Before copying, the operation holds app/DB locks and publishes a validated
 current-state DB backup under `backups/<id>/`. This particular safety snapshot
