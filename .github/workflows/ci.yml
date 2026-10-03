@@ -87,7 +87,7 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
       - name: Build one-directory application
-        run: python -m PyInstaller --noconfirm --clean --onedir --name CreatorLoop --paths app --add-data "migrations/0001_initial.sql;migrations" --add-data "migrations/0002_claim_citation_seal.sql;migrations" --add-data "migrations/0003_draft_snapshot_seal.sql;migrations" --add-data "migrations/0004_selection_snapshot_seal.sql;migrations" --add-data "migrations/0005_publication_snapshot_guards.sql;migrations" packaging/entrypoint.py
+        run: python -m PyInstaller --noconfirm --clean --onedir --name CreatorLoop --paths app --add-data "migrations/0001_initial.sql;migrations" --add-data "migrations/0002_claim_citation_seal.sql;migrations" --add-data "migrations/0003_draft_snapshot_seal.sql;migrations" --add-data "migrations/0004_selection_snapshot_seal.sql;migrations" --add-data "migrations/0005_publication_snapshot_guards.sql;migrations" --add-data "migrations/0006_observation_metric_validation.sql;migrations" packaging/entrypoint.py
       - name: Pack and smoke the exact ZIP
         shell: pwsh
         run: |
@@ -106,7 +106,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Extracted UI smoke failed' }
           $after = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($before -ne $after) { throw 'Release ZIP changed after smoke' }
-          $manifest = [ordered]@{ app_version='0.1.0'; git_commit='${{ github.sha }}'; schema_from=0; schema_to=5; target='win-x64'; artifact_sha256=$before; tested_artifact=$true }
+          $manifest = [ordered]@{ app_version='0.1.0'; git_commit='${{ github.sha }}'; schema_from=0; schema_to=6; target='win-x64'; artifact_sha256=$before; tested_artifact=$true }
           $manifest | ConvertTo-Json | Set-Content -Encoding utf8 release/release-manifest.json
           "$before  CreatorLoop-${{ github.sha }}-win-x64.zip" | Set-Content -Encoding ascii release/SHA256SUMS.txt
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
