@@ -53,6 +53,7 @@ from creator_loop.image_evidence_ui import ImageEvidenceDialog, ImageRegionView
 from creator_loop.image_thumbnail import create_image_thumbnail
 from creator_loop.media_intake import intake_image_original, intake_video_original
 from creator_loop.project_ui import ProjectDialog
+from creator_loop.selection_ui import SelectionDialog
 from creator_loop.source_association import (
     SourceDetails,
     create_source_for_asset,
@@ -593,6 +594,10 @@ class LibraryWindow(QMainWindow):
         creator.clicked.connect(self.choose_creator)
         self._buttons.append(creator)
         actions.addWidget(creator)
+        selection = QPushButton("Selection")
+        selection.clicked.connect(self.choose_selection)
+        self._buttons.append(selection)
+        actions.addWidget(selection)
         storage = QPushButton("Kho media")
         storage.clicked.connect(self.choose_storage)
         self._buttons.append(storage)
@@ -970,6 +975,38 @@ class LibraryWindow(QMainWindow):
         dialog.evidence_requested.connect(self.open_claim_evidence)
         if dialog.reload(version_id):
             dialog.exec()
+
+    def choose_selection(self) -> None:
+        if self._worker is not None:
+            return
+        dialog = SelectionDialog(self.root)
+        dialog.draft_requested.connect(self.open_selected_draft)
+        dialog.exec()
+
+    def open_selected_draft(self, version_id: str) -> None:
+        if self._worker is not None:
+            return
+        try:
+            with closing(open_readonly(self.root / "creator_loop.sqlite3")) as db:
+                row = db.execute(
+                    """SELECT d.project_id FROM draft_versions v JOIN drafts d ON d.draft_id=v.draft_id
+                    JOIN draft_version_seals s ON s.draft_version_id=v.draft_version_id WHERE v.draft_version_id=?""",
+                    (version_id,),
+                ).fetchone()
+            if row is None:
+                raise ValueError("Exact Draft Version is unavailable")
+            dialog = CreatorDialog(self.root)
+            project_index = dialog.project.findData(row[0])
+            if project_index < 0:
+                raise ValueError("Project is unavailable in Creator")
+            dialog.project.setCurrentIndex(project_index)
+            dialog.claim_requested.connect(self.open_draft_claim)
+            if dialog.reload(version_id) and dialog.selected_version_id() == version_id:
+                dialog.exec()
+        except Exception as exc:
+            QMessageBox.warning(
+                self, "Selection", f"Không thể mở exact Draft Version: {exc}"
+            )
 
     def open_claim_evidence(self, version_id: str) -> None:
         if self._worker is not None:
