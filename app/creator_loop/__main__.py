@@ -43,6 +43,15 @@ def main() -> int:
     parser.add_argument("--release-manifest", type=Path)
     parser.add_argument("--installation-root", type=Path)
     parser.add_argument(
+        "--inspect-restore",
+        help="Assess an explicit DB-only backup ID without restoring",
+    )
+    parser.add_argument(
+        "--restore-candidate",
+        type=Path,
+        help="Explicit staged candidate for restore compatibility assessment",
+    )
+    parser.add_argument(
         "--inspect-update",
         type=Path,
         help="Inspect interrupted update state without mutation",
@@ -81,6 +90,52 @@ def main() -> int:
     if args.backup and (args.smoke or args.ui_smoke):
         parser.error("--backup cannot be combined with smoke modes")
     root = data_root()
+    if args.inspect_restore is not None or args.restore_candidate is not None:
+        if (
+            args.inspect_restore is None
+            or args.restore_candidate is None
+            or args.installation_root is None
+            or args.inspect_update
+            or args.resume_update
+            or args.release_manifest
+            or args.backup
+            or args.smoke
+            or args.ui_smoke
+            or args.stage_update
+            or args.prepare_update
+            or args.activate_update
+            or args.repair_update_metadata
+            or args.launch_managed
+            or args.compatible_only
+            or args.health_check
+        ):
+            parser.error(
+                "Restore inspection requires explicit backup ID, --restore-candidate and --installation-root only"
+            )
+        from .restore_assessment import assess_restore
+
+        try:
+            print(
+                json.dumps(
+                    assess_restore(
+                        root,
+                        args.inspect_restore,
+                        args.installation_root,
+                        args.restore_candidate,
+                    ),
+                    sort_keys=True,
+                )
+            )
+            return 0
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Restore inspection refused: {type(exc).__name__}; no DB restore performed",
+                file=sys.stderr,
+            )
+            return 4
     if args.inspect_update or args.resume_update:
         if (
             (args.inspect_update and args.resume_update)

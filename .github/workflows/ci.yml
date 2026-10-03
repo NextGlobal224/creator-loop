@@ -96,7 +96,7 @@ jobs:
         run: python -m PyInstaller --noconfirm --clean --onedir --name CreatorLoop --paths app --add-data "migrations/0001_initial.sql;migrations" --add-data "migrations/0002_claim_citation_seal.sql;migrations" --add-data "migrations/0003_draft_snapshot_seal.sql;migrations" --add-data "migrations/0004_selection_snapshot_seal.sql;migrations" --add-data "migrations/0005_publication_snapshot_guards.sql;migrations" --add-data "migrations/0006_observation_metric_validation.sql;migrations" packaging/entrypoint.py
       - name: Pack and smoke the exact ZIP
         shell: pwsh
-        timeout-minutes: 30
+        timeout-minutes: 36
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force release | Out-Null
@@ -149,6 +149,8 @@ jobs:
           if ($repairedManifest.data_root_id -ne $userManifest.data_root_id) { throw 'Metadata repair changed data-root identity' }
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 240 -CommandArgs @('scripts/check_update_recovery.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation)
           if ($LASTEXITCODE -ne 0) { throw 'Packaged actual-state update recovery failed' }
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 300 -CommandArgs @('scripts/check_restore_assessment.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation)
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged restore/media assessment failed' }
           Copy-Item -LiteralPath $userManifestPath -Destination release/test-user-data-manifest.json
           Copy-Item -LiteralPath $preparedJournal.FullName -Destination release/activated-update-journal.json
           Copy-Item -LiteralPath (Join-Path $env:CREATOR_LOOP_DATA_ROOT 'logs') -Destination release/update-health-logs -Recurse

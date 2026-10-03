@@ -71,6 +71,12 @@ validates actual SQLite state, backs up current data, retains previous snapshots
 and runs fresh activation/health; it never restores the DB or guesses a candidate.
 See [recovery instructions](docs/UPDATE_RECOVERY.md) for refusals and compatibility.
 
+`--inspect-restore BACKUP_ID --restore-candidate DIR --installation-root DIR`
+assesses a selected DB-only backup, candidate compatibility and actual media
+digests without restoring anything. It reports lost-change/media warnings and
+the current-state review proof. See [restore assessment](docs/RESTORE_ASSESSMENT.md);
+restore apply and confirmation UI are still under development.
+
 `--stage-update ZIP --release-manifest JSON --installation-root DIR` verifies a supplied Windows ZIP and its complete file inventory, then stages a separate version directory while retaining existing installations and user data. It does not activate the candidate or migrate the DB. See [staging instructions](docs/INSTALLATION_STAGING.md). CI tests staging and a bounded launcher/schema smoke from the exact ZIP; final updater orchestration and release acceptance remain open.
 
 `--prepare-update ZIP --release-manifest JSON --installation-root DIR` adds a validated DB backup and sequential migration under the same app/SQLite writer locks, checking the packaged SQL and storage references before commit. It leaves an update journal and keeps activation pending. See [update preparation](docs/UPDATE_PREPARATION.md) before running it against an existing DB.
