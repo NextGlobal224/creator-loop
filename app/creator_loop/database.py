@@ -6,7 +6,12 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
-MIGRATIONS = ("0001_initial", "0002_claim_citation_seal", "0003_draft_snapshot_seal")
+MIGRATIONS = (
+    "0001_initial",
+    "0002_claim_citation_seal",
+    "0003_draft_snapshot_seal",
+    "0004_selection_snapshot_seal",
+)
 SCHEMA_VERSION = len(MIGRATIONS)
 
 
