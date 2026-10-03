@@ -80,23 +80,35 @@ def initialize(path: Path) -> None:
                         "Database changed while preparing migration backup"
                     )
                 validate(db, expected_version=version)
-            for step in range(version + 1, SCHEMA_VERSION + 1):
-                migration_id = MIGRATIONS[step - 1]
-                sql, digest = _migration_sql(migration_id)
-                _execute_migration(db, sql)
-                db.execute(
-                    """INSERT INTO schema_migrations(id,checksum,applied_at,app_version)
-                       VALUES(?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?)""",
-                    (migration_id, digest, "0.1.0"),
-                )
-                db.execute(f"PRAGMA user_version={step}")
-            validate(db)
+            _migrate_locked(db, version)
             db.commit()
         except BaseException:
             db.rollback()
             raise
     finally:
         db.close()
+
+
+def _migrate_locked(db: sqlite3.Connection, version: int) -> None:
+    """Apply sequential migrations inside the caller's reserved writer transaction.
+
+    Caller holds BEGIN IMMEDIATE and decides commit/rollback after storage checks.
+    """
+    if not db.in_transaction or not 0 <= version <= SCHEMA_VERSION:
+        raise RuntimeError("A supported schema and writer transaction are required")
+    if db.execute("PRAGMA user_version").fetchone()[0] != version:
+        raise RuntimeError("Schema changed before migration")
+    for step in range(version + 1, SCHEMA_VERSION + 1):
+        migration_id = MIGRATIONS[step - 1]
+        sql, digest = _migration_sql(migration_id)
+        _execute_migration(db, sql)
+        db.execute(
+            """INSERT INTO schema_migrations(id,checksum,applied_at,app_version)
+               VALUES(?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?)""",
+            (migration_id, digest, "0.1.0"),
+        )
+        db.execute(f"PRAGMA user_version={step}")
+    validate(db)
 
 
 def validate(db: sqlite3.Connection, *, expected_version: int = SCHEMA_VERSION) -> None:
