@@ -129,6 +129,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Staged candidate launcher/schema smoke failed' }
           $healthLog = Get-ChildItem .local-test-logs -Directory | Sort-Object Name -Descending | Select-Object -First 1
           Copy-Item -LiteralPath $healthLog.FullName -Destination release/staged-health-log -Recurse
+          $ownedHealth = Join-Path $PWD '.local-test-logs/candidate-owned-health'
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 120 -CommandArgs @('scripts/check_candidate_health.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--log-directory',$ownedHealth,'--component-version','${{ github.sha }}')
+          if ($LASTEXITCODE -ne 0) { throw 'Owned read-only candidate health failed' }
+          Copy-Item -LiteralPath $ownedHealth -Destination release/candidate-owned-health -Recurse
           if ($before -ne (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'ZIP changed during staging' }
           "$before  CreatorLoop-${{ github.sha }}-win-x64.zip" | Set-Content -Encoding ascii release/SHA256SUMS.txt
       - name: Preserve bounded staging logs
