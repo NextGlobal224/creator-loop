@@ -42,6 +42,36 @@ def _journal(path: Path, record: dict[str, Any]) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def manifest_identity(manifest: dict[str, Any]) -> str:
+    """Bind coordination to the supplied manifest, independent of whitespace."""
+    return hashlib.sha256(
+        json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def validate_candidate_migrations(
+    manifest: dict[str, Any], candidate: Path | None = None
+) -> None:
+    if (
+        manifest["schema_to"] != SCHEMA_VERSION
+        or manifest["migration_ids"] != list(MIGRATIONS)
+        or manifest.get("migration_checksums")
+        != {migration: _migration_sql(migration)[1] for migration in MIGRATIONS}
+    ):
+        raise ValueError("Candidate migrations do not match this updater")
+    for migration in MIGRATIONS:
+        name = f"CreatorLoop/_internal/migrations/{migration}.sql"
+        if name not in manifest["files"]:
+            raise ValueError("Candidate lacks packaged migration files")
+        if candidate is not None:
+            sql = (candidate / name).read_text(encoding="utf-8")
+            if (
+                hashlib.sha256(sql.encode("utf-8")).hexdigest()
+                != _migration_sql(migration)[1]
+            ):
+                raise RuntimeError("Candidate packaged migration checksum mismatch")
+
+
 def prepare_update(
     root: Path, artifact: Path, manifest_path: Path, installation_root: Path
 ) -> Path:
@@ -53,20 +83,7 @@ def prepare_update(
     """
     canonical = root.resolve(strict=True)
     manifest = load_release_manifest(manifest_path)
-    if (
-        manifest["schema_to"] != SCHEMA_VERSION
-        or manifest["migration_ids"] != list(MIGRATIONS)
-        or manifest.get("migration_checksums")
-        != {migration: _migration_sql(migration)[1] for migration in MIGRATIONS}
-    ):
-        raise ValueError(
-            "Candidate migrations do not match this updater; use the candidate's updater"
-        )
-    if any(
-        f"CreatorLoop/_internal/migrations/{migration}.sql" not in manifest["files"]
-        for migration in MIGRATIONS
-    ):
-        raise ValueError("Candidate lacks packaged migration files")
+    validate_candidate_migrations(manifest)
     with AppDataLock(canonical):
         preflight_installation(installation_root, canonical, manifest)
         manifests = canonical / "manifests"
@@ -82,6 +99,7 @@ def prepare_update(
             "update_id": update_id,
             "started_at": datetime.now(timezone.utc).isoformat(),
             "candidate_commit": manifest["git_commit"],
+            "candidate_manifest_identity": manifest_identity(manifest),
             "schema_to": SCHEMA_VERSION,
             "phase": "STARTED",
             "migration_committed": False,
@@ -122,19 +140,7 @@ def prepare_update(
                         raise RuntimeError(
                             "Candidate manifest changed during preparation"
                         )
-                    for migration in MIGRATIONS:
-                        sql = (
-                            candidate
-                            / "CreatorLoop/_internal/migrations"
-                            / f"{migration}.sql"
-                        ).read_text(encoding="utf-8")
-                        if (
-                            hashlib.sha256(sql.encode("utf-8")).hexdigest()
-                            != _migration_sql(migration)[1]
-                        ):
-                            raise RuntimeError(
-                                "Candidate packaged migration checksum mismatch"
-                            )
+                    validate_candidate_migrations(manifest, candidate)
                     record["phase"] = "INSTALLATION_STAGED"
                     _journal(journal, record)
                     _migrate_locked(db, version)
