@@ -32,7 +32,9 @@ jobs:
         env:
           PYTHONPATH: app
           CREATOR_LOOP_DATA_ROOT: ${{ runner.temp }}/creator-loop-smoke
-        run: python -m creator_loop --smoke
+        run: |
+          python -m creator_loop --smoke
+          python -m creator_loop --backup
   security:
     name: security-dependencies-workflow
     runs-on: ubuntu-24.04
@@ -105,6 +107,8 @@ jobs:
           $env:CREATOR_LOOP_DATA_ROOT = Join-Path $env:RUNNER_TEMP 'dữ liệu người dùng'
           & (Join-Path $target 'CreatorLoop/CreatorLoop.exe') --smoke
           if ($LASTEXITCODE -ne 0) { throw 'Extracted artifact smoke failed' }
+          & (Join-Path $target 'CreatorLoop/CreatorLoop.exe') --backup
+          if ($LASTEXITCODE -ne 0) { throw 'Extracted artifact backup failed' }
           $env:QT_QPA_PLATFORM = 'offscreen'
           & (Join-Path $target 'CreatorLoop/CreatorLoop.exe') --ui-smoke
           if ($LASTEXITCODE -ne 0) { throw 'Extracted UI smoke failed' }
