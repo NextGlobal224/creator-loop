@@ -52,6 +52,27 @@ def main() -> int:
         help="Explicit staged candidate for restore compatibility assessment",
     )
     parser.add_argument(
+        "--apply-restore", help="Restore an explicitly reviewed backup ID"
+    )
+    parser.add_argument(
+        "--reviewed-restore", help="Assessment identity shown during review"
+    )
+    parser.add_argument(
+        "--confirm-lost-changes",
+        action="store_true",
+        help="Explicitly accept losing all DB changes since this backup",
+    )
+    parser.add_argument(
+        "--confirm-media-issues",
+        action="store_true",
+        help="Explicitly acknowledge the assessed missing/changed media",
+    )
+    parser.add_argument(
+        "--recover-restore",
+        type=Path,
+        help="Resolve actual outcome of a confirmed interrupted restore",
+    )
+    parser.add_argument(
         "--inspect-update",
         type=Path,
         help="Inspect interrupted update state without mutation",
@@ -90,6 +111,81 @@ def main() -> int:
     if args.backup and (args.smoke or args.ui_smoke):
         parser.error("--backup cannot be combined with smoke modes")
     root = data_root()
+    if (
+        args.apply_restore is not None
+        or args.recover_restore is not None
+        or args.reviewed_restore is not None
+        or args.confirm_lost_changes
+        or args.confirm_media_issues
+    ):
+        if (
+            bool(args.apply_restore) == bool(args.recover_restore)
+            or args.installation_root is None
+            or args.inspect_restore is not None
+            or args.inspect_update
+            or args.resume_update
+            or args.release_manifest
+            or args.backup
+            or args.smoke
+            or args.ui_smoke
+            or args.stage_update
+            or args.prepare_update
+            or args.activate_update
+            or args.repair_update_metadata
+            or args.launch_managed
+            or args.compatible_only
+            or args.health_check
+            or (
+                args.apply_restore
+                and (
+                    args.restore_candidate is None
+                    or args.reviewed_restore is None
+                    or not args.confirm_lost_changes
+                )
+            )
+            or (
+                args.recover_restore
+                and (
+                    args.restore_candidate is not None
+                    or args.reviewed_restore is not None
+                    or args.confirm_lost_changes
+                    or args.confirm_media_issues
+                )
+            )
+        ):
+            parser.error(
+                "Choose confirmed restore with candidate/review identity, or recover an existing restore journal"
+            )
+        from .restore_apply import apply_restore, recover_restore
+
+        try:
+            if args.apply_restore:
+                restored = apply_restore(
+                    root,
+                    args.apply_restore,
+                    args.installation_root,
+                    args.restore_candidate,
+                    reviewed_identity=args.reviewed_restore,
+                    confirm_lost_changes=args.confirm_lost_changes,
+                    confirm_media_issues=args.confirm_media_issues,
+                )
+            else:
+                restored = recover_restore(
+                    root, args.recover_restore, args.installation_root
+                )
+            print(
+                f"Restore state resolved: {restored.name}; retain DB backups and media"
+            )
+            return 0
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Restore refused or incomplete: {type(exc).__name__}; preserve journal/backups/guard and inspect actual state",
+                file=sys.stderr,
+            )
+            return 4
     if args.inspect_restore is not None or args.restore_candidate is not None:
         if (
             args.inspect_restore is None
@@ -358,6 +454,11 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 3
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+        from .restore_guard import PendingRestore
+
+        if isinstance(exc, PendingRestore):
+            print(str(exc), file=sys.stderr)
+            return 4
         if not args.compatible_only:
             raise
         print(f"Compatible launch refused: {type(exc).__name__}", file=sys.stderr)
@@ -366,6 +467,9 @@ def main() -> int:
 
 def _run(args: argparse.Namespace, root: Path) -> int:
     """Initialize and run only while the app/updater coordination lock is held."""
+    from .restore_guard import require_no_pending_restore
+
+    require_no_pending_restore(root)
     db_path = root / "creator_loop.sqlite3"
     if not args.compatible_only:
         initialize(db_path)

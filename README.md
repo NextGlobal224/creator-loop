@@ -75,7 +75,8 @@ See [recovery instructions](docs/UPDATE_RECOVERY.md) for refusals and compatibil
 assesses a selected DB-only backup, candidate compatibility and actual media
 digests without restoring anything. It reports lost-change/media warnings and
 the current-state review proof. See [restore assessment](docs/RESTORE_ASSESSMENT.md);
-restore apply and confirmation UI are still under development.
+explicit CLI apply/recovery requires reviewed identity and lost-change confirmation,
+as described in [confirmed restore](docs/RESTORE_APPLY.md). Confirmation UI remains under development.
 
 `--stage-update ZIP --release-manifest JSON --installation-root DIR` verifies a supplied Windows ZIP and its complete file inventory, then stages a separate version directory while retaining existing installations and user data. It does not activate the candidate or migrate the DB. See [staging instructions](docs/INSTALLATION_STAGING.md). CI tests staging and a bounded launcher/schema smoke from the exact ZIP; final updater orchestration and release acceptance remain open.
 

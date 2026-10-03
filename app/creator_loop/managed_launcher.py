@@ -14,6 +14,7 @@ from creator_loop.app_lock import AppDataLock
 from creator_loop.database import validate
 from creator_loop.installation_stage import _installation_root, load_release_manifest
 from creator_loop.owned_process import OwnedWindowsProcess
+from creator_loop.restore_guard import require_no_pending_restore
 from creator_loop.update_activation import active_candidate
 from creator_loop.update_preparation import _journal
 
@@ -43,6 +44,7 @@ def launch_managed(
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("BEGIN IMMEDIATE")
         try:
+            require_no_pending_restore(canonical)
             version = db.execute("PRAGMA user_version").fetchone()[0]
             validate(db, expected_version=version)
             candidate, pointer = active_candidate(installation, version)
