@@ -516,16 +516,26 @@ def _run(
     from .library_ui import LibraryWindow
 
     recovery = None
+    runtime_recovery = None
     if not args.ui_smoke:
         from .processing_recovery import recover_processing_startup
+        from .runtime_recovery import recover_runtime_startup
 
         if coordination is None:
             raise RuntimeError("UI startup recovery requires the app coordination lock")
         recovery = recover_processing_startup(root, coordination)
+        runtime_recovery = recover_runtime_startup(root, coordination)
     app = QApplication(sys.argv)
     window = LibraryWindow(root)
-    if recovery is not None and (
-        recovery.interrupted_run_ids or recovery.unverified_running_ids
+    if (
+        recovery is not None
+        and runtime_recovery is not None
+        and (
+            recovery.interrupted_run_ids
+            or recovery.unverified_running_ids
+            or runtime_recovery.cleaned
+            or runtime_recovery.preserved
+        )
     ):
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QLabel
@@ -540,6 +550,14 @@ def _run(
             messages.append(
                 f"Còn {len(recovery.unverified_running_ids)} tác vụ từ phiên trước chưa xác minh; "
                 "ứng dụng giữ nguyên trạng thái và không tự chạy lại."
+            )
+        if runtime_recovery.cleaned:
+            messages.append(
+                f"Đã dọn {len(runtime_recovery.cleaned)} workspace decoder từ phiên đã kết thúc."
+            )
+        if runtime_recovery.preserved:
+            messages.append(
+                f"Giữ nguyên {len(runtime_recovery.preserved)} workspace chưa đủ bằng chứng dọn an toàn."
             )
         notice = QLabel(" ".join(messages))
         notice.setTextFormat(Qt.TextFormat.PlainText)

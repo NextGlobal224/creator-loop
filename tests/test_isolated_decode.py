@@ -235,8 +235,16 @@ with patch('creator_loop.isolated_decode.OwnedWindowsProcess',start):
             self.assertEqual(self.kernel.WaitForSingleObject(worker_handle, 5000), 0)
             with self.path.open("r+b") as source:
                 self.assertEqual(source.read(), self.fixture.read_bytes())
-            # Runtime orphan is preserved, not treated as live ownership by PID.
+            # Startup uses dead parent/child identities, never a bare PID.
             self.assertTrue(list((self.root / "runtime").glob("decode-*/request.json")))
+            from creator_loop.app_lock import AppDataLock
+            from creator_loop.runtime_recovery import recover_runtime_startup
+
+            with AppDataLock(self.root) as lock:
+                recovered = recover_runtime_startup(self.root, lock)
+            self.assertEqual(len(recovered.cleaned), 1)
+            self.assertEqual(recovered.preserved, ())
+            self.assertEqual(list((self.root / "runtime").glob("decode-*")), [])
         finally:
             if owner.poll() is None:
                 release.write_text("crash this fixture owner")

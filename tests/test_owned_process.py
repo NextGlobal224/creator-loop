@@ -216,6 +216,45 @@ sys.exit(99)
         self.assertEqual(outcome.exit_code, 13)
         self.assertFalse(outcome.timed_out)
 
+    def test_before_resume_can_persist_binding_before_child_code_runs(self):
+        binding = self.base / "binding.json"
+
+        def bind(record):
+            self.assertFalse((self.base / "child-ran").exists())
+            binding.write_text(json.dumps(record), encoding="utf-8")
+
+        code = "import json,sys; from pathlib import Path; p=Path(sys.argv[1]); assert json.loads((p/'binding.json').read_text())['pid']; (p/'child-ran').write_text('ran')"
+        with OwnedWindowsProcess(
+            self.exe,
+            ["-c", code, str(self.base)],
+            self.base / "binding-log",
+            component_version="fake-1",
+            before_resume=bind,
+        ) as process:
+            outcome = process.wait(10)
+        self.assertEqual(outcome.exit_code, 0)
+        self.assertTrue((self.base / "child-ran").exists())
+
+    def test_before_resume_failure_never_executes_owned_child(self):
+        target = self.base / "must-not-run"
+
+        def refuse(_record):
+            raise ValueError("binding failed")
+
+        with self.assertRaisesRegex(ValueError, "binding failed"):
+            OwnedWindowsProcess(
+                self.exe,
+                [
+                    "-c",
+                    "import sys; from pathlib import Path; Path(sys.argv[1]).write_text('bad')",
+                    str(target),
+                ],
+                self.base / "failed-binding",
+                component_version="fake-1",
+                before_resume=refuse,
+            )
+        self.assertFalse(target.exists())
+
     def test_input_timeout_closes_duplicate_keeps_source_and_exclusive_lock(self):
         path = self.base / "timeout input"
         with OwnedWindowsFile.create_new(path).stream as source:
