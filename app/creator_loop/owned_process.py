@@ -14,6 +14,7 @@ import stat
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from ctypes import wintypes as w
 from dataclasses import dataclass
 from pathlib import Path
@@ -145,6 +146,11 @@ def _api() -> Any:
         ),
         "SetHandleInformation": ((w.HANDLE, w.DWORD, w.DWORD), w.BOOL),
         "GetCurrentProcess": ((), w.HANDLE),
+        "OpenProcess": ((w.DWORD, w.BOOL, w.DWORD), w.HANDLE),
+        "QueryFullProcessImageNameW": (
+            (w.HANDLE, w.DWORD, w.LPWSTR, ctypes.POINTER(w.DWORD)),
+            w.BOOL,
+        ),
         "DuplicateHandle": (
             (
                 w.HANDLE,
@@ -262,6 +268,7 @@ class OwnedWindowsProcess:
         capture_output: bool = True,
         stdin_source: BinaryIO | None = None,
         memory_limit_bytes: int | None = None,
+        before_resume: Callable[[dict[str, object]], None] | None = None,
     ) -> None:
         if sys.platform != "win32":
             raise OSError("Owned process trees require Windows")
@@ -317,7 +324,7 @@ class OwnedWindowsProcess:
                 if capture_output
                 else open(os.devnull, "wb")
             )
-            self._create(arguments, environment, cwd, component_version)
+            self._create(arguments, environment, cwd, component_version, before_resume)
         except BaseException:
             self.close()
             raise
@@ -328,6 +335,7 @@ class OwnedWindowsProcess:
         environment: dict[str, str] | None,
         cwd: Path | None,
         component_version: str,
+        before_resume: Callable[[dict[str, object]], None] | None,
     ) -> None:
         if sys.platform != "win32":
             raise OSError("Owned process trees require Windows")
@@ -433,6 +441,8 @@ class OwnedWindowsProcess:
                 json.dump(self.record, stream, sort_keys=True)
                 stream.flush()
                 os.fsync(stream.fileno())
+            if before_resume is not None:
+                before_resume(self.record.copy())
             if self.kernel.ResumeThread(self.thread) == 0xFFFFFFFF:
                 raise ctypes.WinError(ctypes.get_last_error())
         finally:

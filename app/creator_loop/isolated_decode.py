@@ -19,6 +19,7 @@ from PySide6.QtGui import QImage, QImageReader
 from creator_loop import __version__
 from creator_loop.owned_process import OwnedWindowsProcess
 from creator_loop.publication_media import _open_read_lock
+from creator_loop.runtime_ownership import bind_workspace_child, create_workspace_marker
 
 MAX_FRAME_PIXELS = 8_294_400  # one 4K frame; no full-video copy/cache
 MAX_FRAME_BYTES = 64 * 1024 * 1024
@@ -72,6 +73,8 @@ def decode_isolated(
             prefix="decode-", dir=canonical / "runtime"
         ) as work:
             directory = Path(work)
+            component = f"qt-decoder/{__version__}/Qt-{qVersion()}"
+            marker = create_workspace_marker(canonical, directory, component)
             request = directory / "request.json"
             request.write_text(
                 json.dumps(
@@ -96,11 +99,14 @@ def decode_isolated(
                 Path(sys.executable),
                 [*prefix, "--decode-media", str(request)],
                 canonical / "logs" / f"decode-{uuid4().hex}",
-                component_version=f"qt-decoder/{__version__}/Qt-{qVersion()}",
+                component_version=component,
                 environment=environment,
                 capture_output=False,
                 stdin_source=held,
                 memory_limit_bytes=MAX_DECODER_MEMORY,
+                before_resume=lambda child: bind_workspace_child(
+                    directory, marker, child
+                ),
             ) as process:
 
                 def cancel() -> None:

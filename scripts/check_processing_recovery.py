@@ -5,6 +5,7 @@ import ctypes
 import hashlib
 import os
 import sqlite3
+import subprocess
 import sys
 import time
 from ctypes import wintypes as w
@@ -15,6 +16,42 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from creator_loop.database import initialize
 from creator_loop.owned_process import OwnedWindowsProcess
 from creator_loop.paths import ensure_data_root
+from creator_loop.runtime_ownership import create_workspace_marker
+
+
+def seed_runtime(root: Path, environment: dict[str, str]) -> tuple[Path, Path, Path]:
+    """A real short-lived owner binds a terminal child; live/unbound entries stay."""
+    dead = root / "runtime/decode-dead0001"
+    dead.mkdir()
+    code = """import sys
+from pathlib import Path
+from creator_loop.owned_process import OwnedWindowsProcess
+from creator_loop.runtime_ownership import create_workspace_marker,bind_workspace_child
+root=Path(sys.argv[1]); work=Path(sys.argv[2]); component='qt-decoder/recovery-probe/fixture'
+marker=create_workspace_marker(root,work,component)
+(work/'request.json').write_text('{}')
+with OwnedWindowsProcess(Path(sys.executable),['-c','pass'],root/'logs'/'runtime-fixture',
+    component_version=component,before_resume=lambda info:bind_workspace_child(work,marker,info)) as child:
+    outcome=child.wait(10)
+    assert outcome.exit_code==0 and not outcome.timed_out
+(work/'response.json').write_text('{}')
+(work/'frame.png').write_bytes(b'private synthetic runtime payload')
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(root), str(dead)],
+        env=environment,
+        capture_output=True,
+        timeout=15,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Runtime fixture owner failed: {result.stderr!r}")
+    live = root / "runtime/decode-live0001"
+    live.mkdir()
+    create_workspace_marker(root, live, "qt-decoder/recovery-probe/fixture")
+    unknown = root / "runtime/decode-unkn0001"
+    unknown.mkdir()
+    (unknown / "unowned-file").write_bytes(b"preserve unknown runtime")
+    return dead, live, unknown
 
 
 def close_owned_windows(process: OwnedWindowsProcess) -> int:
@@ -111,6 +148,17 @@ def main() -> None:
     env["CREATOR_LOOP_DATA_ROOT"] = str(root.resolve())
     env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "app")
     prefix = ["-m", "creator_loop"] if args.source else []
+    dead, live, unknown = seed_runtime(root.resolve(), env)
+
+    def runtime_snapshot():
+        return {
+            str(file.relative_to(root)): file.read_bytes()
+            for directory in (dead, live, unknown)
+            if directory.exists()
+            for file in directory.iterdir()
+        }
+
+    runtime_before = runtime_snapshot()
 
     def snapshot():
         with sqlite3.connect(path) as db:
@@ -134,7 +182,12 @@ def main() -> None:
             environment=env,
         ) as child:
             outcome = child.wait(15)
-        if outcome.timed_out or outcome.exit_code != 0 or snapshot() != before:
+        if (
+            outcome.timed_out
+            or outcome.exit_code != 0
+            or snapshot() != before
+            or runtime_snapshot() != runtime_before
+        ):
             raise RuntimeError(
                 f"Exact smoke {mode} altered run history or failed: {outcome}"
             )
@@ -157,7 +210,7 @@ def main() -> None:
                 status = db.execute(
                     "SELECT status FROM processing_runs WHERE run_id='interrupted'"
                 ).fetchone()[0]
-            if status == "FAILED":
+            if status == "FAILED" and not dead.exists():
                 close_count += close_owned_windows(child)
             time.sleep(0.1)
         else:
@@ -165,6 +218,16 @@ def main() -> None:
         if outcome.exit_code != 0 or close_count == 0:
             raise RuntimeError(f"Exact owned UI failed to close normally: {outcome}")
     after = {row[0]: row for row in snapshot()}
+    expected_runtime = {
+        key: value
+        for key, value in runtime_before.items()
+        if not key.startswith(f"runtime/{dead.name}/")
+        and not key.startswith(f"runtime\\{dead.name}\\")
+    }
+    if dead.exists() or runtime_snapshot() != expected_runtime:
+        raise RuntimeError("Exact runtime cleanup altered live/unbound workspace")
+    if not (root / "logs/runtime-fixture/ownership.json").exists():
+        raise RuntimeError("Exact runtime cleanup removed ownership logs")
     for row in before:
         if row[0] != "interrupted" and after[row[0]] != row:
             raise RuntimeError("Exact recovery changed queued/unknown/terminal history")
@@ -182,7 +245,7 @@ def main() -> None:
             "Exact startup recovery lacks preserved original/provenance or terminal evidence"
         )
     print(
-        "Exact normal UI processing recovery + unchanged smoke/queued/unknown/terminal history PASS"
+        "Exact UI processing/runtime recovery + unchanged smoke/history/live/unbound/original/logs PASS"
     )
 
 

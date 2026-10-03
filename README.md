@@ -92,6 +92,8 @@ MP4 import and TIME_RANGE video/audio Evidence decode use a separate owned Windo
 
 Normal Library startup records known interrupted thumbnail runs as failed before starting new workers, preserving queued work and terminal history. Smoke modes preserve run history. See [processing recovery](docs/PROCESSING_RECOVERY.md) for retry guidance and tasks whose previous executor remains unverified.
 
+Startup also cleans decoder runtime workspaces whose bound parent and child are proven stopped, preserving live or unbound entries, originals and ownership logs. See [runtime recovery](docs/RUNTIME_RECOVERY.md) for the deletion policy and remaining lifecycle acceptance.
+
 `--activate-update JOURNAL --installation-root DIR` verifies a prepared update and its backup/candidate again, changes the managed installation pointer, and runs bounded readonly health while app/DB locks remain held. Failure retains DB/media/backup/versions; only a verified schema-compatible previous pointer can be selected again. See [activation](docs/UPDATE_ACTIVATION.md). Managed launching from that pointer is available below; the maintenance UI exposes explicit recovery/restore controls.
 
 `--launch-managed --installation-root DIR` launches only the verified ACTIVE pointer. Its child uses `--compatible-only`, takes its own app lock and refuses an incompatible existing schema without migration. UI output is discarded; ownership/exit metadata is retained. See [managed launcher](docs/MANAGED_LAUNCHER.md) for session cleanup and smoke options.
