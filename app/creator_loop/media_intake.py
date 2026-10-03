@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from creator_loop.media_preflight import preflight_image, preflight_video
+from creator_loop.paths import data_root
 from creator_loop.text_intake import ImportedOriginal, _intake_original
 
 
@@ -36,7 +37,12 @@ def intake_video_original(
 ) -> ImportedOriginal:
     """Register a physical MP4 original after signature and byte verification."""
     return _intake_original(
-        source_path, classify=_video_type, preflight=preflight_video, root=root
+        source_path,
+        classify=_video_type,
+        preflight=lambda stream, path: preflight_video(
+            stream, path, root=Path(root) if root is not None else data_root()
+        ),
+        root=root,
     )
 
 

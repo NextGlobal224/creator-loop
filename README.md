@@ -88,6 +88,8 @@ for backup, explicit update/restore consent, recovery, cancel and retained logs.
 
 `--health-check` opens an existing DB read-only and returns JSON after schema/integrity/FK, a minimal query and a sample storage-reference check. It never creates or migrates a DB. The updater health helper runs the verified candidate with a native owned-tree deadline; CI exercises the exact staged EXE while the parent holds app/DB locks. See [ownership and health](docs/OWNED_HEALTH.md) for logs and native ownership limits.
 
+MP4 import and TIME_RANGE video/audio Evidence decode use a separate owned Windows worker with a process deadline and read-only inherited original handle. The current local budget is one frame up to 4K and 512 MiB worker committed memory. See [decoder lifecycle](docs/DECODER_LIFECYCLE.md) for timeout/shutdown behavior and the remaining playback/recovery acceptance work.
+
 `--activate-update JOURNAL --installation-root DIR` verifies a prepared update and its backup/candidate again, changes the managed installation pointer, and runs bounded readonly health while app/DB locks remain held. Failure retains DB/media/backup/versions; only a verified schema-compatible previous pointer can be selected again. See [activation](docs/UPDATE_ACTIVATION.md). Managed launching from that pointer is available below; the maintenance UI exposes explicit recovery/restore controls.
 
 `--launch-managed --installation-root DIR` launches only the verified ACTIVE pointer. Its child uses `--compatible-only`, takes its own app lock and refuses an incompatible existing schema without migration. UI output is discarded; ownership/exit metadata is retained. See [managed launcher](docs/MANAGED_LAUNCHER.md) for session cleanup and smoke options.

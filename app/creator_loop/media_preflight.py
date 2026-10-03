@@ -46,21 +46,10 @@ def preflight_image(stream: BinaryIO, path: Path) -> MediaInfo:
     return MediaInfo(image.width(), image.height())
 
 
-def preflight_video(stream: BinaryIO, path: Path) -> MediaInfo:
-    from PySide6.QtCore import QFile, QIODevice
-
+def preflight_video(
+    stream: BinaryIO, path: Path, *, root: Path | None = None
+) -> MediaInfo:
     from creator_loop.video_evidence import decode_video_path
 
-    device = QFile()
-    if not device.open(
-        stream.fileno(),
-        QIODevice.OpenModeFlag.ReadOnly,
-        QFile.FileHandleFlag.DontCloseHandle,
-    ):
-        raise OSError("Cannot expose held media descriptor to Qt")
-    try:
-        device.seek(0)
-        decoded = decode_video_path(path, device=device, require_audio=True)
-    finally:
-        device.close()
+    decoded = decode_video_path(path, source=stream, require_audio=True, root=root)
     return MediaInfo(decoded.image.width(), decoded.image.height(), decoded.duration_ms)

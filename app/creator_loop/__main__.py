@@ -22,6 +22,11 @@ MAINTENANCE_REQUESTED = 20
 
 
 def main() -> int:
+    # Private owned decoder entry point precedes all DB/root initialization.
+    if len(sys.argv) == 3 and sys.argv[1] == "--decode-media":
+        from .isolated_decode import run_decode_worker
+
+        return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--smoke", action="store_true", help="Create/open a DB and exit"

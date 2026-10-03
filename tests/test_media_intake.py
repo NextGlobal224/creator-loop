@@ -180,12 +180,12 @@ class MediaOriginalIntakeTests(unittest.TestCase):
         fixture = Path(__file__).parent / "fixtures" / "video-with-tone.mp4"
         denials = []
 
-        def checked(stream, path):
+        def checked(stream, path, *, root):
             with self.assertRaises(OSError):
                 with path.open("wb"):
                     pass
             denials.append(True)
-            return preflight_video(stream, path)
+            return preflight_video(stream, path, root=root)
 
         with patch("creator_loop.media_intake.preflight_video", side_effect=checked):
             imported = intake_video_original(fixture, root=self.root)

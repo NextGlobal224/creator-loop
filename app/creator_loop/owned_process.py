@@ -10,6 +10,7 @@ import ctypes
 import json
 import math
 import os
+import stat
 import subprocess
 import sys
 import time
@@ -143,6 +144,19 @@ def _api() -> Any:
             w.BOOL,
         ),
         "SetHandleInformation": ((w.HANDLE, w.DWORD, w.DWORD), w.BOOL),
+        "GetCurrentProcess": ((), w.HANDLE),
+        "DuplicateHandle": (
+            (
+                w.HANDLE,
+                w.HANDLE,
+                w.HANDLE,
+                ctypes.POINTER(w.HANDLE),
+                w.DWORD,
+                w.BOOL,
+                w.DWORD,
+            ),
+            w.BOOL,
+        ),
         "InitializeProcThreadAttributeList": (
             (ctypes.c_void_p, w.DWORD, w.DWORD, ctypes.POINTER(ctypes.c_size_t)),
             w.BOOL,
@@ -190,6 +204,47 @@ class ProcessOutcome:
     elapsed_seconds: float
 
 
+def _duplicate_read_input(kernel: Any, source: BinaryIO) -> BinaryIO:
+    """Own a read-only duplicate; never close/change inheritance on the source.
+
+    DuplicateHandle shares the kernel file position. The caller must keep the
+    source open and avoid reading/seeking it until the child has been closed.
+    https://learn.microsoft.com/en-us/windows/win32/api/handleapi/nf-handleapi-duplicatehandle
+    """
+    if sys.platform != "win32":
+        raise OSError("Owned input handles require Windows")
+    import msvcrt
+
+    if not source.readable() or not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+        raise ValueError("Owned input requires a readable regular file")
+    handle = w.HANDLE()
+    current = kernel.GetCurrentProcess()
+    if not kernel.DuplicateHandle(
+        current,
+        msvcrt.get_osfhandle(source.fileno()),
+        current,
+        ctypes.byref(handle),
+        0x80000000,
+        False,
+        0,  # GENERIC_READ only
+    ):
+        raise ctypes.WinError(ctypes.get_last_error())
+    if handle.value is None:
+        raise OSError("DuplicateHandle returned no input handle")
+    try:
+        fd = msvcrt.open_osfhandle(
+            handle.value, os.O_RDONLY | os.O_BINARY | os.O_NOINHERIT
+        )
+    except BaseException:
+        kernel.CloseHandle(handle)
+        raise
+    try:
+        return os.fdopen(fd, "rb", buffering=0)
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 class OwnedWindowsProcess:
     kernel: Any
     stdout_path: Path
@@ -205,6 +260,8 @@ class OwnedWindowsProcess:
         environment: dict[str, str] | None = None,
         cwd: Path | None = None,
         capture_output: bool = True,
+        stdin_source: BinaryIO | None = None,
+        memory_limit_bytes: int | None = None,
     ) -> None:
         if sys.platform != "win32":
             raise OSError("Owned process trees require Windows")
@@ -217,6 +274,11 @@ class OwnedWindowsProcess:
                 "Valid component version and argument strings are required"
             )
         self.kernel = _api()
+        if memory_limit_bytes is not None and (
+            type(memory_limit_bytes) is not int
+            or not 64 * 1024 * 1024 <= memory_limit_bytes <= 4 * 1024**3
+        ):
+            raise ValueError("Owned Job memory limit must be between 64 MiB and 4 GiB")
         self.executable = executable.resolve(strict=True)
         self.job: int | None = None
         self.process: int | None = None
@@ -233,11 +295,18 @@ class OwnedWindowsProcess:
                 raise ctypes.WinError(ctypes.get_last_error())
             limits = _ExtendedLimits()
             limits.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            if memory_limit_bytes is not None:
+                limits.basic.flags |= 0x200  # JOB_OBJECT_LIMIT_JOB_MEMORY
+                limits.job_memory = memory_limit_bytes
             if not self.kernel.SetInformationJobObject(
                 self.job, 9, ctypes.byref(limits), ctypes.sizeof(limits)
             ):
                 raise ctypes.WinError(ctypes.get_last_error())
-            self.streams.append(open(os.devnull, "rb"))
+            self.streams.append(
+                _duplicate_read_input(self.kernel, stdin_source)
+                if stdin_source is not None
+                else open(os.devnull, "rb")
+            )
             self.streams.append(
                 self.stdout_path.open("xb")
                 if capture_output
