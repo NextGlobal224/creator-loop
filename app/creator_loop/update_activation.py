@@ -20,7 +20,7 @@ from creator_loop.installation_stage import (
 )
 from creator_loop.update_backup import _digest, _inventory
 from creator_loop.update_health import run_health_check
-from creator_loop.update_preparation import _journal
+from creator_loop.update_preparation import _journal, manifest_identity
 
 
 def _read_record(path: Path) -> dict[str, Any]:
@@ -86,6 +86,12 @@ def active_candidate(
         raise ValueError("Active installation root must be a real directory")
     installation = installation.resolve(strict=True)
     pointer = _read_record(installation / "active-installation.json")
+    return _candidate_from_pointer(installation, pointer, schema_version), pointer
+
+
+def _candidate_from_pointer(
+    installation: Path, pointer: dict[str, Any], schema_version: int
+) -> Path:
     if pointer.get("pointer_format") != 1 or pointer.get("status") != "ACTIVE":
         raise RuntimeError("Installation has no health-validated active candidate")
     name = pointer.get("candidate_name")
@@ -97,7 +103,7 @@ def active_candidate(
         raise ValueError("Active candidate manifest changed")
     if not manifest["schema_read_min"] <= schema_version <= manifest["schema_read_max"]:
         raise RuntimeError("Active installation cannot read the current schema")
-    return candidate, pointer
+    return candidate
 
 
 def verify_prepared_backup(canonical: Path, record: dict[str, Any]) -> Path:
@@ -119,6 +125,7 @@ def verify_prepared_backup(canonical: Path, record: dict[str, Any]) -> Path:
     if (
         type(backup_version) is not int
         or not 1 <= backup_version <= SCHEMA_VERSION
+        or type(record.get("schema_from")) is not int
         or record.get("schema_from") != backup_version
     ):
         raise ValueError("Prepared backup schema identity changed")
@@ -201,6 +208,11 @@ def activate_prepared_update(
             manifest = verify_candidate(candidate, installation)
             if (
                 manifest["git_commit"] != record.get("candidate_commit")
+                or (
+                    record.get("candidate_manifest_identity") is not None
+                    and manifest_identity(manifest)
+                    != record["candidate_manifest_identity"]
+                )
                 or manifest["schema_to"] != record["schema_to"]
                 or not manifest["schema_read_min"]
                 <= SCHEMA_VERSION
@@ -223,7 +235,23 @@ def activate_prepared_update(
                     except RuntimeError:
                         previous = None
                 else:
+                    current_pointer = previous
                     previous = None
+                    # An interrupted pointer switch may have persisted the
+                    # original ACTIVE pointer only in its update journal.
+                    saved = record.get("previous_active_pointer")
+                    if (
+                        record.get("recovery_commit_completed") is True
+                        and isinstance(saved, dict)
+                        and current_pointer.get("update_id") == update_id
+                    ):
+                        try:
+                            previous_candidate = _candidate_from_pointer(
+                                installation, saved, SCHEMA_VERSION
+                            )
+                            previous = saved
+                        except (OSError, ValueError, RuntimeError):
+                            pass
             pointer = {
                 "pointer_format": 1,
                 "status": "PENDING_HEALTH",

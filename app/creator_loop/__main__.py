@@ -43,6 +43,16 @@ def main() -> int:
     parser.add_argument("--release-manifest", type=Path)
     parser.add_argument("--installation-root", type=Path)
     parser.add_argument(
+        "--inspect-update",
+        type=Path,
+        help="Inspect interrupted update state without mutation",
+    )
+    parser.add_argument(
+        "--resume-update",
+        type=Path,
+        help="Back up current state and explicitly resume an interrupted update",
+    )
+    parser.add_argument(
         "--repair-update-metadata",
         type=Path,
         help="Recheck a completed update and repair its coordination metadata",
@@ -71,6 +81,54 @@ def main() -> int:
     if args.backup and (args.smoke or args.ui_smoke):
         parser.error("--backup cannot be combined with smoke modes")
     root = data_root()
+    if args.inspect_update or args.resume_update:
+        if (
+            (args.inspect_update and args.resume_update)
+            or args.installation_root is None
+            or args.release_manifest is not None
+            or args.backup
+            or args.smoke
+            or args.ui_smoke
+            or args.stage_update
+            or args.prepare_update
+            or args.activate_update
+            or args.repair_update_metadata
+            or args.launch_managed
+            or args.compatible_only
+            or args.health_check
+        ):
+            parser.error(
+                "Choose update inspection or resume with --installation-root only"
+            )
+        from .update_recovery import inspect_update, resume_update
+
+        try:
+            if args.inspect_update:
+                print(
+                    json.dumps(
+                        inspect_update(
+                            root, args.inspect_update, args.installation_root
+                        ),
+                        sort_keys=True,
+                    )
+                )
+            else:
+                resumed = resume_update(
+                    root, args.resume_update, args.installation_root
+                )
+                print(
+                    f"Resumed health-validated installation: {resumed.name}; no DB restore"
+                )
+            return 0
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Update recovery refused: {type(exc).__name__}; keep backups and inspect journal",
+                file=sys.stderr,
+            )
+            return 4
     if args.compatible_only and (
         args.backup
         or args.stage_update
