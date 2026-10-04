@@ -65,6 +65,11 @@ The launcher holds `runtime/app-data.lock` for the complete app session, before 
 
 ## CI and release
 
+For explicitly selected local engine/model files, `--check-components MANIFEST`
+checks pinned metadata and physical digest/size without opening the user DB or
+executing the components. See [local component preflight](docs/LOCAL_COMPONENTS.md)
+for the manifest, timeout command and remaining runtime/8 GB acceptance work.
+
 Interrupted updates can be inspected with `--inspect-update JOURNAL --installation-root DIR`
 and explicitly resumed with `--resume-update JOURNAL --installation-root DIR`. Resume
 validates actual SQLite state, backs up current data, retains previous snapshots,

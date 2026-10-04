@@ -33,6 +33,11 @@ def main() -> int:
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--check-components",
+        type=Path,
+        help="Verify selected local component artifacts without opening the user DB",
+    )
+    parser.add_argument(
         "--smoke", action="store_true", help="Create/open a DB and exit"
     )
     parser.add_argument(
@@ -124,6 +129,14 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if args.check_components is not None:
+        if any(
+            value for name, value in vars(args).items() if name != "check_components"
+        ):
+            parser.error("Component checks cannot be combined with other operations")
+        from .local_components import check_components_cli
+
+        return check_components_cli(args.check_components)
     if args.backup and (args.smoke or args.ui_smoke):
         parser.error("--backup cannot be combined with smoke modes")
     root = data_root()

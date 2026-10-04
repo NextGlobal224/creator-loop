@@ -169,6 +169,9 @@ jobs:
           $playbackProbe = Join-Path $PWD '.local-test-logs/exact-playback-${{ github.sha }}'
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 90 -CommandArgs @('scripts/check_playback_lifecycle.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--work-root',$playbackProbe)
           if ($LASTEXITCODE -ne 0) { throw 'Exact candidate actual-frame/audio playback lifecycle failed' }
+          $componentProbe = Join-Path $PWD '.local-test-logs/exact-components-${{ github.sha }}'
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 90 -CommandArgs @('scripts/check_local_components.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--work-root',$componentProbe)
+          if ($LASTEXITCODE -ne 0) { throw 'Exact candidate local component artifact preflight failed' }
           $processingProbe = Join-Path $PWD '.local-test-logs/exact-processing-${{ github.sha }}'
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 120 -CommandArgs @('scripts/check_processing_recovery.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--work-root',$processingProbe,'--component-version','${{ github.sha }}')
           if ($LASTEXITCODE -ne 0) { throw 'Exact candidate processing/runtime startup recovery failed' }
