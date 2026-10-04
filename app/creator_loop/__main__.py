@@ -34,6 +34,10 @@ def main() -> int:
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--inspect-corrupt-restore",
+        help="Review damaged SQLite bytes and an explicit backup; no restore",
+    )
+    parser.add_argument(
         "--inspect-components",
         action="store_true",
         help="Read saved component declarations; not a fresh file check",
@@ -149,6 +153,47 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if args.inspect_corrupt_restore is not None:
+        if (
+            args.restore_candidate is None
+            or args.installation_root is None
+            or any(
+                value
+                for name, value in vars(args).items()
+                if name
+                not in (
+                    "inspect_corrupt_restore",
+                    "restore_candidate",
+                    "installation_root",
+                )
+            )
+        ):
+            parser.error(
+                "Damaged source inspection requires an explicit backup/candidate/installation only"
+            )
+        from .corrupt_restore_assessment import assess_corrupt_restore
+
+        try:
+            print(
+                json.dumps(
+                    assess_corrupt_restore(
+                        data_root(),
+                        args.inspect_corrupt_restore,
+                        args.installation_root,
+                        args.restore_candidate,
+                    )
+                )
+            )
+            return 0
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Damaged source inspection refused: {type(exc).__name__}; keep DB/sidecars/backups",
+                file=sys.stderr,
+            )
+            return 4
     if args.inspect_components:
         if any(
             value for name, value in vars(args).items() if name != "inspect_components"
