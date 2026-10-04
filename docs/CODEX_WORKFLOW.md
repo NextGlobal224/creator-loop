@@ -13,7 +13,7 @@ Hướng dẫn này được hợp nhất từ bộ `Codex-Kit-v2` cho repo Crea
 
 “Task mới” là một việc trong dự án hiện tại; không đồng nghĩa “dự án mới”. Skill `start-project` chỉ dùng cho trường hợp thứ nhất.
 
-Với Creator Loop, giữ thứ tự luật đã chốt: [Data Architecture V1.1](Creator_Loop_Data_Architecture_V1_1.md) → [CI/CD & Release Contract V1](Creator_Loop_CICD_Release_Contract_V1.md) → [Layout Contract V1](Creator_Loop_Layout_Contract_V1.md) → [Master Prompt V2](Codex_Master_Prompt_V2.md). Nếu xung đột, dừng phần phụ thuộc và xử lý theo Master Prompt; không tự đổi baseline.
+Thứ tự contract, quyền và quy tắc bắt buộc nằm ở [AGENTS.md](../AGENTS.md); xử lý xung đột theo [Master Prompt](Codex_Master_Prompt_V2.md).
 
 ## 2. Ba mẫu giao việc hằng ngày
 
@@ -36,23 +36,17 @@ $env:QT_QPA_PLATFORM = 'offscreen'
   -TimeoutSeconds 120 -CommandArgs @('-m','unittest','discover','-s','tests','-p','test_storage_volumes.py','-q')
 ```
 
-Đọc `result.json` và `output.log` của lượt vừa chạy; không suy PASS từ việc tool trả session. Runner ưu tiên Python/test native; encoded PowerShell có vấn đề stderr CLIXML và quoting, không dùng cho raw stderr shell. Probe timeout/ownership và full suite199 ca có Qt thật đã chạy qua runner trên Windows local; runner trên CI chưa kiểm. Lưu bằng chứng theo code/môi trường trong HANDOFF.
+Runner ưu tiên Python/test native; encoded PowerShell có vấn đề stderr CLIXML và quoting, không dùng cho raw stderr shell. Tại mốc199 ca, probe timeout/ownership và Qt full đã được kiểm local, runner trên CI chưa kiểm; xem HANDOFF cho bằng chứng mới. Đọc kết quả theo mục3, không suy PASS từ session.
 
-### Budget full suite sau verified-copy recovery
+### Budget full suite
 
-Full Windows dùng process timeout720s và step timeout13 phút; timeout từng test,
-playback heartbeat8s, RAM512MiB, health60s và recovery180s vẫn giữ nguyên.
-Mốc recovery727 ca thêm actual health/crash/race/refusal coverage: full420 đã
-669STOP/417.345s, còn khoảng58.969s theo timing phần tương ứng ở full710;
-ước lượng476.314s. Đây là điều chỉnh budget cho toàn suite theo coverage/timing,
-không đổi điều kiện nghiệm thu hoặc bỏ test. Scoped67 PASS134.106s không chứng
-minh fixture nhanh hơn; FAIL420 vẫn ở HANDOFF và logs. Mốc fresh restore tiếp
-theo full600 FAIL124/timeouttrue600.2224959s: 751STOP/tổng597.891s, 13 test mới
-45.765s, matching old tests chậm thêm84.909s; phần còn lại theo checkpoint768
-khoảng18.578s, projected616.469s. Profile `fresh-full-timeout-profile.json`
-trong local logs và HANDOFF giữ số đo/phạm vi. Budget720 thêm khoảng103.5s trên
-projection, không bỏ assertion/test hoặc đổi product deadlines. Nếu720s vẫn
-FAIL, đọc START/STOP và stack, chẩn đoán trước mọi retry/đổi budget tiếp theo.
+Full Windows dùng process timeout720s/CI step13 phút; product deadlines từng test,
+playback heartbeat8s, RAM512MiB, health60s và recovery180s không đổi. Không bỏ test/assertion.
+Căn cứ measured coverage, FAIL420/600, timing/projection và phạm vi từng checkpoint
+tra [HANDOFF/lịch sử](HANDOFF.md) cùng `corrupt-recovery-full-timeout-timings.json`
+và `fresh-full-timeout-profile.json` trong `.local-test-logs/`; số đo đã được giữ, không audit lại.
+Budget720 có khoảng103.5s trên projected616.469s của mốc fresh600; nếu vẫn FAIL,
+đọc START/STOP/stack và chẩn đoán trước retry/đổi budget, không suy speedup từ scoped PASS.
 
 ### Task mới
 
@@ -102,7 +96,14 @@ Nếu repo dùng đường dẫn bàn giao khác, thay đường dẫn trong ba 
 
 Khi có mâu thuẫn, Codex nêu khác biệt và đọc nguồn cần thiết để giải quyết. Một file ghi CURRENT hoặc một nhận xét PASS không tự chứng minh đúng.
 
-Việc nhỏ không phải đọc toàn bộ kế hoạch hoặc mọi contract. Khi **tiếp tục** công việc, đọc handoff rồi kiểm Git/source; với task mới, đọc hướng dẫn và phần contract liên quan. Tìm ký hiệu/phạm vi bằng `rg` có thể rộng; chỉ nạp nội dung cần cho quyết định. Giữ nguyên sự khác nhau giữa tìm kiếm toàn repo và đọc mọi file.
+Quy trình đọc context và kiểm tra:
+
+1. Lấy checkpoint từ HANDOFF rồi đối chiếu Git theo AGENTS. Tra archive khi cần lịch sử, lý do hoặc bằng chứng cũ; không nạp lại toàn bộ archive/chat vào context.
+2. Dùng `rg` tìm mục contract, ký hiệu và file liên quan rồi đọc đúng đoạn cần quyết định. Mở rộng source khi ảnh hưởng/bất biến chưa rõ; không audit toàn dự án chỉ vì tiếp tục phiên.
+3. Tái sử dụng context và bằng chứng còn đúng theo code, môi trường và phạm vi; xác minh lại dữ kiện đã đổi hoặc còn thiếu. Đổi tài khoản/bật máy không tự làm mất hiệu lực bằng chứng.
+4. Giữ log dài tại vị trí phù hợp (`.local-test-logs/` cho runner); đọc `result.json`, phần kết luận và đoạn lỗi/tail cần thiết. Ghi đường dẫn, PASS/FAIL/SKIP và phần chưa xác minh trong HANDOFF; giữ log gốc. Timeout/ownership và lệnh nằm ở mục2.
+5. Chạy lại kiểm tra khi thay đổi liên quan, cần bằng chứng mới hoặc contract yêu cầu; chọn scoped checks khi sửa, giữ đủ validation/review/required CI tại checkpoint. Docs thuần túy kiểm diff/tham chiếu; bổ sung checks nếu tác động công cụ hoặc repo yêu cầu. Không chạy lại full chỉ để báo cáo, bàn giao hoặc chuyển phiên.
+6. Dùng công cụ hiện có; chỉ khám phá thêm skill/MCP/connector khi thiếu khả năng cần cho task. Khi chờ CI, dùng watch/wait với khoảng kiểm tra phù hợp thời gian job, không gọi model liên tục để hỏi trạng thái.
 
 ## 4. Kiểm tra của dự án
 
@@ -126,7 +127,7 @@ Ba job PR có bằng chứng ở [run 36884109471](https://github.com/NextGlobal
 - SKIP: không thực hiện một ca; ghi lý do và ảnh hưởng.
 - Chưa chạy: chưa có bằng chứng thực thi. Có thể đồng thời đã xác nhận lệnh từ cấu hình.
 
-Kiểm tra phù hợp với thay đổi và yêu cầu repo. Mở rộng khi ảnh hưởng chưa rõ hoặc có lỗi. Sửa tài liệu thuần túy thường cần đọc diff và đường dẫn; vẫn làm kiểm tra bổ sung nếu repo yêu cầu hoặc tài liệu tác động đến công cụ.
+Áp dụng cách chọn phạm vi kiểm tra ở mục3; bảng này giữ bằng chứng lịch sử A2, không thay checkpoint hiện hành.
 
 ## 5. Giữ phiên gọn
 
@@ -171,7 +172,7 @@ Giữ một cấu hình đủ tốt cho công việc thường ngày. Tăng kh�
 
 Không đặt tên model cố định làm yêu cầu cho mọi repo. Lựa chọn và usage phụ thuộc tài khoản/catalog đang có. Nếu thử chế độ tốc độ hoặc model khác, xem mô tả/usage hiện hành trước khi dùng thường xuyên.
 
-Giữ công cụ cần cho task. Chỉ đọc log liên quan; lưu log dài vào vị trí phù hợp của dự án và trỏ đến phần lỗi. Connector chỉ có ích khi truy cập được nguồn thật của nhiệm vụ.
+Chọn công cụ và đọc log theo mục3; connector phải truy cập được nguồn thật của nhiệm vụ.
 
 ## 8. Bảng nghiệm thu thiết lập
 

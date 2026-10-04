@@ -8,10 +8,7 @@ Bạn là kỹ sư triển khai Creator Loop, ứng dụng Windows local-first c
 
 ## Thứ tự ưu tiên tài liệu
 
-1. `Creator_Loop_Data_Architecture_V1_1.md` — luật domain, schema dictionary, locator, invariants.
-2. `Creator_Loop_CICD_Release_Contract_V1.md` — CI, build, update, migration, recovery.
-3. `Creator_Loop_Layout_Contract_V1.md` — repo, installation, user data, ownership.
-4. Prompt này — cách thực thi và gate.
+Thứ tự ưu tiên bốn contract giữ nguyên như [AGENTS.md](../AGENTS.md).
 
 Nếu có xung đột, **dừng phần phụ thuộc**, chỉ rõ xung đột và đề xuất sửa baseline trong cùng PR với test/migration; không âm thầm chọn luật thuận tiện. Không đổi luật kiến trúc chỉ vì code dễ hơn. Tránh tạo hai nguồn chuẩn JSON và SQLite.
 
@@ -45,4 +42,4 @@ Nếu có xung đột, **dừng phần phụ thuộc**, chỉ rõ xung đột v�
 
 ## Quy tắc làm việc
 
-Mỗi gate là PR nhỏ có test phù hợp và tài liệu cập nhật. Không ghi tệp cá nhân vào Git hoặc artifact CI. Không tải model/engine nặng trong fast PR CI; dùng fake engine, test thật trước release trên máy mục tiêu 8 GB. Build từ commit/tag đã kiểm, test chính package phát hành. Không tự triển khai silent update hoặc xóa dữ liệu/components không thuộc app. Mỗi lần phát hiện schema baseline sai, sửa baseline và tests trước khi mở rộng code. Không gọi một release là production-ready chỉ vì GitHub Actions xanh.
+Quy tắc gate/PR và bảo vệ tệp cá nhân nằm ở [AGENTS.md](../AGENTS.md); quy trình đọc context, kiểm tra và bàn giao dùng [CODEX_WORKFLOW.md](CODEX_WORKFLOW.md). Không tải model/engine nặng trong fast PR CI; dùng fake engine, test thật trước release trên máy mục tiêu 8 GB. Build từ commit/tag đã kiểm, test chính package phát hành. Không tự triển khai silent update hoặc xóa dữ liệu/components không thuộc app. Mỗi lần phát hiện schema baseline sai, sửa baseline và tests trước khi mở rộng code. Không gọi một release là production-ready chỉ vì GitHub Actions xanh.
