@@ -38,8 +38,8 @@ không kill PID lấy từ record. Xem thư mục log hiển thị trong trạng
 Maintenance. [Resume](CORRUPT_COPY_RESUME.md) cần consent riêng cho empty target
 hoặc UNKNOWN bundle và complete originals retained exactly once; không đoán DB
 cần giữ hay tự xóa WAL/SHM/hot journal. Changed completed original-copy receipt
-vẫn bị từ chối và cần fresh restore decision riêng; không dùng partial consent
-để bỏ qua kiểm tra này.
+vẫn bị từ chối và cần [fresh restore decision/CLI riêng](FRESH_COMPLETED_RESTORE.md);
+không dùng partial consent để bỏ qua kiểm tra này. Fresh UI chưa nối.
 
 Combined CLI dùng để đọc cùng proof, không cấp quyền apply:
 

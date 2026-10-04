@@ -40,14 +40,19 @@ $env:QT_QPA_PLATFORM = 'offscreen'
 
 ### Budget full suite sau verified-copy recovery
 
-Full Windows dùng process timeout600s và step timeout11 phút; timeout từng test,
+Full Windows dùng process timeout720s và step timeout13 phút; timeout từng test,
 playback heartbeat8s, RAM512MiB, health60s và recovery180s vẫn giữ nguyên.
 Mốc recovery727 ca thêm actual health/crash/race/refusal coverage: full420 đã
 669STOP/417.345s, còn khoảng58.969s theo timing phần tương ứng ở full710;
 ước lượng476.314s. Đây là điều chỉnh budget cho toàn suite theo coverage/timing,
 không đổi điều kiện nghiệm thu hoặc bỏ test. Scoped67 PASS134.106s không chứng
-minh fixture nhanh hơn; FAIL420 vẫn ở HANDOFF và logs. Nếu600s vẫn FAIL, đọc
-START/STOP và stack, chẩn đoán trước mọi retry/đổi budget tiếp theo.
+minh fixture nhanh hơn; FAIL420 vẫn ở HANDOFF và logs. Mốc fresh restore tiếp
+theo full600 FAIL124/timeouttrue600.2224959s: 751STOP/tổng597.891s, 13 test mới
+45.765s, matching old tests chậm thêm84.909s; phần còn lại theo checkpoint768
+khoảng18.578s, projected616.469s. Profile `fresh-full-timeout-profile.json`
+trong local logs và HANDOFF giữ số đo/phạm vi. Budget720 thêm khoảng103.5s trên
+projection, không bỏ assertion/test hoặc đổi product deadlines. Nếu720s vẫn
+FAIL, đọc START/STOP và stack, chẩn đoán trước mọi retry/đổi budget tiếp theo.
 
 ### Task mới
 

@@ -21,6 +21,8 @@ from creator_loop.corrupt_database import _NAMES, _identity, _regular
 from creator_loop.corrupt_restore_copy import _hash
 from creator_loop.corrupt_stage_validation import hold_corrupt_preparation
 from creator_loop.database import validate
+from creator_loop.fresh_guard import fresh_guard_names
+from creator_loop.fresh_retention import hold_fresh_history
 from creator_loop.preserved_source_validation import _unique_object
 from creator_loop.publication_media import _open_read_lock
 from creator_loop.restore_assessment import _database_identity
@@ -158,6 +160,26 @@ def _hold_inspected_copy(
 
         record = read_record(selected)
         guard = read_record(canonical / "runtime/restore-in-progress.json")
+        anchored = fresh_guard_names(guard, copy_id)
+        expected_guard = {
+            "corrupt_restore_copy_format": 1,
+            "copy_id": copy_id,
+            "journal_name": selected.name,
+            "data_root_identity": root_id,
+            "preparation_sha256": record.get("preparation_sha256"),
+        }
+        guard_archive = canonical / "backups" / f"corrupt-guard-{copy_id}.json"
+        guard_archive_present = _regular(guard_archive) is not None
+        if anchored:
+            expected_guard["fresh_restore_journals"] = anchored
+        if anchored or guard_archive_present:
+            original_guard = read_record(guard_archive)
+            if original_guard != {
+                key: value
+                for key, value in expected_guard.items()
+                if key != "fresh_restore_journals"
+            }:
+                raise ValueError("Original guard archive differs from fresh guard")
         if (
             type(record.get("corrupt_restore_copy_format")) is not int
             or record["corrupt_restore_copy_format"] != 1
@@ -168,14 +190,7 @@ def _hold_inspected_copy(
             or record.get("activation_pending") is not True
             or record.get("restored") is not False
             or record.get("retained_directory") != f"corrupt-original-{copy_id}"
-            or guard
-            != {
-                "corrupt_restore_copy_format": 1,
-                "copy_id": copy_id,
-                "journal_name": selected.name,
-                "data_root_identity": root_id,
-                "preparation_sha256": record.get("preparation_sha256"),
-            }
+            or guard != expected_guard
             or type(guard["corrupt_restore_copy_format"]) is not int
         ):
             raise ValueError("Guard/journal/root/consent identity mismatch")
@@ -274,6 +289,19 @@ def _hold_inspected_copy(
         disposition = "UNKNOWN_SOURCE_EVIDENCE"
         actual_identity = None
         main = current["creator_loop.sqlite3"]
+        journal_sha = _hash(observed[selected][0], check)[0]
+        fresh_history, fresh_receipts, recheck_fresh = hold_fresh_history(
+            canonical,
+            record,
+            journal_sha,
+            handles,
+            acquire,
+            read_record,
+            check,
+            anchored_journals=anchored,
+        )
+        if guard_archive_present and not fresh_history:
+            raise ValueError("Original fresh guard archive has no matching history")
         if not unexpected and not missing_or_duplicate:
             all_live = all(entry["in_live_source"] for entry in locations)
             all_retained = all(entry["in_retention"] for entry in locations)
@@ -319,6 +347,7 @@ def _hold_inspected_copy(
                             recorded_sha is not None
                             and (recorded_sha, record.get("copied_database_byte_size"))
                             != main
+                            and main not in fresh_receipts
                         ):
                             disposition = "UNKNOWN_CURRENT_PHYSICAL_BYTES"
                 except (sqlite3.Error, RuntimeError):
@@ -326,6 +355,7 @@ def _hold_inspected_copy(
 
         def recheck() -> None:
             check()
+            recheck_fresh()
             if any(_regular(path) is not None for path in absent):
                 raise RuntimeError(
                     "Previously absent copy evidence appeared during inspection"
@@ -354,7 +384,7 @@ def _hold_inspected_copy(
         result: dict[str, Any] = {
             "corrupt_restore_inspection_format": 2,
             "data_root_identity": root_id,
-            "journal_sha256": _hash(observed[selected][0], check)[0],
+            "journal_sha256": journal_sha,
             "preparation_sha256": preparation_sha,
             "copy_id": copy_id,
             "recorded_phase": phase
@@ -378,6 +408,10 @@ def _hold_inspected_copy(
             "activated": False,
             "restored": False,
         }
+        if fresh_history:
+            result["fresh_retention_history"] = fresh_history
+        if anchored:
+            result["fresh_guard_journals"] = anchored
         result["inspection_identity"] = hashlib.sha256(
             json.dumps(result, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()

@@ -34,6 +34,29 @@ def main() -> int:
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--apply-completed-copy-restore",
+        type=Path,
+        help="Distinct confirmed fresh copy; retains current bundle and keeps launch guarded",
+    )
+    parser.add_argument(
+        "--reviewed-fresh-restore",
+        help="Fresh selected backup/current bundle review identity",
+    )
+    parser.add_argument(
+        "--confirm-fresh-restore",
+        action="store_true",
+        help="Explicit consent to a new copy of the selected bound backup",
+    )
+    parser.add_argument(
+        "--review-completed-copy-restore",
+        type=Path,
+        help="Read a distinct explicit fresh restore choice for a changed completed guarded copy; no apply",
+    )
+    parser.add_argument(
+        "--fresh-restore-backup",
+        help="Explicit bound backup ID for fresh completed-copy restore",
+    )
+    parser.add_argument(
         "--review-damaged-restore",
         help="Read current damaged source, explicit backup/candidate and optional raw/preparation proofs; no apply",
     )
@@ -224,6 +247,118 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if args.apply_completed_copy_restore is not None:
+        if (
+            args.fresh_restore_backup is None
+            or args.installation_root is None
+            or args.restore_candidate is None
+            or args.reviewed_fresh_restore is None
+            or not args.confirm_fresh_restore
+            or not args.confirm_lost_changes
+            or any(
+                value
+                for name, value in vars(args).items()
+                if name
+                not in (
+                    "apply_completed_copy_restore",
+                    "fresh_restore_backup",
+                    "installation_root",
+                    "restore_candidate",
+                    "reviewed_fresh_restore",
+                    "confirm_fresh_restore",
+                    "confirm_lost_changes",
+                    "confirm_media_issues",
+                )
+            )
+        ):
+            parser.error(
+                "Fresh copy requires only explicit journal/backup/candidate/installation/fresh review and fresh/loss consent"
+            )
+        from .corrupt_copy_recovery import _record
+        from .fresh_restore_apply import copy_fresh_restore
+
+        try:
+            journal = copy_fresh_restore(
+                data_root(),
+                args.apply_completed_copy_restore,
+                args.fresh_restore_backup,
+                args.installation_root,
+                args.restore_candidate,
+                reviewed_fresh_restore=args.reviewed_fresh_restore,
+                confirm_fresh_restore=args.confirm_fresh_restore,
+                confirm_lost_changes=args.confirm_lost_changes,
+                confirm_media_issues=args.confirm_media_issues,
+            )
+            receipt = _record(journal)
+            print(
+                json.dumps(
+                    {
+                        "journal_name": journal.name,
+                        "phase": receipt["phase"],
+                        "activated": False,
+                        "restored": False,
+                        "guard_retained": True,
+                    }
+                )
+            )
+            return 0
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Fresh copy refused: {type(exc).__name__}; keep guard and all current/original evidence",
+                file=sys.stderr,
+            )
+            return 4
+    if args.reviewed_fresh_restore is not None or args.confirm_fresh_restore:
+        parser.error("Fresh review/consent requires --apply-completed-copy-restore")
+    if args.review_completed_copy_restore is not None:
+        if (
+            args.fresh_restore_backup is None
+            or args.installation_root is None
+            or args.restore_candidate is None
+            or any(
+                value
+                for name, value in vars(args).items()
+                if name
+                not in (
+                    "review_completed_copy_restore",
+                    "fresh_restore_backup",
+                    "installation_root",
+                    "restore_candidate",
+                )
+            )
+        ):
+            parser.error(
+                "Fresh review requires only explicit copy journal/backup/candidate/installation; no consent or apply"
+            )
+        from .fresh_restore_review import review_fresh_restore
+
+        try:
+            print(
+                json.dumps(
+                    review_fresh_restore(
+                        data_root(),
+                        args.review_completed_copy_restore,
+                        args.fresh_restore_backup,
+                        args.installation_root,
+                        args.restore_candidate,
+                    )
+                )
+            )
+            return 0
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Fresh restore review refused: {type(exc).__name__}; keep current/original bytes and guard",
+                file=sys.stderr,
+            )
+            return 4
+    if args.fresh_restore_backup is not None:
+        parser.error("Fresh backup choice requires --review-completed-copy-restore")
     if args.review_damaged_restore is not None:
         if (
             args.installation_root is None
