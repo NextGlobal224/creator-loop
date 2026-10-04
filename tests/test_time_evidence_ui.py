@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
+import tempfile
+import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
@@ -153,9 +157,34 @@ class TimeEvidenceDialogTests(unittest.TestCase):
             AudioEvidenceDialog(self.audio, correction=True, evidence_type="METADATA")
 
     def test_accept_and_reject_clear_player_source_and_stop(self) -> None:
+        from creator_loop.isolated_decode import decode_isolated
+
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        path = root / "locked.mp4"
+        original = self.anchor.read_bytes()
+        path.write_bytes(original)
+        body, _image = decode_isolated(path, root, mode="video", start_ms=0)
+        video = replace(
+            self.video,
+            duration_ms=body["duration_ms"],
+            anchor_path=path,
+            data_root=root,
+            expected_size=len(original),
+            expected_sha256=hashlib.sha256(original).hexdigest(),
+        )
+        audio = replace(
+            self.audio,
+            duration_ms=body["duration_ms"],
+            anchor_path=path,
+            data_root=root,
+            expected_size=len(original),
+            expected_sha256=hashlib.sha256(original).hexdigest(),
+        )
         for constructor, decoded in (
-            (VideoEvidenceDialog, self.video),
-            (AudioEvidenceDialog, self.audio),
+            (VideoEvidenceDialog, video),
+            (AudioEvidenceDialog, audio),
         ):
             for result in (
                 constructor.DialogCode.Accepted,
@@ -173,6 +202,7 @@ class TimeEvidenceDialogTests(unittest.TestCase):
                     dialog.reason.setText("Đối chiếu")
                     self.assertFalse(dialog.segment.player.source().isEmpty())
                     dialog.segment.play()
+                    self.assertIsNotNone(dialog.segment.player.process)
                     self.app.processEvents()
                     dialog.done(result)
                     self.assertTrue(dialog.segment.player.source().isEmpty())
@@ -180,4 +210,13 @@ class TimeEvidenceDialogTests(unittest.TestCase):
                         dialog.segment.player.playbackState(),
                         QMediaPlayer.PlaybackState.StoppedState,
                     )
+                    deadline = time.monotonic() + 5
+                    while (
+                        dialog.segment.player.process is not None
+                        and time.monotonic() < deadline
+                    ):
+                        self.app.processEvents()
+                        time.sleep(0.005)
+                    self.assertIsNone(dialog.segment.player.process)
+                    self.assertEqual(path.read_bytes(), original)
         self.app.processEvents()

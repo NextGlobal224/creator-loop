@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QPixmap
-from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QDialog,
@@ -18,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from creator_loop.isolated_playback import IsolatedMediaPlayer
 from creator_loop.video_evidence import DecodedVideoFrame
 
 
@@ -43,17 +43,34 @@ class VideoSegmentWidget(QWidget):
         self.video = QVideoWidget()
         self.video.setMinimumHeight(180)
         layout.addWidget(self.video)
-        self.player = QMediaPlayer(self)
+        self.player = IsolatedMediaPlayer(
+            self,
+            path=decoded.anchor_path,
+            root=decoded.data_root,
+            duration_ms=decoded.duration_ms,
+            size=decoded.expected_size,
+            sha256=decoded.expected_sha256,
+        )
         self.player.setVideoOutput(self.video)
-        self.player.setSource(QUrl.fromLocalFile(str(decoded.anchor_path)))
         self.player.positionChanged.connect(self._stop_at_end)
         self.play_button = QPushButton("Phát đoạn đã chọn")
         self.play_button.clicked.connect(self.play)
         layout.addWidget(self.play_button)
+        self.playback_error = QLabel()
+        self.playback_error.setWordWrap(True)
+        layout.addWidget(self.playback_error)
+        self.player.errorOccurred.connect(
+            lambda _code, message: self.playback_error.setText(
+                f"Lỗi phát nguồn: {message}"
+            )
+        )
 
     def set_range(self, start_ms: int, end_ms: int) -> None:
         self.start_ms = start_ms
         self.end_ms = end_ms
+        self.play_button.setEnabled(0 <= start_ms < end_ms <= self.duration_ms)
+        if 0 <= start_ms < end_ms <= self.duration_ms:
+            self.player.set_range(start_ms, end_ms)
 
     def play(self) -> None:
         self._stopping = False

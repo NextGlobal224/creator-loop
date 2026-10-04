@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer, QUrl
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PySide6.QtMultimedia import QAudioOutput
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from creator_loop.audio_evidence import DecodedAudioSegment
+from creator_loop.isolated_playback import IsolatedMediaPlayer
 
 
 class AudioSegmentWidget(QWidget):
@@ -28,17 +29,34 @@ class AudioSegmentWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Nghe và đối chiếu đoạn âm thanh của MP4 gốc."))
         self.output = QAudioOutput(self)
-        self.player = QMediaPlayer(self)
+        self.player = IsolatedMediaPlayer(
+            self,
+            path=decoded.anchor_path,
+            root=decoded.data_root,
+            duration_ms=decoded.duration_ms,
+            size=decoded.expected_size,
+            sha256=decoded.expected_sha256,
+        )
         self.player.setAudioOutput(self.output)
-        self.player.setSource(QUrl.fromLocalFile(str(decoded.anchor_path)))
         self.player.positionChanged.connect(self._stop_at_end)
         self.play_button = QPushButton("Nghe đoạn đã chọn")
         self.play_button.clicked.connect(self.play)
         layout.addWidget(self.play_button)
+        self.playback_error = QLabel()
+        self.playback_error.setWordWrap(True)
+        layout.addWidget(self.playback_error)
+        self.player.errorOccurred.connect(
+            lambda _code, message: self.playback_error.setText(
+                f"Lỗi phát nguồn: {message}"
+            )
+        )
 
     def set_range(self, start_ms: int, end_ms: int) -> None:
         self.start_ms = start_ms
         self.end_ms = end_ms
+        self.play_button.setEnabled(0 <= start_ms < end_ms <= self.player.duration_ms)
+        if 0 <= start_ms < end_ms <= self.player.duration_ms:
+            self.player.set_range(start_ms, end_ms)
 
     def play(self) -> None:
         self.player.pause()

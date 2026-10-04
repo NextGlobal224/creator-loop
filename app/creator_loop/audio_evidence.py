@@ -26,6 +26,9 @@ class DecodedAudioSegment:
     buffer_start_ms: int
     buffer_end_ms: int
     anchor_path: Path
+    data_root: Path | None = None
+    expected_size: int | None = None
+    expected_sha256: str | None = None
 
 
 def _timestamp() -> str:
@@ -55,14 +58,14 @@ def decode_audio_segment(
     if QCoreApplication.instance() is None:
         raise RuntimeError("Qt event loop is required to decode audio")
     row = db.execute(
-        """SELECT f.asset_id,a.media_type,f.role,f.storage_key,f.mime_type
+        """SELECT f.asset_id,a.media_type,f.role,f.storage_key,f.mime_type,f.byte_size,f.sha256
            FROM asset_files f JOIN assets a ON a.asset_id=f.asset_id
            WHERE f.file_id=?""",
         (file_id,),
     ).fetchone()
     if row is None or row[1:3] != ("VIDEO", "ORIGINAL") or row[4] != "video/mp4":
         raise ValueError("Audio Evidence requires an MP4 VIDEO original")
-    asset_id, _media_type, role, key, _mime = row
+    asset_id, _media_type, role, key, _mime, size, digest = row
     verify_original_file(db, file_id, data_root)
     path = _anchor_path(Path(data_root), role, key)
     from creator_loop.isolated_decode import decode_isolated
@@ -77,7 +80,13 @@ def decode_audio_segment(
     )
     verify_original_file(db, file_id, data_root)
     return str(asset_id), DecodedAudioSegment(
-        body["duration_ms"], body["buffer_start_ms"], body["buffer_end_ms"], path
+        body["duration_ms"],
+        body["buffer_start_ms"],
+        body["buffer_end_ms"],
+        path,
+        Path(data_root),
+        size,
+        digest,
     )
 
 

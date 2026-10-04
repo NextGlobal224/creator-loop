@@ -136,7 +136,13 @@ class WholeSourceWidget(QWidget):
         ):
             self.segment = VideoSegmentWidget(
                 DecodedVideoFrame(
-                    source.duration_ms, 0, source.image, source.anchor_path
+                    source.duration_ms,
+                    0,
+                    source.image,
+                    source.anchor_path,
+                    source.data_root,
+                    source.expected_size,
+                    source.expected_sha256,
                 )
             )
             self.audio = QAudioOutput(self.segment)

@@ -23,6 +23,13 @@ _FILES = {
     "response.json",
     "frame.png",
 }
+_PLAYBACK_FILES = {
+    "ownership.json",
+    "child-ownership.json",
+    "request.json",
+    "control.json",
+    "control.pending",
+}
 
 
 @dataclass(frozen=True)
@@ -71,12 +78,14 @@ def _identity_dead(identity: dict[str, Any]) -> bool:
 
 def _clean_one(root: Path, workspace: Path) -> None:
     if workspace.parent != root / "runtime" or not re.fullmatch(
-        r"decode-[a-z0-9_]{8}", workspace.name
+        r"(?:decode|playback)-[a-z0-9_]{8}", workspace.name
     ):
         raise ValueError("Unsupported workspace name/location")
     with RuntimeHandle(workspace, directory=True) as directory, ExitStack() as stack:
         entries = {entry.name for entry in workspace.iterdir()}
-        if "ownership.json" not in entries or not entries <= _FILES:
+        playback = workspace.name.startswith("playback-")
+        allowed = _PLAYBACK_FILES if playback else _FILES
+        if "ownership.json" not in entries or not entries <= allowed:
             raise ValueError("Workspace lacks binding or contains unknown files")
         held = {
             name: stack.enter_context(RuntimeHandle(workspace / name))
@@ -86,11 +95,14 @@ def _clean_one(root: Path, workspace: Path) -> None:
         if (
             type(marker.get("format")) is not int
             or marker["format"] != 1
-            or marker.get("kind") != "QT_DECODER_WORKSPACE"
+            or marker.get("kind")
+            != ("QT_PLAYBACK_WORKSPACE" if playback else "QT_DECODER_WORKSPACE")
             or marker.get("data_root") != str(root)
             or marker.get("workspace") != workspace.name
             or not isinstance(marker.get("component_version"), str)
-            or not marker["component_version"].startswith("qt-decoder/")
+            or not marker["component_version"].startswith(
+                "qt-playback/" if playback else "qt-decoder/"
+            )
             or not isinstance(marker.get("parent"), dict)
         ):
             raise ValueError("Workspace parent binding is invalid")
@@ -143,7 +155,7 @@ def recover_runtime_startup(root: Path, coordination: AppDataLock) -> RuntimeRec
     cleaned: list[str] = []
     preserved: list[tuple[str, str]] = []
     for workspace in sorted(runtime.iterdir()):
-        if not workspace.name.startswith("decode-"):
+        if not workspace.name.startswith(("decode-", "playback-")):
             continue
         try:
             _clean_one(canonical, workspace)
@@ -152,3 +164,62 @@ def recover_runtime_startup(root: Path, coordination: AppDataLock) -> RuntimeRec
         else:
             cleaned.append(workspace.name)
     return RuntimeRecovery(tuple(cleaned), tuple(preserved))
+
+
+def discard_known_playback_workspace(
+    workspace: Path, marker: dict[str, object], child: dict[str, object] | None
+) -> bool:
+    """Normal cleanup preserves an unknown/replaced entry; never recursively delete.
+
+    The caller has already proved its private Job empty. Validate its original
+    marker against this live parent and independently prove the bound child dead.
+    """
+    try:
+        root = workspace.parent.parent.resolve(strict=True)
+        kernel = _api()
+        parent = process_identity(kernel, kernel.GetCurrentProcess())
+        import os
+
+        parent["pid"] = os.getpid()
+        if (
+            workspace.parent != root / "runtime"
+            or not re.fullmatch(r"playback-[a-z0-9_]{8}", workspace.name)
+            or marker.get("kind") != "QT_PLAYBACK_WORKSPACE"
+            or marker.get("data_root") != str(root)
+            or marker.get("workspace") != workspace.name
+            or marker.get("parent") != parent
+        ):
+            return False
+        with (
+            RuntimeHandle(workspace, directory=True) as directory,
+            ExitStack() as stack,
+        ):
+            entries = {entry.name for entry in workspace.iterdir()}
+            if "ownership.json" not in entries or not entries <= _PLAYBACK_FILES:
+                return False
+            held = {
+                name: stack.enter_context(RuntimeHandle(workspace / name))
+                for name in sorted(entries)
+            }
+            if held["ownership.json"].read_json() != marker:
+                return False
+            if "child-ownership.json" in held:
+                if (
+                    child is None
+                    or held["child-ownership.json"].read_json() != child
+                    or not _identity_dead(child)
+                ):
+                    return False
+            elif child is not None or not entries <= {"ownership.json", "request.json"}:
+                return False
+            if {entry.name for entry in workspace.iterdir()} != entries:
+                return False
+            ordered = sorted(entries - {"ownership.json", "child-ownership.json"})
+            ordered += sorted(entries & {"child-ownership.json", "ownership.json"})
+            for name in ordered:
+                held[name].discard()
+                held[name].close()
+            directory.discard()
+        return True
+    except (OSError, ValueError, RuntimeError):
+        return False

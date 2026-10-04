@@ -147,6 +147,17 @@ def _api() -> Any:
         "SetHandleInformation": ((w.HANDLE, w.DWORD, w.DWORD), w.BOOL),
         "GetCurrentProcess": ((), w.HANDLE),
         "GetCurrentThread": ((), w.HANDLE),
+        "PeekNamedPipe": (
+            (
+                w.HANDLE,
+                ctypes.c_void_p,
+                w.DWORD,
+                ctypes.POINTER(w.DWORD),
+                ctypes.POINTER(w.DWORD),
+                ctypes.POINTER(w.DWORD),
+            ),
+            w.BOOL,
+        ),
         "OpenProcess": ((w.DWORD, w.BOOL, w.DWORD), w.HANDLE),
         "QueryFullProcessImageNameW": (
             (w.HANDLE, w.DWORD, w.LPWSTR, ctypes.POINTER(w.DWORD)),
@@ -252,6 +263,42 @@ def _duplicate_read_input(kernel: Any, source: BinaryIO) -> BinaryIO:
         raise
 
 
+def _duplicate_write_output(kernel: Any, source: BinaryIO) -> BinaryIO:
+    """Own only a write duplicate; caller keeps its pipe/file and inheritance."""
+    if sys.platform != "win32":
+        raise OSError("Owned output handles require Windows")
+    import msvcrt
+
+    if not source.writable():
+        raise ValueError("Owned output requires a writable binary stream")
+    value = w.HANDLE()
+    current = kernel.GetCurrentProcess()
+    if not kernel.DuplicateHandle(
+        current,
+        msvcrt.get_osfhandle(source.fileno()),
+        current,
+        ctypes.byref(value),
+        0x40000000,
+        False,
+        0,
+    ):
+        raise ctypes.WinError(ctypes.get_last_error())
+    if value.value is None:
+        raise OSError("DuplicateHandle returned no output handle")
+    try:
+        fd = msvcrt.open_osfhandle(
+            value.value, os.O_WRONLY | os.O_BINARY | os.O_NOINHERIT
+        )
+    except BaseException:
+        kernel.CloseHandle(value)
+        raise
+    try:
+        return os.fdopen(fd, "wb", buffering=0)
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 class OwnedWindowsProcess:
     kernel: Any
     stdout_path: Path
@@ -268,6 +315,7 @@ class OwnedWindowsProcess:
         cwd: Path | None = None,
         capture_output: bool = True,
         stdin_source: BinaryIO | None = None,
+        stdout_sink: BinaryIO | None = None,
         memory_limit_bytes: int | None = None,
         before_resume: Callable[[dict[str, object]], None] | None = None,
     ) -> None:
@@ -316,7 +364,9 @@ class OwnedWindowsProcess:
                 else open(os.devnull, "rb")
             )
             self.streams.append(
-                self.stdout_path.open("xb")
+                _duplicate_write_output(self.kernel, stdout_sink)
+                if stdout_sink is not None
+                else self.stdout_path.open("xb")
                 if capture_output
                 else open(os.devnull, "wb")
             )
@@ -477,27 +527,41 @@ class OwnedWindowsProcess:
         self.stop(code.value)  # cleanup descendants even if parent exited normally
         return ProcessOutcome(code.value, timed_out, time.monotonic() - self.started)
 
-    def stop(self, exit_code: int = 125) -> None:
+    def request_stop(self, exit_code: int = 125) -> None:
+        """Terminate only this retained Job; do not wait on the GUI thread."""
         if sys.platform != "win32":
             raise OSError("Owned process trees require Windows")
         if self.job is not None:
             if not self.kernel.TerminateJobObject(self.job, exit_code):
                 raise ctypes.WinError(ctypes.get_last_error())
+
+    def tree_finished(self) -> bool:
+        """Retained native handles prove both root exit and empty owned tree."""
+        if sys.platform != "win32":
+            raise OSError("Owned process trees require Windows")
+        if self.job is None:
+            return self.process is None
+        accounting = _JobAccounting()
+        if not self.kernel.QueryInformationJobObject(
+            self.job, 1, ctypes.byref(accounting), ctypes.sizeof(accounting), None
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        state = (
+            self.kernel.WaitForSingleObject(self.process, 0)
+            if self.process is not None
+            else 0
+        )
+        if state not in (0, 0x102):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return accounting.active_processes == 0 and state == 0
+
+    def stop(self, exit_code: int = 125) -> None:
+        self.request_stop(exit_code)
+        if self.job is not None:
             if self.process is not None:
                 self.kernel.WaitForSingleObject(self.process, 5000)
             deadline = time.monotonic() + 5
-            while True:
-                accounting = _JobAccounting()
-                if not self.kernel.QueryInformationJobObject(
-                    self.job,
-                    1,
-                    ctypes.byref(accounting),
-                    ctypes.sizeof(accounting),
-                    None,
-                ):
-                    raise ctypes.WinError(ctypes.get_last_error())
-                if accounting.active_processes == 0:
-                    break
+            while not self.tree_finished():
                 if time.monotonic() >= deadline:
                     raise TimeoutError("Owned tree did not finish termination")
                 time.sleep(0.01)

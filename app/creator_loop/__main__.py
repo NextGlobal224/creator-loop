@@ -22,6 +22,10 @@ MAINTENANCE_REQUESTED = 20
 
 
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--play-media":
+        from .playback_child import run_playback_worker
+
+        return run_playback_worker(Path(sys.argv[2]))
     # Private owned decoder entry point precedes all DB/root initialization.
     if len(sys.argv) == 3 and sys.argv[1] == "--decode-media":
         from .isolated_decode import run_decode_worker

@@ -96,6 +96,8 @@ Startup also cleans decoder runtime workspaces whose bound parent and child are 
 
 Library can request cancellation of Video intake or media Evidence decoding and waits for owned worker cleanup when closing. See [media cancellation](docs/MEDIA_CANCEL.md) for commit boundaries and remaining playback work.
 
+Video/audio Evidence viewers now run actual playback in a separate owned child, streaming bounded frames/PCM to the UI while retaining the verified original handle. See [playback isolation](docs/PLAYBACK_ISOLATION.md) for pause/cancel/exit deadlines and acceptance limits.
+
 `--activate-update JOURNAL --installation-root DIR` verifies a prepared update and its backup/candidate again, changes the managed installation pointer, and runs bounded readonly health while app/DB locks remain held. Failure retains DB/media/backup/versions; only a verified schema-compatible previous pointer can be selected again. See [activation](docs/UPDATE_ACTIVATION.md). Managed launching from that pointer is available below; the maintenance UI exposes explicit recovery/restore controls.
 
 `--launch-managed --installation-root DIR` launches only the verified ACTIVE pointer. Its child uses `--compatible-only`, takes its own app lock and refuses an incompatible existing schema without migration. UI output is discarded; ownership/exit metadata is retained. See [managed launcher](docs/MANAGED_LAUNCHER.md) for session cleanup and smoke options.
