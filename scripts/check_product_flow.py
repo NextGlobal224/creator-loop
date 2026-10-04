@@ -37,6 +37,9 @@ def main() -> None:
     (inputs / "Original.txt").write_text("Cafe\u0301 ở Huế", encoding="utf-8")
     image = QImage(12, 8, QImage.Format.Format_RGB32)
     image.fill(0xFF0088AA)
+    for x in range(6, 12):
+        for y in range(8):
+            image.setPixel(x, y, 0xFFEE2222)
     if not image.save(str(inputs / "Original.png")):
         raise RuntimeError("Cannot create synthetic image")
     repository = Path(__file__).resolve().parents[1]
@@ -89,6 +92,74 @@ def main() -> None:
             raise RuntimeError("Private flow database integrity/FK failed")
         if db.execute("SELECT count(*) FROM assets").fetchone()[0] != 3:
             raise RuntimeError("Originals missing")
+        if db.execute(
+            "SELECT locator_type,count(*) FROM evidence_versions GROUP BY locator_type ORDER BY locator_type"
+        ).fetchall() != [
+            ("IMAGE_REGION", 2),
+            ("TEXT_RANGE", 1),
+            ("TIME_RANGE", 4),
+            ("WHOLE_ASSET", 3),
+        ]:
+            raise RuntimeError("Three-media Evidence/append-only history missing")
+        for kind in ("image", "video", "audio"):
+            ids = receipt["media_evidence"]["histories"][kind]
+            if (
+                not isinstance(ids, list)
+                or len(ids) != 2
+                or any(
+                    not isinstance(i, str) or re.fullmatch(r"[0-9a-f]{32}", i) is None
+                    for i in ids
+                )
+            ):
+                raise RuntimeError("Malformed Evidence history receipt")
+            rows = db.execute(
+                "SELECT evidence_id,version_no,locator_data FROM evidence_versions WHERE evidence_version_id IN (?,?) ORDER BY version_no",
+                ids,
+            ).fetchall()
+            if (
+                len(rows) != 2
+                or rows[0][0] != rows[1][0]
+                or [r[1] for r in rows] != [1, 2]
+            ):
+                raise RuntimeError("Old/new Evidence identity or version changed")
+            expected = (
+                [
+                    {"x": 0.25, "y": 0.25, "width": 0.5, "height": 0.5},
+                    {"x": 0.5, "y": 0.0, "width": 0.5, "height": 1.0},
+                ]
+                if kind == "image"
+                else [
+                    {"start_ms": 203, "end_ms": 607, "track": kind},
+                    {"start_ms": 701, "end_ms": 901, "track": kind},
+                ]
+            )
+            if [json.loads(r[2]) for r in rows] != expected:
+                raise RuntimeError("Old/new saved image/time locator changed")
+            for identifier, action in zip(ids, ("CORRECT", "ACCEPT"), strict=True):
+                if db.execute(
+                    "SELECT action FROM review_events WHERE evidence_version_id=?",
+                    (identifier,),
+                ).fetchall() != [(action,)]:
+                    raise RuntimeError("Exact Evidence review history changed")
+        if db.execute(
+            "SELECT a.media_type FROM evidence_versions v JOIN asset_files f ON f.file_id=v.anchor_file_id JOIN assets a ON a.asset_id=f.asset_id WHERE v.locator_type='WHOLE_ASSET' ORDER BY a.media_type"
+        ).fetchall() != [("IMAGE",), ("TEXT",), ("VIDEO",)]:
+            raise RuntimeError("WHOLE_ASSET did not cover all three actual sources")
+        playback = receipt["playback"]
+        if (
+            not isinstance(playback, list)
+            or len(playback) != 5
+            or any(
+                type(p.get("frames")) is not int
+                or type(p.get("pcm_buffers")) is not int
+                or type(p.get("whole")) is not bool
+                or type(p.get("audio_only")) is not bool
+                or (not p["audio_only"] and p["frames"] <= 0)
+                or ((p["whole"] or p["audio_only"]) and p["pcm_buffers"] <= 0)
+                for p in playback
+            )
+        ):
+            raise RuntimeError("Actual three-media playback receipt incomplete")
         if db.execute("SELECT decision FROM approvals ORDER BY rowid").fetchall() != [
             ("APPROVED",),
             ("REVOKED",),

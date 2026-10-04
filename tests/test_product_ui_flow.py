@@ -1,6 +1,7 @@
 """Real UI scenario shared with the packaged probe; independent boundary checks."""
 
 import hashlib
+import json
 import os
 import tempfile
 import unittest
@@ -34,6 +35,9 @@ class ProductUIFlowTests(unittest.TestCase):
         (inputs / "Original.txt").write_text("Cafe\u0301 ở Huế", encoding="utf-8")
         image = QImage(12, 8, QImage.Format.Format_RGB32)
         image.fill(0xFF0088AA)
+        for x in range(6, 12):
+            for y in range(8):
+                image.setPixel(x, y, 0xFFEE2222)
         self.assertTrue(image.save(str(inputs / "Original.png")))
         (inputs / "Original.mp4").write_bytes(
             (Path(__file__).parent / "fixtures" / "video-with-tone.mp4").read_bytes()
@@ -57,6 +61,65 @@ class ProductUIFlowTests(unittest.TestCase):
         self.assertIs(receipt["zero_distinct_from_missing"], True)
         with closing(open_readonly(self.root / "data" / "creator_loop.sqlite3")) as db:
             self.assertEqual(db.execute("SELECT count(*) FROM assets").fetchone()[0], 3)
+            self.assertEqual(
+                db.execute(
+                    "SELECT locator_type,count(*) FROM evidence_versions GROUP BY locator_type ORDER BY locator_type"
+                ).fetchall(),
+                [
+                    ("IMAGE_REGION", 2),
+                    ("TEXT_RANGE", 1),
+                    ("TIME_RANGE", 4),
+                    ("WHOLE_ASSET", 3),
+                ],
+            )
+            for kind, ids in receipt["media_evidence"]["histories"].items():
+                rows = db.execute(
+                    "SELECT evidence_id,version_no,locator_data FROM evidence_versions WHERE evidence_version_id IN (?,?) ORDER BY version_no",
+                    ids,
+                ).fetchall()
+                self.assertEqual(rows[0][0], rows[1][0])
+                self.assertEqual([r[1] for r in rows], [1, 2])
+                if kind != "image":
+                    self.assertEqual(
+                        [json.loads(r[2]) for r in rows],
+                        [
+                            {"start_ms": 203, "end_ms": 607, "track": kind},
+                            {"start_ms": 701, "end_ms": 901, "track": kind},
+                        ],
+                    )
+                else:
+                    self.assertEqual(
+                        [json.loads(r[2]) for r in rows],
+                        [
+                            {"x": 0.25, "y": 0.25, "width": 0.5, "height": 0.5},
+                            {"x": 0.5, "y": 0.0, "width": 0.5, "height": 1.0},
+                        ],
+                    )
+                self.assertEqual(
+                    db.execute(
+                        "SELECT action FROM review_events WHERE evidence_version_id=?",
+                        (ids[0],),
+                    ).fetchall(),
+                    [("CORRECT",)],
+                )
+                self.assertEqual(
+                    db.execute(
+                        "SELECT action FROM review_events WHERE evidence_version_id=?",
+                        (ids[1],),
+                    ).fetchall(),
+                    [("ACCEPT",)],
+                )
+            self.assertEqual(len(receipt["playback"]), 5)
+            self.assertTrue(
+                all(
+                    p["pcm_buffers"] > 0
+                    for p in receipt["playback"]
+                    if p["whole"] or p["audio_only"]
+                )
+            )
+            self.assertTrue(
+                all(p["frames"] > 0 for p in receipt["playback"] if not p["audio_only"])
+            )
             self.assertEqual(
                 db.execute("SELECT count(*) FROM draft_versions").fetchone()[0], 2
             )

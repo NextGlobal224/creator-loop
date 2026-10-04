@@ -23,7 +23,14 @@ người dùng. `CREATOR_LOOP_DATA_ROOT` được đặt vào một sentinel ri�
 mode không khởi tạo hoặc sửa kho mặc định không được chọn.
 
 Scenario dùng real Qt widgets/slots/workers và SQLite: ba loại intake, TEXT
-Evidence create/reopen/ACCEPT, FACTUAL Claim ACCEPT, Project/reference, hai
+Evidence create/reopen/ACCEPT; IMAGE_REGION, Video/Audio TIME_RANGE create,
+correction thành version mới, ACCEPT và mở lại cả cũ+mới sau khi đóng Library.
+WHOLE_ASSET TEXT/IMAGE/VIDEO có consent mặc định bỏ chọn, review và mở đúng
+toàn nguồn (ảnh 1:1). Các modal media dùng event loop thật, chỉ tự cung cấp input.
+Playback nhận frame/PCM thật từ owned child, kiểm timestamps nằm trong range
+đã lưu, rồi chờ process/pipe/anchor lease/workspace được retired trước khi tiếp.
+Checker đọc DB độc lập để kiểm 10 version, exact locator và CORRECT/ACCEPT history.
+Luồng tiếp tục qua FACTUAL Claim ACCEPT, Project/reference, hai
 Drafts/assertions/review/Selection, Package với OWNED image, default-off
 Approval/Post confirmation, Post thủ công PUBLISHED trong fixture, Observation
 zero/NULL, revoke và historical reopen. Chỉ input dialog/file-picker/message
@@ -41,7 +48,9 @@ vẫn theo contract, không kill process ngoài cây do runner sở hữu.
 PASS chỉ áp dụng cho source hoặc exact artifact đã chạy. `frozen=true` phải đến
 từ actual supplied EXE, không từ patch `sys.frozen` trong caller. Offscreen và
 programmatic inputs không nghiệm thu thao tác người dùng trên Windows vật lý,
-full Video/Image Evidence flow, engine/model thật, RAM/đĩa/volumes, powerloss,
+manual walkthrough/các tình huống lỗi media trên artifact cuối, engine/model thật,
+RAM/đĩa/volumes, powerloss,
 independent review, required CI hay tag/release. Giữ các điều kiện đó trong
 [bảng V1](PRODUCT_ACCEPTANCE.md); kết quả mới cần source/build/hash/log tại
-[HANDOFF](HANDOFF.md). Full793/exact4cda569 trước thêm mode không xác minh WIP này.
+[HANDOFF](HANDOFF.md). Full798/553.310s và exact070dd73 trước mở rộng media không xác minh
+WIP sau mở rộng; kiểm mới phải ghi rõ source/build/hash tương ứng.
