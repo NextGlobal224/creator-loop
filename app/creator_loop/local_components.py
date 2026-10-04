@@ -187,6 +187,30 @@ def load_component_manifest(path: Path) -> tuple[ComponentSpec, ...]:
         raise ComponentPreflightError("Component metadata unavailable") from exc
 
 
+def component_manifest_bytes(specs: tuple[ComponentSpec, ...]) -> bytes:
+    """Stable declarations for review; excludes timestamps and observed state."""
+    raw = json.dumps(
+        {
+            "manifest_version": 1,
+            "components": [
+                {
+                    **{field: getattr(spec, field) for field in _FIELDS - {"path"}},
+                    "path": str(spec.path),
+                }
+                for spec in specs
+            ],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    parse_component_manifest(raw)
+    return raw
+
+
+def component_review_fingerprint(specs: tuple[ComponentSpec, ...]) -> str:
+    return hashlib.sha256(component_manifest_bytes(specs)).hexdigest()
+
+
 def _canonical_file(path: Path) -> Path:
     canonical = path.resolve(strict=True)
     if os.path.normcase(str(path.absolute())) != os.path.normcase(str(canonical)):
@@ -229,20 +253,7 @@ def hold_verified_components(
     ):
         raise ComponentPreflightError("Invalid preflight budget")
     # Validate programmatic callers through the same strict boundary as JSON.
-    specs = parse_component_manifest(
-        json.dumps(
-            {
-                "manifest_version": 1,
-                "components": [
-                    {
-                        **{field: getattr(spec, field) for field in _FIELDS - {"path"}},
-                        "path": str(spec.path),
-                    }
-                    for spec in specs
-                ],
-            }
-        ).encode("utf-8")
-    )
+    specs = parse_component_manifest(component_manifest_bytes(specs))
     deadline = time.monotonic() + timeout_seconds
 
     def check_interruption() -> None:
@@ -338,6 +349,8 @@ def check_components_cli(path: Path) -> int:
                     {
                         "check": "LOCAL_ARTIFACTS_VERIFIED",
                         "runtime_compatibility_verified": False,
+                        "review_fingerprint": component_review_fingerprint(specs),
+                        "review_manifest": json.loads(component_manifest_bytes(specs)),
                         "components": [
                             {
                                 "component_id": item.spec.component_id,

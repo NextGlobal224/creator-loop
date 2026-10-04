@@ -560,6 +560,7 @@ class LibraryWindow(QMainWindow):
         super().__init__()
         self.root = root
         self.maintenance_requested = False
+        self.components_requested = False
         self._close_after_worker = False
         self._media_cancel_requested = False
         self._worker: QThread | None = None
@@ -625,6 +626,10 @@ class LibraryWindow(QMainWindow):
         self.maintenance_button.clicked.connect(self.choose_maintenance)
         self._buttons.append(self.maintenance_button)
         layout.addWidget(self.maintenance_button)
+        self.components_button = QPushButton("Đóng Library để chọn engine/model cục bộ")
+        self.components_button.clicked.connect(self.choose_components)
+        self._buttons.append(self.components_button)
+        layout.addWidget(self.components_button)
         self.cancel_media_button = QPushButton("Hủy giải mã media")
         self.cancel_media_button.setEnabled(False)
         self.cancel_media_button.clicked.connect(self._cancel_media_worker)
@@ -1670,6 +1675,11 @@ class LibraryWindow(QMainWindow):
         self.maintenance_requested = True
         if not self.close():
             self.maintenance_requested = False
+
+    def choose_components(self) -> None:
+        self.components_requested = True
+        if not self.close():
+            self.components_requested = False
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._worker is not None:

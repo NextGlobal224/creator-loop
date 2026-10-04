@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Callable
 from contextlib import closing
@@ -17,6 +18,7 @@ from creator_loop.local_components import (
     DEFAULT_WORKER_MEMORY,
     ComponentPreflightError,
     ComponentSpec,
+    component_review_fingerprint,
     hold_verified_components,
     load_component_manifest,
     parse_component_manifest,
@@ -175,10 +177,19 @@ def save_component_selection(
                 db.rollback()
 
 
-def select_components_cli(root: Path, manifest: Path) -> int:
+def select_components_cli(
+    root: Path, manifest: Path, reviewed_fingerprint: str | None = None
+) -> int:
     """Explicit selection with the app closed; existing compatible DB only."""
     try:
         specs = load_component_manifest(manifest)
+        if reviewed_fingerprint is not None and (
+            re.fullmatch(r"[0-9a-f]{64}", reviewed_fingerprint) is None
+            or component_review_fingerprint(specs) != reviewed_fingerprint
+        ):
+            raise ComponentPreflightError(
+                "Selection changed after review; check it again before saving"
+            )
         with AppDataLock(root) as lock:
             selection = save_component_selection(root, specs, lock=lock)
         print(
@@ -218,4 +229,33 @@ def select_components_cli(root: Path, manifest: Path) -> int:
             else type(exc).__name__
         )
         print(json.dumps({"selection": "FAILED", "reason": reason}))
+        return 1
+
+
+def inspect_components_cli(root: Path) -> int:
+    """Read saved declarations, including offline files; not a fresh check."""
+    try:
+        from creator_loop.local_components import component_manifest_bytes
+
+        selection = load_component_selection(root)
+        print(
+            json.dumps(
+                {
+                    "selection": "HISTORY"
+                    if selection is not None
+                    else "NOT_CONFIGURED",
+                    "freshly_verified": False,
+                    "runtime_compatibility_verified": False,
+                    "checked_at": selection.checked_at
+                    if selection is not None
+                    else None,
+                    "manifest": json.loads(component_manifest_bytes(selection.specs))
+                    if selection is not None
+                    else None,
+                }
+            )
+        )
+        return 0
+    except (ComponentPreflightError, StorageRootError, OSError) as exc:
+        print(json.dumps({"selection": "FAILED", "reason": type(exc).__name__}))
         return 1

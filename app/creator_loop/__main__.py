@@ -19,6 +19,7 @@ from .database import initialize, open_readonly, validate
 from .paths import data_root, ensure_data_root
 
 MAINTENANCE_REQUESTED = 20
+COMPONENTS_REQUESTED = 21
 
 
 def main() -> int:
@@ -33,6 +34,11 @@ def main() -> int:
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--inspect-components",
+        action="store_true",
+        help="Read saved component declarations; not a fresh file check",
+    )
+    parser.add_argument(
         "--check-components",
         type=Path,
         help="Verify selected local component artifacts without opening the user DB",
@@ -41,6 +47,15 @@ def main() -> int:
         "--select-components",
         type=Path,
         help="Verify and save an external selection with the app closed; no installation",
+    )
+    parser.add_argument(
+        "--reviewed-components",
+        help="Bind saved selections to the reviewed declarations",
+    )
+    parser.add_argument(
+        "--components",
+        action="store_true",
+        help="Open the local component selection window",
     )
     parser.add_argument(
         "--smoke", action="store_true", help="Create/open a DB and exit"
@@ -134,6 +149,26 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if args.inspect_components:
+        if any(
+            value for name, value in vars(args).items() if name != "inspect_components"
+        ):
+            parser.error("Component history cannot be combined with other operations")
+        from .component_selection import inspect_components_cli
+
+        return inspect_components_cli(data_root())
+    if args.reviewed_components is not None and args.select_components is None:
+        parser.error("--reviewed-components requires --select-components")
+    if args.components:
+        if any(
+            value
+            for name, value in vars(args).items()
+            if name not in ("components", "ui_smoke")
+        ):
+            parser.error("Component UI cannot be combined with other operations")
+        from .component_ui import run_components
+
+        return run_components(data_root(), ui_smoke=args.ui_smoke)
     if args.check_components is not None:
         if any(
             value for name, value in vars(args).items() if name != "check_components"
@@ -144,12 +179,16 @@ def main() -> int:
         return check_components_cli(args.check_components)
     if args.select_components is not None:
         if any(
-            value for name, value in vars(args).items() if name != "select_components"
+            value
+            for name, value in vars(args).items()
+            if name not in ("select_components", "reviewed_components")
         ):
             parser.error("Component selection cannot be combined with other operations")
         from .component_selection import select_components_cli
 
-        return select_components_cli(data_root(), args.select_components)
+        return select_components_cli(
+            data_root(), args.select_components, args.reviewed_components
+        )
     if args.backup and (args.smoke or args.ui_smoke):
         parser.error("--backup cannot be combined with smoke modes")
     root = data_root()
@@ -507,6 +546,10 @@ def main() -> int:
             from .maintenance_ui import run_maintenance
 
             return run_maintenance(root, args.installation_root)
+        if launch_result == COMPONENTS_REQUESTED:
+            from .component_ui import run_components
+
+            return run_components(root)
         return launch_result
     except DataRootBusy as exc:
         print(str(exc), file=sys.stderr)
@@ -601,6 +644,8 @@ def _run(
 
         QTimer.singleShot(200, app.quit)
     result = app.exec()
+    if window.components_requested:
+        return COMPONENTS_REQUESTED
     return MAINTENANCE_REQUESTED if window.maintenance_requested else result
 
 

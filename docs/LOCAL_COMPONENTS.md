@@ -84,8 +84,8 @@ caller xử lý phải kiểm lại và giữ lease xuyên tác vụ. Trên CI p
 
 Deadline/cancel trong service là cooperative giữa các lần đọc. Chạy service ngoài
 GUI và trong worker có process timeout khi nối UI/pipeline, vì filesystem I/O có
-thể không trả về. CLI nguồn/probe CI được bọc timeout; UI selection/config, registry
-điều phối và engine pipeline còn ở mốc tiếp theo.
+thể không trả về. UI dưới đây dùng worker có Job riêng và process deadline;
+CLI nguồn/probe CI được bọc timeout. Engine pipeline còn thiếu.
 
 ## Bằng chứng và phần còn thiếu
 
@@ -116,7 +116,39 @@ schema quan sát không khớp bị từ chối để giữ chẩn đoán; khôn
 giữ lease riêng. Atomic publication lỗi/hủy trước publish giữ lựa chọn trước;
 sau publish thành công, lựa chọn mới có thể tồn tại dù caller chưa nhận stdout.
 Đọc lại trạng thái trước khi quyết định thử lại; không lấy việc thiếu stdout làm
-căn cứ xóa/khôi phục file component. UI selection và engine pipeline còn thiếu.
+căn cứ xóa/khôi phục file component. Engine pipeline còn thiếu.
+
+### Chọn và lưu qua cửa sổ Component
+
+Trong Library, chọn **Đóng Library để chọn engine/model cục bộ**, hoặc chạy
+`CreatorLoop.exe --components`. Từ checkout: đặt `PYTHONPATH=app`, rồi chạy
+`python -m creator_loop --components`. Dùng đúng data root của Library; nếu DB
+chưa có, mở Library để tạo DB trước. Cửa sổ Component không tạo hay migrate DB.
+
+1. Chọn JSON khai báo ở trên và bấm **Kiểm file đã chọn**.
+2. Đối chiếu ID, loại, phiên bản khai báo, path, nguồn/license, digest và size trong
+   bảng. Di chuột để xem giá trị đầy đủ và license URL; cuộn ngang khi cần.
+3. Sau khi đối chiếu quyền dùng cục bộ, tự đánh dấu ô xác nhận rồi bấm
+   **Kiểm lại và lưu lựa chọn**. Ô xác nhận mặc định bỏ chọn.
+
+Worker kiểm lại bytes ngay trước lưu. Kết quả review gắn với toàn bộ khai báo;
+thay path hoặc sửa khai báo sau review yêu cầu kiểm lại. Đổi nội dung file dù giữ
+nguyên khai báo cũng bị kiểm digest từ chối. CLI có thể dùng
+`--select-components MANIFEST --reviewed-components FINGERPRINT`, với fingerprint
+trong kết quả `--check-components`, để giữ cùng ràng buộc review. Fingerprint là
+đối chiếu khai báo, không phải chứng nhận license hay khả năng chạy engine/model.
+
+**Xem lựa chọn đã lưu** hoặc `CreatorLoop.exe --inspect-components` chỉ đọc lịch sử
+và mốc kiểm. File đã offline/thay đổi vẫn có thể hiện trong lịch sử; kết quả ghi
+`freshly_verified: false`, không bật quyền lưu hay chạy từ bằng chứng cũ.
+
+Kiểm/lưu chạy ngoài GUI với Job 256 MiB, deadline mặc định 180 giây và output tối đa
+128 KiB; đây là budget tác vụ kiểm, không phải budget engine đã nghiệm thu. **Hủy
+tác vụ** chỉ dừng cây worker thuộc lượt này. Đóng cửa sổ khi đang kiểm chờ cây đó
+thoát; nếu cleanup chưa xác minh, cửa sổ và ownership/log được giữ. Log nằm dưới
+`logs/component-check-<id>/` trong data root. Hủy/timeout sau atomic publication
+có thể đã lưu thành công: mở lại lịch sử trước khi thử lại. Không xóa component
+hoặc registry để xử lý lỗi. Sau khi đóng Component, mở lại Library bình thường.
 
 `tests/test_local_components.py` dùng file **fake** để kiểm bytes/identity/bounds,
 license/ownership khai báo, alias, cancellation/deadline và Windows read-sharing.
@@ -127,5 +159,9 @@ activation/cleanup, version probe, xử lý transcript/vision hoặc release 8 G
 `tests/test_component_selection.py` kiểm app/DB lock thực, preserve root/registry/
 domain, CLI subprocess, stale history, corrupt/missing DB, alias, budget và lỗi
 atomic publication bằng fake component; không nghiệm thu actual engine/model.
+`tests/test_component_ui.py` kiểm consent/review đổi, lịch sử offline, app lock,
+CLI thật, native cancel/deadline/sentinel và Library nhả lock trước mở Component.
+Candidate probe có check, save-review, inspect, UI smoke và stale-review refusal;
+source probe không thay bằng chứng exact frozen candidate/required CI.
 Trạng thái checkpoint và kết quả chưa xác minh nằm ở [HANDOFF](HANDOFF.md),
 phạm vi bắt buộc giữ nguyên ở [PRODUCT_ACCEPTANCE](PRODUCT_ACCEPTANCE.md).

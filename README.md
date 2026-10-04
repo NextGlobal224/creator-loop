@@ -69,6 +69,10 @@ For explicitly selected local engine/model files, `--check-components MANIFEST`
 checks pinned metadata and physical digest/size without opening the user DB or
 executing the components. See [local component preflight](docs/LOCAL_COMPONENTS.md)
 for the manifest, timeout command and remaining runtime/8 GB acceptance work.
+Choose **Đóng Library để chọn engine/model cục bộ** or launch `--components` to
+review the declarations and explicitly confirm a fresh check before saving.
+`--inspect-components` shows saved history without claiming current availability
+or runtime compatibility. Component files remain externally owned.
 
 Interrupted updates can be inspected with `--inspect-update JOURNAL --installation-root DIR`
 and explicitly resumed with `--resume-update JOURNAL --installation-root DIR`. Resume
