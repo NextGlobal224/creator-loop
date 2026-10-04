@@ -49,12 +49,35 @@ nguồn, sidecar, partial evidence, media, backup hay installation trước. L�
 rename có thể để lại manifest dù caller chưa nhận thành công; manifest tồn tại
 đơn lẻ không đủ để apply. Trên portable, crash giữa link/unlink còn có thể để lại
 hai tên hardlink. Recovery phải kiểm lại toàn bộ bytes, inventory, identity và
-manifest; chưa có loader/apply dùng archive trong slice này. Không tự dùng lại
+manifest; loader chỉ đọc/xác minh archive, apply dùng archive vẫn còn thiếu.
+Không tự dùng lại
 partial folder; lần thử rõ ràng tiếp theo tạo UUID mới. Bản giữ raw chưa có cơ
 chế tự hết hạn hoặc xóa; chỉ quản lý khi có quy trình/quyền rõ ràng.
 
+Để kiểm riêng archive, dùng chính manifest đã công bố và damage identity đã
+được review cho nó:
+
+```powershell
+& .\scripts\run_test_with_timeout.ps1 -Executable .\.venv\Scripts\python.exe `
+  -TimeoutSeconds 120 -CommandArgs @('-m','creator_loop','--verify-preserved-source',
+  'D:\Dữ liệu Creator Loop\backups\raw-source-UUID\raw-source-manifest.json',
+  '--reviewed-damage','DAMAGE_IDENTITY_64_HEX')
+```
+
+Lệnh xác minh root/retention/damage binding, metadata format/UTC/flags, duplicate
+JSON fields, exact inventory và fresh size/SHA256 của từng raw file dưới retained
+handles. Manifest tối đa16KiB; hash theo chunk1MiB với budget60s và hard timeout
+ngoài. Partial/extra/missing entries, hardlink/alias, manifest/bytes bị sửa, review
+hoặc root không khớp đều bị từ chối, không sửa/xóa evidence. Native lease giữ
+archive qua lượt đọc; portable chỉ kiểm snapshot. Có thể đọc khi live DB thiếu,
+không tạo DB mới. Exit0 trả `archive_revalidated: true` và manifest digest;
+`current_source_assessed`, `consistent_backup`, `restore_authorized`, `restored`
+đều false. Exit2 là thiếu/mixed arguments, exit4 là từ chối/lỗi. Lệnh này không
+lấy app writer lock hay đánh giá DB/media hiện tại: apply vẫn phải giữ lock,
+fresh review và các xác nhận riêng. Không sửa manifest bằng tay để đổi binding.
+
 Test crash là crash tiến trình trên fixture, không phải nghiệm thu mất điện,
-ổ đĩa lỗi hoặc mọi filesystem. Phần tiếp theo còn thiếu: archive revalidation,
+ổ đĩa lỗi hoặc mọi filesystem. Phần tiếp theo còn thiếu:
 fresh review/loss/media consent, guarded apply/crash recovery/fresh health,
 UI và exact final artifact. Trạng thái/log ở [HANDOFF](HANDOFF.md); yêu cầu V1
 vẫn theo [PRODUCT_ACCEPTANCE](PRODUCT_ACCEPTANCE.md).

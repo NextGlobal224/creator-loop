@@ -177,11 +177,55 @@ def main() -> None:
     }:
         raise RuntimeError("Candidate changed/exposed raw source during preservation")
     damaged.unlink()  # own synthetic fixture only: missing-source refusal
+    verification = [
+        str(args.executable),
+        *prefix,
+        "--verify-preserved-source",
+        str(retained_manifest),
+        "--reviewed-damage",
+        body["damage"]["damage_identity"],
+    ]
+    checked = subprocess.run(
+        verification, env=environment, capture_output=True, timeout=90
+    )
+    if checked.returncode != 0 or not 0 < len(checked.stdout) <= 128 * 1024:
+        raise RuntimeError(
+            f"Exact candidate archive revalidation refused: exit {checked.returncode}"
+        )
+    archive_receipt = json.loads(checked.stdout)
+    if (
+        archive_receipt["archive_revalidated"] is not True
+        or archive_receipt["damage"] != body["damage"]
+        or any(
+            archive_receipt[key] is not False
+            for key in (
+                "consistent_backup",
+                "restore_authorized",
+                "current_source_assessed",
+                "restored",
+            )
+        )
+    ):
+        raise RuntimeError(
+            "Candidate archive verification claimed live-source recovery"
+        )
+    if (
+        damaged.exists()
+        or b"PRIVATE" in checked.stdout + checked.stderr
+        or archive_receipt["archive_manifest_sha256"]
+        != hashlib.sha256(retained_manifest.read_bytes()).hexdigest()
+    ):
+        raise RuntimeError(
+            "Candidate archive verification changed/exposed source or manifest"
+        )
+    for name, content in before.items():
+        if (retained_manifest.parent / name).read_bytes() != content:
+            raise RuntimeError("Candidate archive verification changed retained bytes")
     missing = subprocess.run(command, env=environment, capture_output=True, timeout=20)
     if missing.returncode != 4 or damaged.exists():
         raise RuntimeError("Candidate initialized missing damaged source")
     print(
-        "Exact damaged-source assessment and separate raw-source preservation PASS; original bytes unchanged; apply/recovery unverified"
+        "Exact damaged-source assessment/raw retention/archive revalidation PASS; missing live DB not created; apply/recovery unverified"
     )
 
 

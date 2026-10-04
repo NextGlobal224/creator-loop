@@ -34,6 +34,15 @@ def main() -> int:
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--verify-preserved-source",
+        type=Path,
+        help="Revalidate an explicit raw-source archive; no live DB assessment or restore",
+    )
+    parser.add_argument(
+        "--reviewed-damage",
+        help="Explicit damaged-source identity for the selected archive",
+    )
+    parser.add_argument(
         "--preserve-corrupt-source",
         help="Retain reviewed damaged DB/sidecar bytes separately; no restore",
     )
@@ -157,6 +166,38 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if args.verify_preserved_source is not None or args.reviewed_damage is not None:
+        if (
+            args.verify_preserved_source is None
+            or args.reviewed_damage is None
+            or any(
+                value
+                for name, value in vars(args).items()
+                if name not in ("verify_preserved_source", "reviewed_damage")
+            )
+        ):
+            parser.error(
+                "Raw-source verification requires only an explicit manifest and reviewed damage identity"
+            )
+        from .preserved_source_validation import hold_preserved_source
+
+        try:
+            with hold_preserved_source(
+                data_root(), args.verify_preserved_source, args.reviewed_damage
+            ) as verified:
+                receipt = {
+                    **verified,
+                    "current_source_assessed": False,
+                    "restored": False,
+                }
+            print(json.dumps(receipt))
+            return 0
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(
+                f"Raw-source verification refused: {type(exc).__name__}; keep archive/live DB/sidecars/backups",
+                file=sys.stderr,
+            )
+            return 4
     if args.preserve_corrupt_source is not None:
         if any(
             value
