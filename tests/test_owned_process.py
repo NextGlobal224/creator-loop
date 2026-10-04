@@ -70,7 +70,7 @@ class OwnedProcessTests(unittest.TestCase):
         return """import json,os,subprocess,sys,time
 from pathlib import Path
 grand=Path(sys.argv[1]+'.grand')
-code="import os,sys,time; from pathlib import Path; Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)"
+code="import os,sys,time; from pathlib import Path; target=Path(sys.argv[1]); pending=target.with_suffix('.pending'); pending.write_text(str(os.getpid())); os.replace(pending,target); time.sleep(60)"
 child=subprocess.Popen([sys.executable,'-c',code,str(grand)])
 deadline=time.monotonic()+5
 while not grand.exists() and time.monotonic()<deadline: time.sleep(.01)

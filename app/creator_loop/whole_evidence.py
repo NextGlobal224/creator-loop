@@ -28,6 +28,9 @@ class WholeSource:
     text_snapshot: str | None
     image: QImage | None
     duration_ms: int | None
+    data_root: Path | None = None
+    expected_size: int | None = None
+    expected_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,8 @@ def read_verified_whole_source(
     snapshot = None
     image = None
     duration = None
+    size = None
+    digest = None
     if media_type == "TEXT":
         verified_asset_id, snapshot = read_verified_text_snapshot(
             db, file_id, data_root
@@ -85,12 +90,23 @@ def read_verified_whole_source(
         image = decoded.image
         duration = decoded.duration_ms
         path = decoded.anchor_path
+        size, digest = decoded.expected_size, decoded.expected_sha256
     else:
         raise ValueError("Unsupported whole-source media type")
     if verified_asset_id != asset_id:
         raise ValueError("Whole-source anchor belongs to another Asset")
     return WholeSource(
-        str(asset_id), file_id, media_type, role, path, snapshot, image, duration
+        str(asset_id),
+        file_id,
+        media_type,
+        role,
+        path,
+        snapshot,
+        image,
+        duration,
+        Path(data_root),
+        size,
+        digest,
     )
 
 

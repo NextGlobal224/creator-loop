@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
@@ -34,6 +34,9 @@ class DecodedVideoFrame:
     frame_time_ms: int
     image: QImage
     anchor_path: Path
+    data_root: Path | None = None
+    expected_size: int | None = None
+    expected_sha256: str | None = None
 
 
 def _timestamp() -> str:
@@ -58,21 +61,23 @@ def decode_video_frame(
     if QCoreApplication.instance() is None:
         raise RuntimeError("Qt event loop is required to decode video")
     row = db.execute(
-        """SELECT f.asset_id,a.media_type,f.role,f.storage_key,f.mime_type
+        """SELECT f.asset_id,a.media_type,f.role,f.storage_key,f.mime_type,f.byte_size,f.sha256
            FROM asset_files f JOIN assets a ON a.asset_id=f.asset_id
            WHERE f.file_id=?""",
         (file_id,),
     ).fetchone()
     if row is None or row[1:3] != ("VIDEO", "ORIGINAL") or row[4] != "video/mp4":
         raise ValueError("Video Evidence requires an MP4 original")
-    asset_id, _media_type, role, key, _mime = row
+    asset_id, _media_type, role, key, _mime, size, digest = row
     verify_original_file(db, file_id, data_root)
     path = _anchor_path(Path(data_root), role, key)
     decoded = decode_video_path(
         path, start_ms=start_ms, timeout_seconds=timeout_seconds, root=data_root
     )
     verify_original_file(db, file_id, data_root)
-    return str(asset_id), decoded
+    return str(asset_id), replace(
+        decoded, data_root=Path(data_root), expected_size=size, expected_sha256=digest
+    )
 
 
 def decode_video_path(

@@ -33,7 +33,11 @@ def process_identity(kernel: Any, handle: int) -> dict[str, object]:
 
 
 def create_workspace_marker(
-    root: Path, workspace: Path, component_version: str
+    root: Path,
+    workspace: Path,
+    component_version: str,
+    *,
+    kind: str = "QT_DECODER_WORKSPACE",
 ) -> dict[str, object]:
     canonical = root.resolve(strict=True)
     directory = workspace.resolve(strict=True)
@@ -48,7 +52,7 @@ def create_workspace_marker(
     parent["pid"] = os.getpid()
     marker: dict[str, object] = {
         "format": 1,
-        "kind": "QT_DECODER_WORKSPACE",
+        "kind": kind,
         "data_root": str(canonical),
         "workspace": directory.name,
         "component_version": component_version,
