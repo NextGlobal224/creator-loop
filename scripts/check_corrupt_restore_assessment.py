@@ -224,6 +224,32 @@ def main() -> None:
         or b"PRIVATE" in staged_result.stdout + staged_result.stderr
     ):
         raise RuntimeError("Candidate staging changed source/proof or claimed apply")
+    stage_verification = [
+        str(args.executable),
+        *prefix,
+        "--verify-corrupt-preparation",
+        str(stage_manifest),
+        "--reviewed-preparation",
+        hashlib.sha256(stage_manifest.read_bytes()).hexdigest(),
+    ]
+    stage_checked = subprocess.run(
+        stage_verification, env=environment, capture_output=True, timeout=90
+    )
+    if stage_checked.returncode != 0 or not 0 < len(stage_checked.stdout) <= 128 * 1024:
+        raise RuntimeError(
+            f"Exact stage verification refused: exit {stage_checked.returncode}"
+        )
+    stage_proof = json.loads(stage_checked.stdout)
+    if stage_proof["stage_revalidated"] is not True or any(
+        stage_proof[key] is not False
+        for key in (
+            "current_source_assessed",
+            "apply_authorized",
+            "activated",
+            "restored",
+        )
+    ):
+        raise RuntimeError("Candidate stage verification claimed live-source apply")
     damaged.unlink()  # own synthetic fixture only: missing-source refusal
     verification = [
         str(args.executable),
@@ -277,8 +303,15 @@ def main() -> None:
     )
     if missing_stage.returncode != 4 or damaged.exists():
         raise RuntimeError("Candidate staging initialized missing damaged source")
+    absent_live = subprocess.run(
+        stage_verification, env=environment, capture_output=True, timeout=90
+    )
+    if absent_live.returncode != 0 or damaged.exists():
+        raise RuntimeError(
+            "Stage verification requires/initializes the missing live source"
+        )
     print(
-        "Exact damaged-source assessment/raw retention/archive revalidation/BackupAPI staging PASS; missing live DB not created; apply/recovery/health unverified"
+        "Exact damaged-source assessment/raw retention/archive/BackupAPI staging/stage verification PASS; missing live DB not created; apply/recovery/health unverified"
     )
 
 

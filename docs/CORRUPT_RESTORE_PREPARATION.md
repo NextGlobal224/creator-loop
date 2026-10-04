@@ -54,6 +54,28 @@ thành công; sự tồn tại của manifest không cấp quyền apply. Không
 hoặc tái sử dụng partial folder. Portable CI kiểm snapshot; native sharing và
 crash tiến trình không chứng minh mọi power-loss/filesystem outcome.
 
+Để kiểm lại preparation riêng, chọn manifest vừa tạo và lấy SHA256 của chính
+manifest đã xem. Digest này ràng buộc lượt đọc, không phải chữ ký hoặc consent
+apply. Loader giữ stage/raw archive, kiểm metadata/types/UTC/false claims,
+inventory/hardlinks, bytes/digest, integrity/FK/schema/history, logical counts và
+media refs được ghi; manifest tối đa16MiB, hash DB theo chunk1MiB. Nó không đọc
+DB live, backup/candidate/media live hoặc mở app để health check.
+
+```powershell
+$manifest = 'D:\Dữ liệu Creator Loop\backups\corrupt-restore-UUID\preparation.json'
+$reviewedPreparation = (Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+& .\scripts\run_test_with_timeout.ps1 -Executable .\.venv\Scripts\python.exe `
+  -TimeoutSeconds 90 -CommandArgs @('-m','creator_loop',
+  '--verify-corrupt-preparation',$manifest,'--reviewed-preparation',$reviewedPreparation)
+```
+
+Chỉ dùng digest của manifest đã chọn; không tự lấy lại digest để chấp nhận một
+file vừa bị sửa. Exit0 trả `stage_revalidated: true`; `current_source_assessed`,
+`apply_authorized`, `activated`, `restored` đều false. Live DB thiếu vẫn không
+được tạo. Exit2 là input thiếu/mixed; exit4 là từ chối/lỗi. Không sửa/xóa partial,
+stage, raw archive hoặc live data khi verification thất bại. Loader không lấy
+app writer lock; apply phải giữ lock và kiểm live inputs/consent riêng.
+
 Guarded replacement, durable runtime guard, actual-state crash recovery, fresh
 runtime health, UI và final artifact/release vẫn cần triển khai/nghiệm thu riêng.
 Apply sau này phải revalidate source/archive/stage/backup/candidate/media và các

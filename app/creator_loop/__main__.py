@@ -33,6 +33,10 @@ def main() -> int:
 
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
+    parser.add_argument("--verify-corrupt-preparation", type=Path)
+    parser.add_argument(
+        "--reviewed-preparation", help="SHA256 of the selected preparation manifest"
+    )
     parser.add_argument(
         "--prepare-corrupt-restore",
         help="Stage a reviewed backup separately after damaged-source retention; no apply",
@@ -171,6 +175,48 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if (
+        args.verify_corrupt_preparation is not None
+        or args.reviewed_preparation is not None
+    ):
+        if (
+            args.verify_corrupt_preparation is None
+            or args.reviewed_preparation is None
+            or any(
+                value
+                for name, value in vars(args).items()
+                if name not in ("verify_corrupt_preparation", "reviewed_preparation")
+            )
+        ):
+            parser.error(
+                "Stage verification requires only explicit manifest and reviewed digest"
+            )
+        from .corrupt_stage_validation import hold_corrupt_preparation
+
+        try:
+            with hold_corrupt_preparation(
+                data_root(), args.verify_corrupt_preparation, args.reviewed_preparation
+            ) as record:
+                receipt = {
+                    key: record[key]
+                    for key in (
+                        "stage_revalidated",
+                        "preparation_manifest_sha256",
+                        "schema_to",
+                        "current_source_assessed",
+                        "apply_authorized",
+                        "activated",
+                        "restored",
+                    )
+                }
+            print(json.dumps(receipt))
+            return 0
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Stage verification refused: {type(exc).__name__}; keep all evidence",
+                file=sys.stderr,
+            )
+            return 4
     if args.prepare_corrupt_restore is not None or args.raw_source_manifest is not None:
         if (
             args.prepare_corrupt_restore is None
