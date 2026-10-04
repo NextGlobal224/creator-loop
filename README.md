@@ -4,6 +4,8 @@ Local-first Windows desktop foundation. This is a bootstrap, not the full produc
 
 The [V1 acceptance matrix](docs/PRODUCT_ACCEPTANCE.md) tracks required product flows, their evidence, and remaining release conditions.
 
+The Vietnamese [user guide](docs/USER_GUIDE.md) walks through the current Library-to-Observation UI, reopening data, and backup/update/recovery. See [HANDOFF](docs/HANDOFF.md) for the exact local build and its verification limits; the guide does not certify a release.
+
 ## Source smoke and tests
 
 Requires Python 3.12 x64. From the repository root:
