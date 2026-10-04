@@ -83,6 +83,8 @@ class IsolatedMediaPlayer(QObject):
         self._disposed = False
         self._last_output = time.monotonic()
         self._exit_deadline: float | None = None
+        self._release_pending = False
+        self._pipe_close_deadline: float | None = None
         self.timer = QTimer(self)
         self.timer.setInterval(10)
         self.timer.timeout.connect(self._tick)
@@ -274,6 +276,8 @@ class IsolatedMediaPlayer(QObject):
         self._closing, self._ended = False, False
         self._video_seen, self._audio_seen = False, False
         self._exit_deadline = None
+        self._release_pending = False
+        self._pipe_close_deadline = None
         self._started_range = self._range
         self._last_output = time.monotonic()
         self._state = QMediaPlayer.PlaybackState.PlayingState
@@ -361,6 +365,19 @@ class IsolatedMediaPlayer(QObject):
     def _tick(self) -> None:
         try:
             data = b""
+            if self._release_pending:
+                self._release_if_terminal()
+                if (
+                    self._release_pending
+                    and self._pipe_close_deadline is not None
+                    and time.monotonic() >= self._pipe_close_deadline
+                ):
+                    self._pipe_close_deadline = None
+                    self.errorOccurred.emit(
+                        QMediaPlayer.Error.ResourceError,
+                        "Private playback pipe cancellation has not completed; original remains locked",
+                    )
+                return
             if self.process is None:
                 self._release_if_terminal()
                 return
@@ -409,13 +426,19 @@ class IsolatedMediaPlayer(QObject):
     def _release_if_terminal(self) -> None:
         if self.process is not None and not self.process.tree_finished():
             return
-        if self.process is not None:
-            self.process.close()
-            self.process = None
+        if not self._release_pending:
+            self._release_pending = True
+            self._pipe_close_deadline = time.monotonic() + 8
         if self.pipe is not None:
             if not self.pipe.try_close():
                 return
             self.pipe = None
+        # Keep native terminal ownership observable until cancellation releases
+        # the OVERLAPPED buffer/pipe. process=None must not precede the original
+        # lease release or permit a range restart to replace retained resources.
+        if self.process is not None:
+            self.process.close()
+            self.process = None
         if self.held is not None:
             self.held.close()
             self.held = None
@@ -426,6 +449,8 @@ class IsolatedMediaPlayer(QObject):
                 self.preserved_workspace = self.workspace
             self.workspace = None
         self.timer.stop()
+        self._release_pending = False
+        self._pipe_close_deadline = None
         _active.discard(self)
         if self._ended and not self._closing:
             self._status = QMediaPlayer.MediaStatus.EndOfMedia

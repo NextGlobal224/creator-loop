@@ -12,6 +12,17 @@ Range play/seek/pause dùng command JSON nhỏ trong workspace; publish nguyên 
 
 Ownership parent/child được fsync trước ResumeThread, trong `runtime/playback-*`; component `qt-playback/<app>/Qt-<version>`, kind riêng `QT_PLAYBACK_WORKSPACE`. Cleanup bình thường và startup chỉ dọn inventory được hỗ trợ qua retained directory/file handles; giữ unknown/live/replaced/hardlink/alias hoặc binding không đúng, không recursive delete. Control pending/JSON là file điều khiển thuộc inventory, không chứa media. Logs chỉ có ownership; stderr native vào NUL. Xem [runtime recovery](RUNTIME_RECOVERY.md).
 
+Native tree terminal chưa đủ để báo cleanup hoàn tất: OVERLAPPED cancellation
+có thể còn pending. Facade giữ process/Job, pipe/buffer và original lease tới
+khi pipe đóng được, rồi mới báo `process=None`/finished hoặc bắt đầu range mới.
+Timer tiếp tục dispatch trong lượt cleanup, không đọc lại pipe đang đóng. Nếu
+cancel pipe chưa hoàn tất sau8 giây, báo lỗi một lần và giữ resources tới khi
+có terminal proof; không thả native buffer hoặc original để làm test xanh.
+Regression dùng native child exit cùng deferred pipe completion, kiểm mutation
+nguồn bị chặn, finished chưa phát, warning một lần và final handle release.
+Qt UI test kiểm actual blue frame trên unittest stack sau callback, luôn stop
+và chờ cleanup; callback assertion không được coi là bằng chứng unittest FAIL.
+
 Source native tests kiểm red→blue frames + PCM/position/EndOfMedia, original lock/bytes, normal/cancel/child crash/owner crash, actual8s timeout với Qt heartbeat, oversize header, bytes đổi trước phát, sharing conflict và unknown file preservation. Dialog accept/reject phải có assigned child thật và chờ native cleanup trong test. Full-suite/static/review/required CI và exact candidate evidence phải ghi tại checkpoint; source test không chứng minh frozen GUI final flow.
 
 CI chạy `scripts/check_playback_lifecycle.py` trên chính candidate EXE đã giải nén: inherited-handle decode lấy duration thật, real playback frames/PCM và native normal/cancel exit, original/logs/no-DB. Probe dùng fixture tone/red-blue tổng hợp và caller source Qt để inspect output; chưa thay kiểm toàn GUI đóng gói, engine/model thật, máy8GB, final flow/build/release theo [PRODUCT_ACCEPTANCE](PRODUCT_ACCEPTANCE.md).

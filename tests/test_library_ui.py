@@ -668,6 +668,8 @@ class LibraryUiTests(unittest.TestCase):
         self.assertIn("Video", window.evidence_table.item(0, 0).text())
         window.evidence_table.selectRow(0)
         opened: list[tuple[int, int, str]] = []
+        playback_colors: list[str] = []
+        playback_cleanup: list[bool] = []
 
         def inspect_range(dialog: VideoRangeView) -> object:
             opened.append(
@@ -677,26 +679,40 @@ class LibraryUiTests(unittest.TestCase):
                     dialog.segment.player.source().toLocalFile(),
                 )
             )
-            colors: list[str] = []
 
             def capture(frame: object) -> None:
                 if frame.isValid():
                     pixel = frame.toImage().pixelColor(0, 0)
-                    colors.append(pixel.name())
+                    playback_colors.append(pixel.name())
 
             dialog.segment.video.videoSink().videoFrameChanged.connect(capture)
-            dialog.segment.play()
-            deadline = time.monotonic() + 2
-            while (
-                not any(QColor(color).blue() > QColor(color).red() for color in colors)
-                and time.monotonic() < deadline
-            ):
-                app.processEvents()
-                time.sleep(0.01)
-            self.assertTrue(
-                any(QColor(color).blue() > QColor(color).red() for color in colors)
-            )
-            dialog.done(0)
+            try:
+                dialog.segment.play()
+                # Match the app's existing response budget, rather than assuming
+                # a fresh owned child decodes within two seconds under load.
+                deadline = time.monotonic() + 8
+                while (
+                    not any(
+                        QColor(color).blue() > QColor(color).red()
+                        for color in playback_colors
+                    )
+                    and time.monotonic() < deadline
+                ):
+                    app.processEvents()
+                    time.sleep(0.01)
+            finally:
+                dialog.done(0)
+                deadline = time.monotonic() + 12
+                while (
+                    dialog.segment.player.process is not None
+                    and time.monotonic() < deadline
+                ):
+                    app.processEvents()
+                    time.sleep(0.01)
+                playback_cleanup.append(
+                    dialog.segment.player.process is None
+                    and dialog.segment.player.held is None
+                )
             return VideoRangeView.DialogCode.Accepted
 
         with patch.object(VideoRangeView, "exec", inspect_range):
@@ -704,6 +720,15 @@ class LibraryUiTests(unittest.TestCase):
             self._wait_for_worker(app, window)
         self.assertEqual(opened[0][:2], (600, 800))
         self.assertEqual(Path(opened[0][2]).resolve(), stored.resolve())
+        # Assertions in a Qt slot can be printed and swallowed. Check readiness
+        # and cleanup on the unittest stack after the callback has returned.
+        self.assertTrue(
+            any(
+                QColor(color).blue() > QColor(color).red() for color in playback_colors
+            ),
+            playback_colors,
+        )
+        self.assertEqual(playback_cleanup, [True])
 
         from creator_loop.claims import EvidenceLink, create_claim
 
