@@ -119,7 +119,7 @@ Migrations `0001_initial.sql` through `0005_publication_snapshot_guards.sql` rem
 
 ## Boundaries
 
-The Library UI imports and lists originals, links Sources, generates image thumbnails and opens TEXT, IMAGE_REGION and video-track TIME_RANGE Evidence. It supports Package review and manual Post records. It also records manual Post observations. It does not yet launch external media/model engines, collect metrics via API or expose installation updates through the desktop UI; it sends no posts to external platforms. The complete packaged workflow and release acceptance remain open.
+The Library UI imports and lists originals, links Sources, generates image thumbnails and opens TEXT, IMAGE_REGION and video-track TIME_RANGE Evidence. It supports Package review, manual Post records and observations. The maintenance window provides explicit backup/update/restore controls, and the Component window reviews local selections. External engine/model execution and API metric collection remain open; the app sends no posts to external platforms. The complete packaged workflow and release acceptance remain open.
 
 The public application read path is `open_readonly()`. Publication writes go through `PublicationRepository`; `_connect_write()` is an internal adapter reserved for repositories, migrations and tests. This is an application boundary, not a sandbox against someone opening the SQLite file directly. Direct SQL may create an unsealed staging row, which cannot be approved.
 
