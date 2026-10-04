@@ -10,6 +10,16 @@ from scripts.run_suite_with_diagnostics import periodic_python_stacks
 
 
 class SuiteDiagnosticsTests(unittest.TestCase):
+    def setUp(self):
+        self.existing_reporters = self.reporters()
+
+    def reporters(self):
+        return {
+            thread
+            for thread in threading.enumerate()
+            if thread.name == "suite-stack-reporter"
+        }
+
     def test_real_output_failure_is_reported_instead_of_silent_loss_of_diagnostics(
         self,
     ):
@@ -18,12 +28,7 @@ class SuiteDiagnosticsTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Periodic stack reporting failed"):
             with periodic_python_stacks(output, interval=0.005):
                 time.sleep(0.05)
-        self.assertFalse(
-            any(
-                thread.name == "suite-stack-reporter"
-                for thread in threading.enumerate()
-            )
-        )
+        self.assertEqual(self.reporters(), self.existing_reporters)
 
     def test_reports_blocked_worker_and_stops_before_output_closes(self):
         stopped = threading.Event()
@@ -51,12 +56,7 @@ class SuiteDiagnosticsTests(unittest.TestCase):
         before = output.getvalue()
         time.sleep(0.03)
         self.assertEqual(output.getvalue(), before)
-        self.assertFalse(
-            any(
-                thread.name == "suite-stack-reporter"
-                for thread in threading.enumerate()
-            )
-        )
+        self.assertEqual(self.reporters(), self.existing_reporters)
         output.close()
 
     def test_dynamic_code_churn_remains_alive_and_exception_stops_reporter(self):
@@ -81,9 +81,4 @@ class SuiteDiagnosticsTests(unittest.TestCase):
                 raise ValueError("fixture failure")
         self.assertIn("Periodic Python stacks", output.getvalue())
         self.assertTrue(worker.is_alive())
-        self.assertFalse(
-            any(
-                thread.name == "suite-stack-reporter"
-                for thread in threading.enumerate()
-            )
-        )
+        self.assertEqual(self.reporters(), self.existing_reporters)
