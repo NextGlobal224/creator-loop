@@ -25,6 +25,8 @@ python -m creator_loop --smoke
 
 Desktop UI requires `pip install PySide6==6.10.2`. The app stores user data outside installation by default, under `%LOCALAPPDATA%\CreatorLoop` on Windows. `CREATOR_LOOP_DATA_ROOT` overrides this for test/portable use.
 
+For QA on new synthetic fixtures, see the [supplied-artifact Qt product flow probe](docs/PRODUCT_FLOW_PROBE.md). It runs real widgets/workers inside the selected CLI, independently checks the resulting DB and tests refusal/reopen; programmatic/offscreen PASS does not certify the real-machine release gate.
+
 To open the current Library UI, run `python -m creator_loop` with `PYTHONPATH=app`. The three import buttons accept TEXT, MP4 video, and PNG/JPEG images. The app copies bytes into the user-data originals store and lists the imported files. Format detection checks stored signatures, then IMAGE/VIDEO intake decodes real pixels or a video frame with audio samples when present before registration. This preflight passed required CI in PR #44; broad codec coverage and native decoder process isolation remain open.
 
 For a TEXT original, select its row and choose **Tạo Evidence Text**. Enter start/end positions on the NFC text snapshot and inspect the excerpt preview before saving. Select the saved Evidence row and choose **Mở Evidence Text** to verify and display that exact excerpt again. To correct the latest TEXT Evidence Version, select it and choose **Sửa Evidence Text**; enter a new range, actor and reason. The old version remains in the table and can still be reopened. The status shows how many Claim Versions still refer to an older version and need review. The initial create/reopen UI slice passed the required CI checks in PR #10; the correction UI passed the required checks in PR #20.

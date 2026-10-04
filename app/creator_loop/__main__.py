@@ -32,6 +32,28 @@ def main() -> int:
         from .isolated_decode import run_decode_worker
 
         return run_decode_worker(Path(sys.argv[2]))
+    # Explicit QA mode only writes a new private data root beneath supplied fixtures.
+    if len(sys.argv) == 3 and sys.argv[1] == "--product-flow-smoke":
+        if sys.platform != "win32":
+            print(
+                json.dumps(
+                    {"product_flow_probe": "refused", "error": "Windows required"}
+                ),
+                file=sys.stderr,
+            )
+            return 4
+        from .product_flow_smoke import run_product_flow_smoke
+
+        try:
+            receipt = run_product_flow_smoke(Path(sys.argv[2]))
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                json.dumps({"product_flow_probe": "refused", "error": str(exc)}),
+                file=sys.stderr,
+            )
+            return 4
+        print(json.dumps(receipt))
+        return 0
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--apply-completed-copy-restore",

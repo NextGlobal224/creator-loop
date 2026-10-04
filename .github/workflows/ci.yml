@@ -113,6 +113,9 @@ jobs:
           $env:QT_QPA_PLATFORM = 'offscreen'
           & .\scripts\run_test_with_timeout.ps1 -Executable (Join-Path $target 'CreatorLoop/CreatorLoop.exe') -TimeoutSeconds 60 -CommandArgs @('--ui-smoke')
           if ($LASTEXITCODE -ne 0) { throw 'Extracted UI smoke failed' }
+          $productFlow = Join-Path $env:RUNNER_TEMP 'luồng sản phẩm Qt exact'
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 180 -CommandArgs @('scripts/check_product_flow.py','--executable',(Join-Path $target 'CreatorLoop/CreatorLoop.exe'),'--work-root',$productFlow)
+          if ($LASTEXITCODE -ne 0) { throw 'Exact packaged Qt product flow failed' }
           $after = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($before -ne $after) { throw 'Release ZIP changed after smoke' }
           python scripts/write_release_manifest.py --zip $zip --package (Join-Path $target 'CreatorLoop') --output release/release-manifest.json --commit '${{ github.sha }}' --run-url '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
