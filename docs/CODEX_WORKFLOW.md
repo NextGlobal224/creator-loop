@@ -19,6 +19,14 @@ Với Creator Loop, giữ thứ tự luật đã chốt: [Data Architecture V1.1
 
 ### Chạy test Windows có timeout và log
 
+Full suite dùng `scripts/run_suite_with_diagnostics.py`: log START/STOP từng test,
+fatal handler và periodic Python stacks giữ tham chiếu frame/code. Native
+`faulthandler.dump_traceback_later()` đã tái hiện race trên Python3.12.10;
+xem [CPython upstream](https://github.com/python/cpython/issues/158200). Reporter
+Python cần GIL; nếu native code giữ GIL, stack định kỳ có thể không tới. Timeout
+cấp tiến trình trong runner và log test đang START vẫn là bắt buộc; không dùng
+reporter thay timeout hoặc nới budget vì thiếu stack.
+
 Runner local giữ exit code, trả124 khi timeout và125 khi wrapper lỗi; mỗi lượt lưu stdout/stderr và metadata dưới `.local-test-logs/` (ignored). Job Object chỉ cleanup cây process của lượt chạy. Chọn timeout theo phạm vi test; log có thể chứa dữ liệu fixture, không commit/upload dữ liệu người dùng.
 
 ```powershell
