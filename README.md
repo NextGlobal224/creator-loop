@@ -99,7 +99,9 @@ Known interrupted-copy states have [consented continuation](docs/CORRUPT_COPY_RE
 that preserves original/partial bytes and keeps the launch guard. Interrupted
 unknown/nonempty partial bundles need separate reviewed retention consent and
 complete original evidence. Changed completed copies need a fresh restore decision.
-Damaged-source UI, complete failure recovery and release acceptance remain open.
+Maintenance provides [guarded copy review/resume/health-recovery controls](docs/MAINTENANCE_UI.md)
+with separate default-off consents. Initial damaged-source review/raw/stage/copy
+UI, complete failure recovery and release acceptance remain open.
 
 `--stage-update ZIP --release-manifest JSON --installation-root DIR` verifies a supplied Windows ZIP and its complete file inventory, then stages a separate version directory while retaining existing installations and user data. It does not activate the candidate or migrate the DB. See [staging instructions](docs/INSTALLATION_STAGING.md). CI tests staging and a bounded launcher/schema smoke from the exact ZIP; final updater orchestration and release acceptance remain open.
 

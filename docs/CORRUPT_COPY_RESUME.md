@@ -57,6 +57,8 @@ Nếu originals thiếu/trùng/hash sai hoặc có foreign file trong retention 
 consent UNKNOWN không cấp quyền đoán/xóa/sửa evidence. Copy đã có completed
 physical receipt rồi đổi bytes cần **fresh restore decision**, không dùng lại
 consent interrupted-copy. Không xóa marker hoặc chạy smoke để bypass.
-Actual process-crash tests không chứng minh power loss. UI/whole flow, exact
+Có [Maintenance UI](MAINTENANCE_UI.md) cho guarded copy review/resume/recovery;
+damaged-source review/raw/stage/copy ban đầu vẫn dùng CLI. Actual process-crash
+tests không chứng minh power loss. Whole flow, exact
 final artifact/required CI, actual engines/models và máy8GB vẫn theo
 [PRODUCT_ACCEPTANCE](PRODUCT_ACCEPTANCE.md); logs/FAIL/scope ở [HANDOFF](HANDOFF.md).

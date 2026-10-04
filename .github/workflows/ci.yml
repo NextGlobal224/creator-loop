@@ -154,7 +154,7 @@ jobs:
           $damagedAssessment = Join-Path $env:RUNNER_TEMP 'đánh giá nguồn hỏng riêng'
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 180 -CommandArgs @('scripts/check_corrupt_restore_assessment.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation,'--work-root',$damagedAssessment)
           if ($LASTEXITCODE -ne 0) { throw 'Packaged damaged-source readonly assessment failed' }
-          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 300 -CommandArgs @('scripts/check_corrupt_copy_recovery.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$damagedAssessment,'--installation-root',$installation)
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 360 -CommandArgs @('scripts/check_corrupt_copy_recovery.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$damagedAssessment,'--installation-root',$installation,'--maintenance-ui')
           if ($LASTEXITCODE -ne 0) { throw 'Packaged corrupt-copy recovery and fresh native health failed' }
           $copyResumeProbe = Join-Path $env:RUNNER_TEMP 'Creator Loop interrupted copy resume'
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 360 -CommandArgs @('scripts/check_corrupt_copy_resume.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation,'--work-root',$copyResumeProbe)

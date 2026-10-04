@@ -222,7 +222,7 @@ m.copy_corrupt_restore(Path(sys.argv[1]),Path(sys.argv[2]),Path(sys.argv[3]),Pat
     ):
         raise RuntimeError("Actual resumed DB is not validated and still guarded")
     print(
-        f"Actual source-copy crash → exact candidate {'synthetic UNKNOWN bundle' if args.unknown_partial else 'empty target'} consented retention/resume/guarded validation PASS; no frozen mid-copy crash, candidate health/activation or power-loss acceptance"
+        f"Actual source-copy crash -> exact candidate {'synthetic UNKNOWN bundle' if args.unknown_partial else 'empty target'} consented retention/resume/guarded validation PASS; no frozen mid-copy crash, candidate health/activation or power-loss acceptance"
     )
 
 

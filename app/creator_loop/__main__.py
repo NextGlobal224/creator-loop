@@ -34,6 +34,11 @@ def main() -> int:
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--review-corrupt-copy",
+        type=Path,
+        help="Read actual guarded copy, bound backup time/candidate and current media; no apply",
+    )
+    parser.add_argument(
         "--confirm-preserve-unknown",
         action="store_true",
         help="Explicitly retain all inspected unknown partial DB/sidecars before a new guarded copy",
@@ -213,6 +218,33 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if args.review_corrupt_copy is not None:
+        if args.installation_root is None or any(
+            value
+            for name, value in vars(args).items()
+            if name not in ("review_corrupt_copy", "installation_root")
+        ):
+            parser.error("Copy review requires only explicit journal and installation")
+        from .corrupt_copy_review import review_corrupt_copy
+
+        try:
+            print(
+                json.dumps(
+                    review_corrupt_copy(
+                        data_root(), args.review_corrupt_copy, args.installation_root
+                    )
+                )
+            )
+            return 0
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Copy review refused: {type(exc).__name__}; keep guard and all evidence",
+                file=sys.stderr,
+            )
+            return 4
     if args.reviewed_inspection is not None and (
         args.recover_corrupt_copy is None and args.resume_corrupt_copy is None
     ):

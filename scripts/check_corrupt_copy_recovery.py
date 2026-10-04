@@ -16,6 +16,7 @@ def main() -> None:
     parser.add_argument("--executable", type=Path, required=True)
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--installation-root", type=Path, required=True)
+    parser.add_argument("--maintenance-ui", action="store_true")
     args = parser.parse_args()
     root = args.data_root.resolve(strict=True)
     journals = list((root / "manifests").glob("corrupt-restore-*.json"))
@@ -88,12 +89,35 @@ def main() -> None:
         raise RuntimeError("Exact recovery accepted stale review")
     if {path: _digest(path) for path in protected} != before:
         raise RuntimeError("Refused recovery mutated private evidence")
-    recovered = invoke(command + ["--confirm-recovery"], 240)
+    recovered = (
+        subprocess.run(
+            [
+                sys.executable,
+                "scripts/check_corrupt_copy_maintenance.py",
+                "--executable",
+                str(args.executable),
+                "--data-root",
+                str(root),
+                "--installation-root",
+                str(args.installation_root),
+            ],
+            capture_output=True,
+            timeout=300,
+        )
+        if args.maintenance_ui
+        else invoke(command + ["--confirm-recovery"], 240)
+    )
     if recovered.returncode != 0:
         raise RuntimeError(
             f"Exact native recovery/health failed: exit {recovered.returncode}"
         )
     receipt = json.loads(recovered.stdout)
+    if args.maintenance_ui and (
+        receipt.get("ui_reviewed") is not True
+        or receipt.get("commands_cleaned") is not True
+        or receipt.get("protected_digests_unchanged") is not True
+    ):
+        raise RuntimeError("Exact candidate UI review/cleanup proof missing")
     if (
         receipt.get("activated") is not True
         or receipt.get("restored") is not True
@@ -131,7 +155,7 @@ def main() -> None:
     if health["exit_code"] != 0 or health["timed_out"] is not False:
         raise RuntimeError("Real owned candidate health did not complete")
     print(
-        "Exact guarded-copy recovery/owned candidate health/activation/metadata/guard clear PASS; original/raw/backup/stage/current bytes unchanged; not final product or hardware acceptance"
+        f"Exact {'source Qt -> candidate EXE' if args.maintenance_ui else 'CLI'} guarded-copy recovery/owned candidate health/activation/metadata/guard clear PASS; original/raw/backup/stage/current bytes unchanged; not final product or hardware acceptance"
     )
 
 

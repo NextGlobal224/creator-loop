@@ -48,6 +48,8 @@ Budget mặc định180s, health tối đa60s trong budget; native I/O cần pro
 ngoài. Process-crash tests không chứng minh power loss/mọi filesystem hoặc sandbox
 chống arbitrary raw writers. Known partial states có [resume giữ bytes/guard](CORRUPT_COPY_RESUME.md);
 Interrupted UNKNOWN bundle cần explicit retention consent ở resume guide;
-incomplete original evidence/changed completed copy, UI, exact final artifact,
+incomplete original evidence/changed completed copy, complete initial damaged-source UI, exact final artifact,
 required CI, actual engines/models và máy8GB vẫn cần nghiệm thu theo
 [PRODUCT_ACCEPTANCE](PRODUCT_ACCEPTANCE.md). Bằng chứng/FAIL ở [HANDOFF](HANDOFF.md).
+Guarded copy review/resume/health-recovery có [Maintenance UI](MAINTENANCE_UI.md)
+với default-off consents và kiểm lại actual-state proof ở backend.

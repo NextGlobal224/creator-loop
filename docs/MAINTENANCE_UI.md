@@ -55,6 +55,28 @@ ghi `RESTORE_NOT_APPLIED`; nếu DB restored đúng, nó kiểm media và chạy
 health/metadata trước khi bỏ guard. Trạng thái không rõ hoặc dữ liệu bị đổi vẫn
 bị chặn. Không xóa guard để ép Library mở.
 
+**Copy từ nguồn hỏng đã có guard:** dùng [workflow damaged-source riêng](CORRUPT_RESTORE_PREPARATION.md)
+để review/giữ raw/stage/copy trước; các bước ban đầu này vẫn dùng CLI. Sau đó chọn
+đúng `corrupt-restore-ID.json` và thư mục các bản cài, chọn **Đánh giá copy có guard**.
+UI đọc published backup/thời điểm/schema/candidate, proof trạng thái thực và
+media hiện tại; không initialize DB thiếu/hỏng hoặc cấp quyền restore từ phase.
+Đổi lựa chọn hay lỗi sẽ xóa proof và mọi consent.
+
+**Tiếp tục copy đã đánh giá** cần xác nhận mất mọi thay đổi sau backup.
+Target rỗng cần xác nhận giữ riêng; UNKNOWN partial cần consent riêng giữ nguyên
+DB và các tệp phụ, chỉ khi originals còn retained đầy đủ/đúng một bản và copy
+gốc chưa có completed physical receipt. Nếu media có vấn đề, phải xác nhận riêng.
+Copy giữ original/raw/partial/journals, không xóa/overwrite/replay WAL; giữ guard.
+Đọc [resume](CORRUPT_COPY_RESUME.md) cho refusal và split bundle sau crash/cancel.
+
+Sau copy, **đánh giá lại**. Chỉ actual `VALIDATED_COPY_GUARDED` cùng mọi media valid
+mới bật **Khôi phục copy và kiểm sức khỏe**, sau consent chuyển sang candidate đã
+chọn và fresh health. Backend giữ locks/evidence/writer reservation xuyên real
+health, pointer/metadata và guard clear. Consent mất thay đổi/media ở copy không
+thay consent health hoặc chữa media lỗi. Xem [recovery](CORRUPT_COPY_RECOVERY.md).
+Originals thiếu/trùng/foreign hoặc completed copy đổi bytes cần fresh restore
+decision riêng; không bật nút để đoán/xóa evidence. UI có scroll khi thiếu chiều cao.
+
 Mỗi thao tác chạy trong native Windows Job riêng, được quan sát bằng Qt timer
 với deadline 300s. **Hủy tác vụ đang chạy** hoặc đóng cửa sổ chỉ dừng cây process
 của thao tác đó. Hủy/timeout sau khi copy bắt đầu có thể để lại guard cần recovery;
