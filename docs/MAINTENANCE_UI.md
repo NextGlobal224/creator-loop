@@ -89,3 +89,8 @@ Exit 0 báo lệnh kết thúc; đọc journal để phân biệt `NOT_APPLIED`,
 incomplete. Không tiếp tục activation/release dựa trên thông báo chung hoặc
 phase chưa kiểm chứng. Các giới hạn corrupt/missing/future-schema restore,
 physical-volume, engine/model/máy8GB và final release còn ghi trong nghiệm thu.
+
+Nguồn DB hỏng chưa có copy journal: chọn **Nguồn hỏng: giữ raw, staging và copy**
+để mở [luồng ban đầu](DAMAGED_RESTORE_UI.md). Review/raw/staging/copy có proof và
+consent mới ở từng bước; copy bàn giao journal về cửa sổ này, vẫn giữ guard và
+cần review/health riêng. Đóng Maintenance cũng đóng dialog và owned command của nó.

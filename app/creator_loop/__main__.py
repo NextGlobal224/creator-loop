@@ -34,6 +34,12 @@ def main() -> int:
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--review-damaged-restore",
+        help="Read current damaged source, explicit backup/candidate and optional raw/preparation proofs; no apply",
+    )
+    parser.add_argument("--review-raw-source", type=Path)
+    parser.add_argument("--review-damaged-preparation", type=Path)
+    parser.add_argument(
         "--review-corrupt-copy",
         type=Path,
         help="Read actual guarded copy, bound backup time/candidate and current media; no apply",
@@ -218,6 +224,56 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if args.review_damaged_restore is not None:
+        if (
+            args.installation_root is None
+            or args.restore_candidate is None
+            or any(
+                value
+                for name, value in vars(args).items()
+                if name
+                not in (
+                    "review_damaged_restore",
+                    "installation_root",
+                    "restore_candidate",
+                    "review_raw_source",
+                    "review_damaged_preparation",
+                )
+            )
+        ):
+            parser.error(
+                "Damaged review requires only explicit backup/candidate/installation and optional raw/preparation"
+            )
+        from .damaged_restore_review import review_damaged_restore
+
+        try:
+            print(
+                json.dumps(
+                    review_damaged_restore(
+                        data_root(),
+                        args.review_damaged_restore,
+                        args.installation_root,
+                        args.restore_candidate,
+                        raw_manifest=args.review_raw_source,
+                        preparation_manifest=args.review_damaged_preparation,
+                    )
+                )
+            )
+            return 0
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Damaged restore review refused: {type(exc).__name__}; keep all current/raw/stage/backup bytes",
+                file=sys.stderr,
+            )
+            return 4
+    if (
+        args.review_raw_source is not None
+        or args.review_damaged_preparation is not None
+    ):
+        parser.error("Raw/preparation review flags require --review-damaged-restore")
     if args.review_corrupt_copy is not None:
         if args.installation_root is None or any(
             value

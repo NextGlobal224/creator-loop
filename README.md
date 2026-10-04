@@ -92,6 +92,8 @@ when a restore guard blocks Library. See [maintenance UI](docs/MAINTENANCE_UI.md
 for backup, explicit update/restore consent, recovery, cancel and retained logs.
 For an unreadable source, use the separate [damaged-source review](docs/CORRUPT_RESTORE_ASSESSMENT.md),
 [raw retention](docs/CORRUPT_SOURCE_PRESERVATION.md), then [confirmed staging](docs/CORRUPT_RESTORE_PREPARATION.md).
+The [initial damaged-source UI](docs/DAMAGED_RESTORE_UI.md) in Maintenance provides
+review/raw preservation/staging/guarded copy with fresh consent at each step.
 This stages a validated migrated backup separately. Use [guarded copy](docs/CORRUPT_RESTORE_COPY.md),
 [actual-state inspection](docs/CORRUPT_RESTORE_INSPECTION.md), then
 [explicit recovery and fresh health](docs/CORRUPT_COPY_RECOVERY.md) for a validated copy.
@@ -100,8 +102,8 @@ that preserves original/partial bytes and keeps the launch guard. Interrupted
 unknown/nonempty partial bundles need separate reviewed retention consent and
 complete original evidence. Changed completed copies need a fresh restore decision.
 Maintenance provides [guarded copy review/resume/health-recovery controls](docs/MAINTENANCE_UI.md)
-with separate default-off consents. Initial damaged-source review/raw/stage/copy
-UI, complete failure recovery and release acceptance remain open.
+with separate default-off consents. Full frozen product validation, complete
+failure recovery and release acceptance remain open.
 
 `--stage-update ZIP --release-manifest JSON --installation-root DIR` verifies a supplied Windows ZIP and its complete file inventory, then stages a separate version directory while retaining existing installations and user data. It does not activate the candidate or migrate the DB. See [staging instructions](docs/INSTALLATION_STAGING.md). CI tests staging and a bounded launcher/schema smoke from the exact ZIP; final updater orchestration and release acceptance remain open.
 

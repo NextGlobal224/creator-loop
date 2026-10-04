@@ -38,6 +38,7 @@ class MaintenanceWindow(QMainWindow):
         self.root = root.resolve(strict=True)
         self.assessment: dict[str, Any] | None = None
         self.copy_review: dict[str, Any] | None = None
+        self.damaged_window: QMainWindow | None = None
         self.operation = ""
         self.pending_selection: tuple[str, ...] = ()
         self.command = MaintenanceCommand(self.root, self)
@@ -107,6 +108,7 @@ class MaintenanceWindow(QMainWindow):
                 ("review-corrupt-copy", "Đánh giá copy có guard"),
                 ("resume-corrupt-copy", "Tiếp tục copy đã đánh giá"),
                 ("recover-corrupt-copy", "Khôi phục copy và kiểm sức khỏe"),
+                ("damaged-restore", "Nguồn hỏng: giữ raw, staging và copy"),
             )
         ):
             button = QPushButton(title)
@@ -223,6 +225,7 @@ class MaintenanceWindow(QMainWindow):
         for kind, button in self.buttons.items():
             ready = {
                 "backup": True,
+                "damaged-restore": True,
                 "stage-update": bool(installation and zip_path and manifest),
                 "prepare-update": bool(
                     installation
@@ -290,6 +293,29 @@ class MaintenanceWindow(QMainWindow):
         self.cancel_button.setEnabled(busy)
 
     def _action(self, kind: str) -> None:
+        if kind == "damaged-restore":
+            if self.command.busy:
+                return
+            if self.damaged_window is None:
+                from .damaged_restore_ui import DamagedRestoreWindow
+
+                dialog = DamagedRestoreWindow(
+                    self.root,
+                    self.installation.text().strip(),
+                    self.candidate.text().strip(),
+                    self.backup_id.text().strip(),
+                    self,
+                )
+                dialog.copy_ready.connect(
+                    lambda journal, installation: (
+                        self.installation.setText(installation),
+                        self.journal.setText(journal),
+                    )
+                )
+                self.damaged_window = dialog
+            self.damaged_window.show()
+            self.damaged_window.raise_()
+            return
         installation, zip_path, manifest, candidate, backup_id, journal = (
             self._selection()
         )
@@ -560,6 +586,8 @@ class MaintenanceWindow(QMainWindow):
         self._refresh()
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self.damaged_window is not None:
+            self.damaged_window.close()
         self.command.cancel()
         self.command.close()
         super().closeEvent(event)

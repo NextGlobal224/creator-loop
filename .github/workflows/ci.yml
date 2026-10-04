@@ -156,6 +156,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged damaged-source readonly assessment failed' }
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 360 -CommandArgs @('scripts/check_corrupt_copy_recovery.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$damagedAssessment,'--installation-root',$installation,'--maintenance-ui')
           if ($LASTEXITCODE -ne 0) { throw 'Packaged corrupt-copy recovery and fresh native health failed' }
+          $initialDamagedUI = Join-Path $env:RUNNER_TEMP 'Creator Loop initial damaged source UI'
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 360 -CommandArgs @('scripts/check_damaged_restore_maintenance.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation,'--work-root',$initialDamagedUI)
+          if ($LASTEXITCODE -ne 0) { throw 'Initial source Qt to exact candidate damaged-source workflow failed' }
           $copyResumeProbe = Join-Path $env:RUNNER_TEMP 'Creator Loop interrupted copy resume'
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 360 -CommandArgs @('scripts/check_corrupt_copy_resume.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation,'--work-root',$copyResumeProbe)
           if ($LASTEXITCODE -ne 0) { throw 'Actual interrupted source-copy and exact candidate continuation failed' }
