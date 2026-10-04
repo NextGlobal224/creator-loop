@@ -100,7 +100,9 @@ Trong **Snapshot / Approval**, kiểm từng text/media item và **Kiểm điề
 hiện tại**. Với mỗi FACTUAL Claim Version được Draft tham chiếu, cần review
 hiện hành ACCEPT của người duyệt và ít nhất một SUPPORTS Evidence Version cũng
 đang ACCEPT, còn hiệu lực và mở lại đúng anchor/digest. CONTEXT/CONTRADICTS không
-thay SUPPORTS. Quyền media và Approval vẫn là các điều kiện riêng.
+thay SUPPORTS. Draft còn assertion NEEDS_SOURCE/UNREVIEWED sẽ bị chặn; sửa bằng
+Version mới có nguồn hoặc thể hiện EDITORIAL đúng bản chất, không đổi state để
+bỏ qua việc kiểm nguồn. Quyền media và Approval vẫn là các điều kiện riêng.
 
 Nhập người duyệt, tích **Đã xem toàn bộ nội dung/media và cách diễn đạt giả
 thuyết editorial** trước khi duyệt, chọn
