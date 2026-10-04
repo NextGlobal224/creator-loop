@@ -44,7 +44,9 @@ chỉ in loại lỗi. Budget60s mặc định, cần process timeout ngoài cho
 
 Với `VALIDATED_COPY_GUARDED`, dùng [recovery có consent và fresh health](CORRUPT_COPY_RECOVERY.md).
 Known partial/unmoved/missing/empty dùng [resume có consent riêng](CORRUPT_COPY_RESUME.md).
-UNKNOWN/nonempty partial, UI và final release vẫn cần triển khai/nghiệm thu. Không dùng
+Interrupted UNKNOWN/nonempty partial có explicit bundle-retention consent trong
+resume guide; incomplete/foreign original evidence và changed completed copies
+cần xử lý riêng. UI và final release vẫn cần triển khai/nghiệm thu. Không dùng
 restore thường hoặc xóa marker để bypass. Test crash tiến trình không chứng minh
 power-loss hoặc mọi filesystem. Log/FAIL/giới hạn ở [HANDOFF](HANDOFF.md);
 phạm vi V1 vẫn theo [bảng nghiệm thu](PRODUCT_ACCEPTANCE.md).

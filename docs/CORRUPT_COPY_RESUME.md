@@ -5,7 +5,8 @@ Chạy [inspection mới](CORRUPT_RESTORE_INSPECTION.md), đọc `actual_state` 
 một phần, đã giữ nguồn nhưng live thiếu, hoặc live main rỗng. Proof format2
 ràng buộc SHA/size của cả main và các sidecar hiện tại; token cũ không dùng lại
 sau khi bytes hoặc vị trí đổi. Cần đóng app/worker và xác nhận mất thay đổi sau
-backup. UNKNOWN, nonempty partial hoặc copy đã validated bị từ chối.
+backup. Copy đã validated không được recopy. UNKNOWN/nonempty partial cần consent
+riêng và complete original retention như quy trình dưới; mặc định vẫn từ chối.
 
 ```powershell
 $env:PYTHONPATH = 'app'
@@ -39,8 +40,23 @@ Budget mặc định180s; native I/O cần timeout cấp tiến trình như ví 
 
 Cancel/lỗi/crash giữ mọi bytes đã chuyển, partial target, journal và guard.
 Không suy từ phase rằng đã hoàn tất; inspection trạng thái thực quyết định có
-thể tiếp tục hay phải giữ UNKNOWN để xử lý riêng. Chưa có automatic recovery
-cho nonempty/foreign partial bundle; không xóa marker hoặc chạy smoke để bypass.
+thể tiếp tục hay phải giữ UNKNOWN để xử lý riêng. Với interrupted copy chưa
+có physical receipt hoàn tất, nếu mọi original file vẫn retained đúng hash,
+đúng một bản và inventory không có file lạ, có thể review UNKNOWN proof mới
+rồi thêm **`--confirm-preserve-unknown`** cùng `--confirm-lost-changes`.
+Consent empty target không thay consent UNKNOWN. Toàn bộ current main/WAL/SHM/
+journal được giữ theo exact inode/hash/size vào resume directory riêng;
+`retained_partial_files` ghi inventory/digests/presence, không private content.
+Bundle này không phải consistent SQLite backup, không replay WAL/hot journal
+và không xóa/repair nó. Sau đó mới CREATE_NEW/BackupAPI từ stage validated.
+
+Crash/cancel giữa các rename có thể để partial bundle trong nhiều resume
+directories và sidecar còn ở live. Giữ mọi directory/journal; review proof mới
+của current files trước khi resume phần còn lại. Originals vẫn ở retention gốc.
+Nếu originals thiếu/trùng/hash sai hoặc có foreign file trong retention gốc,
+consent UNKNOWN không cấp quyền đoán/xóa/sửa evidence. Copy đã có completed
+physical receipt rồi đổi bytes cần **fresh restore decision**, không dùng lại
+consent interrupted-copy. Không xóa marker hoặc chạy smoke để bypass.
 Actual process-crash tests không chứng minh power loss. UI/whole flow, exact
 final artifact/required CI, actual engines/models và máy8GB vẫn theo
 [PRODUCT_ACCEPTANCE](PRODUCT_ACCEPTANCE.md); logs/FAIL/scope ở [HANDOFF](HANDOFF.md).

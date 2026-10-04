@@ -53,6 +53,7 @@ def resume_corrupt_copy(
     reviewed_inspection: str,
     confirm_lost_changes: bool = False,
     confirm_keep_partial: bool = False,
+    confirm_preserve_unknown: bool = False,
     confirm_media_issues: bool = False,
     timeout_seconds: float = 180,
     cancelled: Callable[[], bool] | None = None,
@@ -60,9 +61,10 @@ def resume_corrupt_copy(
     """Only known fresh states; no overwrite/deletion, activation or guard clear.
 
     Remaining original inodes go to the original copy's retention directory.
-    An existing empty target is retained separately with explicit consent before
-    CREATE_NEW/BackupAPI. Unknown/nonempty partial data needs a separate decision;
-    no silent repair, recopy or cleanup is authorized by a journal phase.
+    Existing empty or explicitly reviewed unknown partial files are retained
+    separately before CREATE_NEW/BackupAPI. Unknown consent is valid only for
+    an interrupted copy whose complete original source is already retained.
+    No silent repair, recopy or cleanup is authorized by a journal phase.
     """
     if sys.platform != "win32":
         raise OSError("Corrupt-copy continuation requires Windows ownership")
@@ -94,8 +96,21 @@ def resume_corrupt_copy(
             proof = held.proof
             if proof["inspection_identity"] != reviewed_inspection:
                 raise ValueError("Inspection changed; review actual copy state again")
-            if proof["actual_state"] not in _KNOWN:
+            unknown = proof["actual_state"].startswith("UNKNOWN_")
+            if proof["actual_state"] not in _KNOWN and not (
+                unknown and confirm_preserve_unknown is True
+            ):
                 raise RuntimeError("Unknown or already copied state cannot be recopied")
+            if unknown and (
+                not proof["original_locations"]
+                or any(
+                    not entry["in_retention"] or entry["in_live_source"]
+                    for entry in proof["original_locations"]
+                )
+            ):
+                raise RuntimeError(
+                    "Unknown continuation requires every original retained exactly once"
+                )
             if (
                 proof["actual_state"] == "EMPTY_CURRENT_DATABASE_GUARDED"
                 and confirm_keep_partial is not True
@@ -104,6 +119,10 @@ def resume_corrupt_copy(
                     "Explicit consent to preserve the empty partial target required"
                 )
         copy = _record(copy_journal)
+        if unknown and copy.get("copied_database_sha256") is not None:
+            raise RuntimeError(
+                "A changed completed copy requires a fresh restore decision"
+            )
         if _digest(copy_journal) != proof["journal_sha256"]:
             raise ValueError("Copy journal changed in native lease transition")
         leases.enter_context(_open_read_lock(copy_journal))
@@ -208,7 +227,8 @@ def resume_corrupt_copy(
         current = {entry["name"]: entry for entry in proof["current_files"]}
         original_entries = copy["damage"]["raw_files"]
         remaining_originals = {}
-        partial = None
+        partials = {}
+        partial_proofs = []
         expected_retained = set()
         for entry in original_entries:
             check()
@@ -226,11 +246,12 @@ def resume_corrupt_copy(
                     )
                 if entry["present"] and locations[name]["in_live_source"]:
                     remaining_originals[name] = pin
-                elif (
+                elif unknown or (
                     name == "creator_loop.sqlite3"
                     and proof["actual_state"] == "EMPTY_CURRENT_DATABASE_GUARDED"
                 ):
-                    partial = pin
+                    partials[name] = pin
+                    partial_proofs.append(dict(observed))
                 else:
                     raise RuntimeError("Foreign live input appeared; retain all bytes")
             elif _regular(live) is not None:
@@ -257,28 +278,35 @@ def resume_corrupt_copy(
             "reviewed_inspection": reviewed_inspection,
             "confirmed_lost_changes": True,
             "confirmed_keep_partial": confirm_keep_partial is True,
+            "confirmed_preserve_unknown": confirm_preserve_unknown is True,
             "confirmed_media_issues": confirm_media_issues is True,
             "started_at": datetime.now(timezone.utc).isoformat(),
             "phase": "RESUME_INPUTS_PINNED",
             "activation_pending": True,
             "restored": False,
             "consistent_partial_backup": False,
-            "retained_partial_directory": partial_directory.name
-            if partial is not None
-            else None,
+            "retained_partial_directory": partial_directory.name if partials else None,
+            "retained_partial_files": partial_proofs,
         }
         _journal(journal, record)
         check()
-        if partial is not None:
+        if partials:
             partial_directory.mkdir()
             leases.enter_context(
                 RuntimeHandle(
                     partial_directory, directory=True, allow_child_writes=True
                 )
             )
-            partial.retain(partial_directory)
-            record["phase"] = "EMPTY_PARTIAL_RETAINED"
-            _journal(journal, record)
+            for name, partial in partials.items():
+                check()
+                partial.retain(partial_directory)
+                record.update(
+                    phase="UNKNOWN_PARTIAL_RETENTION_CONTINUED"
+                    if unknown
+                    else "EMPTY_PARTIAL_RETAINED",
+                    last_partial_name=name,
+                )
+                _journal(journal, record)
         for name, pin in remaining_originals.items():
             check()
             pin.retain(originals)
@@ -327,6 +355,16 @@ def resume_corrupt_copy(
         target_pin.flush()
         os.fsync(target_pin.fileno())
         digest, size = _hash(target_pin, check)
+        if partials:
+            if {path.name for path in partial_directory.iterdir()} != set(partials):
+                raise RuntimeError("Partial retention inventory changed before receipt")
+            for partial in partials.values():
+                partial.verify()
+                if _hash(partial.stream, check) != (
+                    current[partial.source.name]["sha256"],
+                    current[partial.source.name]["byte_size"],
+                ):
+                    raise RuntimeError("Retained partial bytes changed before receipt")
         if (
             {path.name for path in originals.iterdir()}
             != {entry["name"] for entry in original_entries if entry["present"]}

@@ -34,6 +34,11 @@ def main() -> int:
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--confirm-preserve-unknown",
+        action="store_true",
+        help="Explicitly retain all inspected unknown partial DB/sidecars before a new guarded copy",
+    )
+    parser.add_argument(
         "--resume-corrupt-copy",
         type=Path,
         help="Explicit continuation of an inspected interrupted copy; keeps launch guarded",
@@ -218,6 +223,8 @@ def main() -> int:
         parser.error("Recovery consent requires --recover-corrupt-copy")
     if args.confirm_keep_partial and args.resume_corrupt_copy is None:
         parser.error("Partial retention consent requires --resume-corrupt-copy")
+    if args.confirm_preserve_unknown and args.resume_corrupt_copy is None:
+        parser.error("Unknown partial consent requires --resume-corrupt-copy")
     if args.resume_corrupt_copy is not None:
         if (
             args.reviewed_inspection is None
@@ -233,6 +240,7 @@ def main() -> int:
                     "installation_root",
                     "confirm_lost_changes",
                     "confirm_keep_partial",
+                    "confirm_preserve_unknown",
                     "confirm_media_issues",
                 )
             )
@@ -250,6 +258,7 @@ def main() -> int:
                 reviewed_inspection=args.reviewed_inspection,
                 confirm_lost_changes=args.confirm_lost_changes,
                 confirm_keep_partial=args.confirm_keep_partial,
+                confirm_preserve_unknown=args.confirm_preserve_unknown,
                 confirm_media_issues=args.confirm_media_issues,
             )
             print(

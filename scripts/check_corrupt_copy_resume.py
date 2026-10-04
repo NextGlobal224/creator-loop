@@ -18,6 +18,7 @@ def main() -> None:
     parser.add_argument("--journal", type=Path, required=True)
     parser.add_argument("--installation-root", type=Path, required=True)
     parser.add_argument("--work-root", type=Path, required=True)
+    parser.add_argument("--unknown-partial", action="store_true")
     args = parser.parse_args()
     if sys.platform != "win32":
         raise OSError("Native source crash and candidate continuation require Windows")
@@ -96,6 +97,18 @@ m.copy_corrupt_restore(Path(sys.argv[1]),Path(sys.argv[2]),Path(sys.argv[3]),Pat
         raise RuntimeError(
             f"Actual source-copy crash did not reach expected checkpoint: {crashed.returncode}"
         )
+    partial_bytes = {"creator_loop.sqlite3": b""}
+    if args.unknown_partial:
+        # Own synthetic foreign bundle represents bytes remaining after an
+        # interrupted copy. This is not a frozen mid-BackupAPI crash proof.
+        partial_bytes = {
+            "creator_loop.sqlite3": b"PRIVATE NONEMPTY PARTIAL DB",
+            "creator_loop.sqlite3-wal": b"PRIVATE FOREIGN WAL NO REPLAY",
+            "creator_loop.sqlite3-shm": b"PRIVATE FOREIGN SHM",
+            "creator_loop.sqlite3-journal": b"PRIVATE HOT JOURNAL NO REPLAY",
+        }
+        for name, content in partial_bytes.items():
+            (root / name).write_bytes(content)
     copies = list((root / "manifests").glob("corrupt-restore-*.json"))
     if len(copies) != 1:
         raise ValueError("Exactly one actual interrupted source copy required")
@@ -140,9 +153,10 @@ m.copy_corrupt_restore(Path(sys.argv[1]),Path(sys.argv[2]),Path(sys.argv[3]),Pat
         raise RuntimeError("Exact candidate failed to inspect interrupted source copy")
     proof = json.loads(inspected.stdout)
     if (
-        proof["actual_state"] != "EMPTY_CURRENT_DATABASE_GUARDED"
-        or proof["corrupt_restore_inspection_format"] != 2
-    ):
+        not proof["actual_state"].startswith("UNKNOWN_")
+        if args.unknown_partial
+        else proof["actual_state"] != "EMPTY_CURRENT_DATABASE_GUARDED"
+    ) or proof["corrupt_restore_inspection_format"] != 2:
         raise RuntimeError(
             "Candidate inspection did not bind actual empty state with format2"
         )
@@ -157,12 +171,17 @@ m.copy_corrupt_restore(Path(sys.argv[1]),Path(sys.argv[2]),Path(sys.argv[3]),Pat
     ]
     if (
         invoke(command).returncode != 4
-        or (root / "creator_loop.sqlite3").read_bytes() != b""
+        or {name: (root / name).read_bytes() for name in partial_bytes} != partial_bytes
     ):
         raise RuntimeError(
             "Candidate silently continued without explicit partial retention consent"
         )
-    resumed = invoke(command + ["--confirm-keep-partial"], 240)
+    consent = (
+        "--confirm-preserve-unknown"
+        if args.unknown_partial
+        else "--confirm-keep-partial"
+    )
+    resumed = invoke(command + [consent], 240)
     if resumed.returncode:
         raise RuntimeError(
             f"Exact candidate continuation failed: exit {resumed.returncode}"
@@ -185,16 +204,10 @@ m.copy_corrupt_restore(Path(sys.argv[1]),Path(sys.argv[2]),Path(sys.argv[3]),Pat
         or resumed_record["consistent_partial_backup"] is not False
     ):
         raise RuntimeError("Resume journal omitted guarded/nonconsistent status")
-    partial = (
-        root
-        / "backups"
-        / resumed_record["retained_partial_directory"]
-        / "creator_loop.sqlite3"
-    )
-    if (
-        partial.read_bytes() != b""
-        or {path: _digest(path) for path in protected} != before
-    ):
+    partial = root / "backups" / resumed_record["retained_partial_directory"]
+    if {
+        path.name: path.read_bytes() for path in partial.iterdir()
+    } != partial_bytes or {path: _digest(path) for path in protected} != before:
         raise RuntimeError(
             "Resume lost partial or changed original/journal/raw/backup/stage/guard bytes"
         )
@@ -209,7 +222,7 @@ m.copy_corrupt_restore(Path(sys.argv[1]),Path(sys.argv[2]),Path(sys.argv[3]),Pat
     ):
         raise RuntimeError("Actual resumed DB is not validated and still guarded")
     print(
-        "Actual source-copy crash → exact candidate resume/partial retention/guarded validation PASS; no candidate health/activation or power-loss acceptance"
+        f"Actual source-copy crash → exact candidate {'synthetic UNKNOWN bundle' if args.unknown_partial else 'empty target'} consented retention/resume/guarded validation PASS; no frozen mid-copy crash, candidate health/activation or power-loss acceptance"
     )
 
 

@@ -195,6 +195,7 @@ m.copy_corrupt_restore(Path(sys.argv[1]),Path(sys.argv[2]),Path(sys.argv[3]),Pat
 
         for orphan in (
             ["--confirm-keep-partial"],
+            ["--confirm-preserve-unknown"],
             ["--confirm-recovery"],
             ["--reviewed-inspection", self.proof["inspection_identity"]],
         ):
@@ -299,6 +300,7 @@ m.resume_corrupt_copy(Path(sys.argv[1]),Path(sys.argv[2]),Path(sys.argv[3]),revi
                 )
                 self.assertEqual(result.returncode, 42, result.stderr)
                 self.assert_guarded()
+
                 record = json.loads(
                     next(
                         (self.root / "manifests").glob("corrupt-resume-*.json")
@@ -323,3 +325,185 @@ m.resume_corrupt_copy(Path(sys.argv[1]),Path(sys.argv[2]),Path(sys.argv[3]),revi
                     "VALIDATED_COPY_GUARDED",
                 )
                 self.assert_guarded()
+
+    def unknown_bundle(self):
+        self.crash_copy("CORRUPT_COPY_STARTED")
+        bundle = {
+            "creator_loop.sqlite3": b"PRIVATE NONEMPTY INTERRUPTED TARGET",
+            "creator_loop.sqlite3-wal": b"PRIVATE FOREIGN WAL NO REPLAY",
+            "creator_loop.sqlite3-shm": b"PRIVATE SHM",
+            "creator_loop.sqlite3-journal": b"PRIVATE HOT JOURNAL NO REPLAY",
+        }
+        for name, value in bundle.items():
+            (self.root / name).write_bytes(value)
+        self.proof = inspect_corrupt_copy(self.root, self.copy)
+        self.assertTrue(self.proof["actual_state"].startswith("UNKNOWN_"))
+        return bundle
+
+    def test_unknown_bundle_needs_separate_consent_and_is_retained_exactly(self):
+        bundle = self.unknown_bundle()
+        for changes in ({}, {"confirm_keep_partial": True}):
+            with self.assertRaises(RuntimeError):
+                self.resume(**changes)
+            self.assertEqual(
+                {name: (self.root / name).read_bytes() for name in bundle}, bundle
+            )
+        journal = self.resume(confirm_preserve_unknown=True)
+        record = json.loads(journal.read_text())
+        directory = self.root / "backups" / record["retained_partial_directory"]
+        self.assertEqual(
+            {path.name: path.read_bytes() for path in directory.iterdir()}, bundle
+        )
+        self.assertTrue(record["confirmed_preserve_unknown"])
+        self.assertFalse(record["consistent_partial_backup"])
+        self.assertEqual(
+            {entry["name"] for entry in record["retained_partial_files"]}, set(bundle)
+        )
+        for name in bundle:
+            if name != "creator_loop.sqlite3":
+                self.assertFalse((self.root / name).exists())
+        self.assertEqual(
+            inspect_corrupt_copy(self.root, self.copy)["actual_state"],
+            "VALIDATED_COPY_GUARDED",
+        )
+        self.assert_guarded()
+
+    def test_unknown_consent_never_authorizes_missing_duplicate_or_foreign_originals(
+        self,
+    ):
+        bundle = self.unknown_bundle()
+        record = json.loads(self.copy_bytes)
+        retained = self.root / "backups" / record["retained_directory"]
+        old = retained / "creator_loop.sqlite3"
+        original = old.read_bytes()
+        for mode in ("missing", "duplicate", "foreign"):
+            with self.subTest(mode=mode):
+                if mode == "missing":
+                    old.unlink()
+                elif mode == "duplicate":
+                    self.fixture.source.write_bytes(original)
+                else:
+                    (retained / "KEEP-FOREIGN-ORIGINAL-DIR").write_bytes(b"KEEP")
+                self.proof = inspect_corrupt_copy(self.root, self.copy)
+                with self.assertRaises(RuntimeError):
+                    self.resume(confirm_preserve_unknown=True)
+                self.assertFalse(
+                    list((self.root / "manifests").glob("corrupt-resume-*.json"))
+                )
+                old.write_bytes(original)
+                self.fixture.source.write_bytes(bundle["creator_loop.sqlite3"])
+        self.assertTrue((retained / "KEEP-FOREIGN-ORIGINAL-DIR").exists())
+        self.assert_guarded()
+
+    def test_cancel_during_unknown_bundle_retention_then_fresh_resume_keeps_all_bytes(
+        self,
+    ):
+        from creator_loop.update_preparation import _journal
+
+        bundle = self.unknown_bundle()
+        cancelled = False
+
+        def journal(path, record):
+            nonlocal cancelled
+            _journal(path, record)
+            if record.get("phase") == "UNKNOWN_PARTIAL_RETENTION_CONTINUED":
+                cancelled = True
+
+        with patch("creator_loop.corrupt_copy_resume._journal", journal):
+            with self.assertRaises(InterruptedError):
+                self.resume(confirm_preserve_unknown=True, cancelled=lambda: cancelled)
+        self.proof = inspect_corrupt_copy(self.root, self.copy)
+        self.resume(confirm_preserve_unknown=True)
+        kept = {}
+        for path in (self.root / "manifests").glob("corrupt-resume-*.json"):
+            record = json.loads(path.read_text())
+            directory = self.root / "backups" / record["retained_partial_directory"]
+            kept.update({path.name: path.read_bytes() for path in directory.iterdir()})
+        self.assertEqual(kept, bundle)
+        self.assert_guarded()
+
+    def test_completed_copy_changed_bytes_cannot_use_interrupted_unknown_consent(self):
+        f = self.fixture
+        self.copy = f.copy()
+        self.copy_bytes = self.copy.read_bytes()
+        f.source.write_bytes(b"PRIVATE CHANGED COMPLETED COPY")
+        self.proof = inspect_corrupt_copy(self.root, self.copy)
+        with self.assertRaisesRegex(RuntimeError, "fresh restore decision"):
+            self.resume(confirm_preserve_unknown=True)
+        self.assertEqual(f.source.read_bytes(), b"PRIVATE CHANGED COMPLETED COPY")
+        self.assertFalse(list((self.root / "manifests").glob("corrupt-resume-*.json")))
+        self.assert_guarded()
+
+    def test_actual_crash_mid_unknown_retention_preserves_split_bundle_then_resumes(
+        self,
+    ):
+        bundle = self.unknown_bundle()
+        code = """
+import os,sys
+from pathlib import Path
+import creator_loop.corrupt_copy_resume as m
+original=m._journal
+def crash(path,record):
+    original(path,record)
+    if record['phase']=='UNKNOWN_PARTIAL_RETENTION_CONTINUED': os._exit(45)
+m._journal=crash
+m.resume_corrupt_copy(Path(sys.argv[1]),Path(sys.argv[2]),Path(sys.argv[3]),reviewed_inspection=sys.argv[4],confirm_lost_changes=True,confirm_preserve_unknown=True)
+"""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                code,
+                str(self.root),
+                str(self.copy),
+                str(self.installation),
+                self.proof["inspection_identity"],
+            ],
+            env={**os.environ, "PYTHONPATH": "app"},
+            capture_output=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 45, result.stderr)
+        first = json.loads(
+            next((self.root / "manifests").glob("corrupt-resume-*.json")).read_text()
+        )
+        directory = self.root / "backups" / first["retained_partial_directory"]
+        self.assertEqual(
+            (directory / "creator_loop.sqlite3").read_bytes(),
+            bundle["creator_loop.sqlite3"],
+        )
+        self.assertFalse(self.fixture.source.exists())
+        self.assert_guarded()
+        self.proof = inspect_corrupt_copy(self.root, self.copy)
+        self.resume(confirm_preserve_unknown=True)
+        kept = {}
+        for path in (self.root / "manifests").glob("corrupt-resume-*.json"):
+            record = json.loads(path.read_text())
+            directory = self.root / "backups" / record["retained_partial_directory"]
+            kept.update({path.name: path.read_bytes() for path in directory.iterdir()})
+        self.assertEqual(kept, bundle)
+        self.assertEqual(
+            inspect_corrupt_copy(self.root, self.copy)["actual_state"],
+            "VALIDATED_COPY_GUARDED",
+        )
+        self.assert_guarded()
+
+    def test_unknown_files_and_app_lock_pinned_through_retention(self):
+        from creator_loop.update_preparation import _journal
+
+        bundle = self.unknown_bundle()
+
+        def pinned(path, record):
+            if record.get("phase") == "RESUME_INPUTS_PINNED":
+                with self.assertRaises(DataRootBusy):
+                    AppDataLock(self.root).__enter__()
+                for name in bundle:
+                    with self.assertRaises(OSError):
+                        (self.root / name).write_bytes(b"DENIED")
+                    with self.assertRaises(OSError):
+                        (self.root / name).rename(self.root / (name + ".foreign"))
+            _journal(path, record)
+
+        with patch("creator_loop.corrupt_copy_resume._journal", pinned):
+            self.resume(confirm_preserve_unknown=True)
+        self.assert_guarded()

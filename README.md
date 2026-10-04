@@ -96,8 +96,10 @@ This stages a validated migrated backup separately. Use [guarded copy](docs/CORR
 [actual-state inspection](docs/CORRUPT_RESTORE_INSPECTION.md), then
 [explicit recovery and fresh health](docs/CORRUPT_COPY_RECOVERY.md) for a validated copy.
 Known interrupted-copy states have [consented continuation](docs/CORRUPT_COPY_RESUME.md)
-that preserves original/partial bytes and keeps the launch guard. Unknown/nonempty
-partial data, damaged-source UI, complete failure recovery and release acceptance remain open.
+that preserves original/partial bytes and keeps the launch guard. Interrupted
+unknown/nonempty partial bundles need separate reviewed retention consent and
+complete original evidence. Changed completed copies need a fresh restore decision.
+Damaged-source UI, complete failure recovery and release acceptance remain open.
 
 `--stage-update ZIP --release-manifest JSON --installation-root DIR` verifies a supplied Windows ZIP and its complete file inventory, then stages a separate version directory while retaining existing installations and user data. It does not activate the candidate or migrate the DB. See [staging instructions](docs/INSTALLATION_STAGING.md). CI tests staging and a bounded launcher/schema smoke from the exact ZIP; final updater orchestration and release acceptance remain open.
 
