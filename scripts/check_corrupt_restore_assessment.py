@@ -24,6 +24,7 @@ def main() -> None:
     parser.add_argument("--journal", type=Path, required=True)
     parser.add_argument("--installation-root", type=Path, required=True)
     parser.add_argument("--work-root", type=Path, required=True)
+    parser.add_argument("--stop-before-copy", action="store_true")
     args = parser.parse_args()
     record = json.loads(args.journal.read_text(encoding="utf-8"))
     source = args.data_root.resolve(strict=True)
@@ -314,6 +315,10 @@ def main() -> None:
         # Restore only our synthetic damaged fixture after missing-source tests.
         # No candidate health/model or user DB is executed by this copy probe.
         damaged.write_bytes(before[damaged.name])
+    if args.stop_before_copy:
+        print("Private damaged fixture prepared/validated; copy/health not performed")
+        return
+    if sys.platform == "win32":
         copy_command = [
             str(args.executable),
             *prefix,

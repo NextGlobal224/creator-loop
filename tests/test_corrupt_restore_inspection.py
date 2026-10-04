@@ -230,3 +230,20 @@ module.copy_corrupt_restore(Path(sys.argv[1]),Path(sys.argv[2]),Path(sys.argv[3]
         self.assertEqual(sidecar.read_bytes(), b"KEEP EXTERNAL SHM")
         with self.assertRaises(PendingRestore):
             require_no_pending_restore(self.root)
+
+    def test_foreign_sidecar_bytes_and_size_are_bound_to_unknown_state_proof(self):
+        journal = self.fixture.copy()
+        wal = self.root / "creator_loop.sqlite3-wal"
+        wal.write_bytes(b"PRIVATE FOREIGN WAL A")
+        first = self.inspect_unchanged(journal)
+        wal.write_bytes(b"PRIVATE FOREIGN WAL B")
+        second = self.inspect_unchanged(journal)
+        self.assertEqual(first["actual_state"], second["actual_state"])
+        self.assertNotEqual(first["inspection_identity"], second["inspection_identity"])
+        entry = next(
+            item for item in second["current_files"] if item["name"] == wal.name
+        )
+        self.assertEqual(entry["byte_size"], wal.stat().st_size)
+        self.assertTrue(entry["present"])
+        self.assertEqual(second["corrupt_restore_inspection_format"], 2)
+        self.assertNotIn("PRIVATE", json.dumps(second))

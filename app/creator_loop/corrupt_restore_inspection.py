@@ -352,7 +352,7 @@ def _hold_inspected_copy(
         }
         phase = record.get("phase")
         result: dict[str, Any] = {
-            "corrupt_restore_inspection_format": 1,
+            "corrupt_restore_inspection_format": 2,
             "data_root_identity": root_id,
             "journal_sha256": _hash(observed[selected][0], check)[0],
             "preparation_sha256": preparation_sha,
@@ -364,6 +364,15 @@ def _hold_inspected_copy(
             "original_locations": locations,
             "current_database_identity": actual_identity,
             "current_database_sha256": main[0] if main is not None else None,
+            "current_files": [
+                {
+                    "name": name,
+                    "present": current[name] is not None,
+                    "sha256": value[0] if value is not None else None,
+                    "byte_size": value[1] if value is not None else None,
+                }
+                for name, value in ((name, current[name]) for name in _NAMES)
+            ],
             "guard_retained": True,
             "requires_recovery_health": True,
             "activated": False,

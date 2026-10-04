@@ -37,12 +37,14 @@ vẫn là unknown dù logical identity khớp. Current row content không đư�
 Exit0 báo trạng thái quan sát, kể cả unknown; **không là restore thành công**.
 `guard_retained`, `requires_recovery_health` true; `activated`, `restored` false.
 `inspection_identity` ràng buộc root, journal/preparation và state proof tại mốc
-đọc; không là chữ ký hoặc quyền apply/clear guard. Input/trạng thái đổi thì proof
+đọc; format2 có `current_files` SHA/size/presence của từng main/sidecar, kể cả
+bytes foreign đang UNKNOWN. Không là chữ ký hoặc quyền apply/clear guard. Input/trạng thái đổi thì proof
 cũ hết giá trị. Exit2 mixed args, exit3 app lock bận, exit4 metadata/binding/lỗi;
 chỉ in loại lỗi. Budget60s mặc định, cần process timeout ngoài cho native I/O.
 
 Với `VALIDATED_COPY_GUARDED`, dùng [recovery có consent và fresh health](CORRUPT_COPY_RECOVERY.md).
-Partial-copy resume/cancel, UI và final release vẫn cần triển khai/nghiệm thu. Không dùng
+Known partial/unmoved/missing/empty dùng [resume có consent riêng](CORRUPT_COPY_RESUME.md).
+UNKNOWN/nonempty partial, UI và final release vẫn cần triển khai/nghiệm thu. Không dùng
 restore thường hoặc xóa marker để bypass. Test crash tiến trình không chứng minh
 power-loss hoặc mọi filesystem. Log/FAIL/giới hạn ở [HANDOFF](HANDOFF.md);
 phạm vi V1 vẫn theo [bảng nghiệm thu](PRODUCT_ACCEPTANCE.md).

@@ -34,6 +34,16 @@ def main() -> int:
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--resume-corrupt-copy",
+        type=Path,
+        help="Explicit continuation of an inspected interrupted copy; keeps launch guarded",
+    )
+    parser.add_argument(
+        "--confirm-keep-partial",
+        action="store_true",
+        help="Explicit consent to retain an existing empty partial target separately",
+    )
+    parser.add_argument(
         "--recover-corrupt-copy",
         type=Path,
         help="Recover an explicitly reviewed actually validated guarded copy with fresh health",
@@ -198,10 +208,70 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
-    if args.recover_corrupt_copy is None and (
-        args.reviewed_inspection is not None or args.confirm_recovery
+    if args.reviewed_inspection is not None and (
+        args.recover_corrupt_copy is None and args.resume_corrupt_copy is None
     ):
-        parser.error("Recovery review/consent flags require --recover-corrupt-copy")
+        parser.error(
+            "Inspection review requires --recover-corrupt-copy or --resume-corrupt-copy"
+        )
+    if args.confirm_recovery and args.recover_corrupt_copy is None:
+        parser.error("Recovery consent requires --recover-corrupt-copy")
+    if args.confirm_keep_partial and args.resume_corrupt_copy is None:
+        parser.error("Partial retention consent requires --resume-corrupt-copy")
+    if args.resume_corrupt_copy is not None:
+        if (
+            args.reviewed_inspection is None
+            or args.installation_root is None
+            or not args.confirm_lost_changes
+            or any(
+                value
+                for name, value in vars(args).items()
+                if name
+                not in (
+                    "resume_corrupt_copy",
+                    "reviewed_inspection",
+                    "installation_root",
+                    "confirm_lost_changes",
+                    "confirm_keep_partial",
+                    "confirm_media_issues",
+                )
+            )
+        ):
+            parser.error(
+                "Copy continuation requires only journal/inspection/installation/loss and optional partial/media consent"
+            )
+        from .corrupt_copy_resume import resume_corrupt_copy
+
+        try:
+            journal = resume_corrupt_copy(
+                data_root(),
+                args.resume_corrupt_copy,
+                args.installation_root,
+                reviewed_inspection=args.reviewed_inspection,
+                confirm_lost_changes=args.confirm_lost_changes,
+                confirm_keep_partial=args.confirm_keep_partial,
+                confirm_media_issues=args.confirm_media_issues,
+            )
+            print(
+                json.dumps(
+                    {
+                        "journal_name": journal.name,
+                        "activated": False,
+                        "restored": False,
+                        "guard_retained": True,
+                    }
+                )
+            )
+            return 0
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Copy continuation refused: {type(exc).__name__}; keep guard and all original/partial evidence",
+                file=sys.stderr,
+            )
+            return 4
     if args.recover_corrupt_copy is not None:
         if (
             args.reviewed_inspection is None

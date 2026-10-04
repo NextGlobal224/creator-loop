@@ -46,6 +46,7 @@ không suy từ exit/log chưa ghi rằng cần recopy hoặc restore lại.
 
 Budget mặc định180s, health tối đa60s trong budget; native I/O cần process timeout
 ngoài. Process-crash tests không chứng minh power loss/mọi filesystem hoặc sandbox
-chống arbitrary raw writers. UI, partial-copy resume/cancel, exact final artifact,
+chống arbitrary raw writers. Known partial states có [resume giữ bytes/guard](CORRUPT_COPY_RESUME.md);
+UNKNOWN/nonempty partial, UI, exact final artifact,
 required CI, actual engines/models và máy8GB vẫn cần nghiệm thu theo
 [PRODUCT_ACCEPTANCE](PRODUCT_ACCEPTANCE.md). Bằng chứng/FAIL ở [HANDOFF](HANDOFF.md).
