@@ -36,6 +36,7 @@ class RuntimeHandle:
     """Deny replacement while checking identity; never traverse/delete recursively."""
 
     kernel: Any
+    path: Path
     info: _Information
     handle: int | None
     _can_discard: bool
@@ -119,7 +120,7 @@ class RuntimeHandle:
             self.close()
             raise
 
-    def read_json(self) -> dict[str, Any]:
+    def read_json(self, *, reject_duplicates: bool = False) -> dict[str, Any]:
         if sys.platform != "win32":
             raise OSError("Runtime metadata reads require Windows handles")
         size = (self.info.size_high << 32) | self.info.size_low
@@ -133,7 +134,19 @@ class RuntimeHandle:
             raise ctypes.WinError(ctypes.get_last_error())
         if count.value != size:
             raise OSError("Runtime ownership metadata read was incomplete")
-        body = json.loads(buffer.raw.decode("utf-8"))
+
+        def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            result: dict[str, Any] = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("Runtime metadata has duplicate fields")
+                result[key] = value
+            return result
+
+        body = json.loads(
+            buffer.raw.decode("utf-8"),
+            object_pairs_hook=unique if reject_duplicates else None,
+        )
         if not isinstance(body, dict):
             raise ValueError("Invalid runtime ownership metadata")
         return body

@@ -34,6 +34,19 @@ def main() -> int:
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--recover-corrupt-copy",
+        type=Path,
+        help="Recover an explicitly reviewed actually validated guarded copy with fresh health",
+    )
+    parser.add_argument(
+        "--reviewed-inspection", help="Current inspection state proof SHA256"
+    )
+    parser.add_argument(
+        "--confirm-recovery",
+        action="store_true",
+        help="Explicit consent to compatible activation and fresh recovery health",
+    )
+    parser.add_argument(
         "--inspect-corrupt-copy",
         type=Path,
         help="Inspect guarded copy actual bytes/positions without changing data or guard",
@@ -185,6 +198,60 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if args.recover_corrupt_copy is None and (
+        args.reviewed_inspection is not None or args.confirm_recovery
+    ):
+        parser.error("Recovery review/consent flags require --recover-corrupt-copy")
+    if args.recover_corrupt_copy is not None:
+        if (
+            args.reviewed_inspection is None
+            or args.installation_root is None
+            or not args.confirm_recovery
+            or any(
+                value
+                for name, value in vars(args).items()
+                if name
+                not in (
+                    "recover_corrupt_copy",
+                    "reviewed_inspection",
+                    "installation_root",
+                    "confirm_recovery",
+                )
+            )
+        ):
+            parser.error(
+                "Corrupt recovery requires only explicit journal/inspection/installation/consent"
+            )
+        from .corrupt_copy_recovery import recover_corrupt_copy
+
+        try:
+            candidate = recover_corrupt_copy(
+                data_root(),
+                args.recover_corrupt_copy,
+                args.installation_root,
+                reviewed_inspection=args.reviewed_inspection,
+                confirm_recovery=args.confirm_recovery,
+            )
+            print(
+                json.dumps(
+                    {
+                        "candidate_name": candidate.name,
+                        "activated": True,
+                        "restored": True,
+                        "guard_retained": False,
+                    }
+                )
+            )
+            return 0
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Corrupt recovery refused: {type(exc).__name__}; keep evidence and inspect actual guard/state",
+                file=sys.stderr,
+            )
+            return 4
     if args.inspect_corrupt_copy is not None:
         if any(
             value

@@ -38,6 +38,17 @@ $env:QT_QPA_PLATFORM = 'offscreen'
 
 Đọc `result.json` và `output.log` của lượt vừa chạy; không suy PASS từ việc tool trả session. Runner ưu tiên Python/test native; encoded PowerShell có vấn đề stderr CLIXML và quoting, không dùng cho raw stderr shell. Probe timeout/ownership và full suite199 ca có Qt thật đã chạy qua runner trên Windows local; runner trên CI chưa kiểm. Lưu bằng chứng theo code/môi trường trong HANDOFF.
 
+### Budget full suite sau verified-copy recovery
+
+Full Windows dùng process timeout600s và step timeout11 phút; timeout từng test,
+playback heartbeat8s, RAM512MiB, health60s và recovery180s vẫn giữ nguyên.
+Mốc recovery727 ca thêm actual health/crash/race/refusal coverage: full420 đã
+669STOP/417.345s, còn khoảng58.969s theo timing phần tương ứng ở full710;
+ước lượng476.314s. Đây là điều chỉnh budget cho toàn suite theo coverage/timing,
+không đổi điều kiện nghiệm thu hoặc bỏ test. Scoped67 PASS134.106s không chứng
+minh fixture nhanh hơn; FAIL420 vẫn ở HANDOFF và logs. Nếu600s vẫn FAIL, đọc
+START/STOP và stack, chẩn đoán trước mọi retry/đổi budget tiếp theo.
+
 ### Task mới
 
 ```text

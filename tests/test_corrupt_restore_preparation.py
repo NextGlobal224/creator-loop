@@ -13,7 +13,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import test_update_preparation as preparation_fixture
-from corrupt_restore_fixture import clone_prepared_fixture
+from corrupt_restore_fixture import (
+    clone_current_prepared_fixture,
+    clone_prepared_fixture,
+)
 from creator_loop.app_lock import AppDataLock, DataRootBusy
 from creator_loop.corrupt_restore_assessment import assess_corrupt_restore
 from creator_loop.corrupt_restore_preparation import prepare_corrupt_restore
@@ -25,15 +28,19 @@ class CorruptRestorePreparationTests(unittest.TestCase):
     def setUp(self):
         self.setup_fixture(1)
 
-    def setup_fixture(self, version):
+    def setup_fixture(self, version, *, closed_current_seed=False):
+        if closed_current_seed and version != SCHEMA_VERSION:
+            raise ValueError("Current seed is only schema6")
         self.fixture = preparation_fixture.UpdatePreparationTests()
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
-        if version != 1:
+        if version != 1 and not closed_current_seed:
             self.fixture._legacy(version)
         self.root = self.fixture.root.resolve()
         journal = (
-            clone_prepared_fixture(self.fixture)
+            clone_current_prepared_fixture(self.fixture)
+            if closed_current_seed
+            else clone_prepared_fixture(self.fixture)
             if version == 1
             else self.fixture._prepare()
         )

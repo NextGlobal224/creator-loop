@@ -73,10 +73,10 @@ jobs:
         env:
           PYTHONPATH: app
         shell: powershell
-        timeout-minutes: 8
+        timeout-minutes: 11
         run: |
           $ErrorActionPreference = 'Stop'
-          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 420 -CommandArgs @('-u','scripts/run_suite_with_diagnostics.py')
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 600 -CommandArgs @('-u','scripts/run_suite_with_diagnostics.py')
           $testExit = $LASTEXITCODE
           $run = Get-ChildItem .local-test-logs -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'result.json') } | Sort-Object Name -Descending | Select-Object -First 1
           if ($run) {
@@ -154,6 +154,8 @@ jobs:
           $damagedAssessment = Join-Path $env:RUNNER_TEMP 'đánh giá nguồn hỏng riêng'
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 180 -CommandArgs @('scripts/check_corrupt_restore_assessment.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation,'--work-root',$damagedAssessment)
           if ($LASTEXITCODE -ne 0) { throw 'Packaged damaged-source readonly assessment failed' }
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 300 -CommandArgs @('scripts/check_corrupt_copy_recovery.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$damagedAssessment,'--installation-root',$installation)
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged corrupt-copy recovery and fresh native health failed' }
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 360 -CommandArgs @('scripts/check_restore_apply.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation)
           if ($LASTEXITCODE -ne 0) { throw 'Packaged confirmed restore and fresh health failed' }
           Copy-Item -LiteralPath $userManifestPath -Destination release/test-user-data-manifest.json

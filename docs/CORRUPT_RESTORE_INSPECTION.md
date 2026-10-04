@@ -41,8 +41,8 @@ Exit0 báo trạng thái quan sát, kể cả unknown; **không là restore thà
 cũ hết giá trị. Exit2 mixed args, exit3 app lock bận, exit4 metadata/binding/lỗi;
 chỉ in loại lỗi. Budget60s mặc định, cần process timeout ngoài cho native I/O.
 
-Actual-state recovery, resume/cancel có consent, fresh compatible candidate
-health/activation, UI và final release vẫn cần triển khai/nghiệm thu. Không dùng
+Với `VALIDATED_COPY_GUARDED`, dùng [recovery có consent và fresh health](CORRUPT_COPY_RECOVERY.md).
+Partial-copy resume/cancel, UI và final release vẫn cần triển khai/nghiệm thu. Không dùng
 restore thường hoặc xóa marker để bypass. Test crash tiến trình không chứng minh
 power-loss hoặc mọi filesystem. Log/FAIL/giới hạn ở [HANDOFF](HANDOFF.md);
 phạm vi V1 vẫn theo [bảng nghiệm thu](PRODUCT_ACCEPTANCE.md).

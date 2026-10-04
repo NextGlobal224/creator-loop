@@ -1,4 +1,4 @@
-"""Clone an isolated closed schema1 backup/candidate seed, not live user data.
+"""Clone isolated closed schema1/schema6 backup/candidate seeds, not live user data.
 
 The seed is produced once by the actual backup/stage/migration API. Every test
 receives its own files/installation; changes never reach the cached seed.
@@ -25,6 +25,10 @@ def _seed():
     fixture.setUp()
     atexit.register(fixture.doCleanups)
     journal = fixture._prepare()
+    return _closed_seed(fixture, journal)
+
+
+def _closed_seed(fixture, journal):
     record = json.loads(journal.read_text())
     # No live-WAL main-file copy. Only our closed, fully validated synthetic
     # fixture is cloned; raw damage/archive/root binding are created afresh.
@@ -45,7 +49,26 @@ def _seed():
 
 def clone_prepared_fixture(fixture):
     """Caller owns its TemporaryDirectory; clone only explicit seed entries."""
-    seed, seed_journal, record = _seed()
+    return _clone_seed(fixture, _seed())
+
+
+@lru_cache(maxsize=1)
+def _current_seed():
+    fixture = UpdatePreparationTests()
+    fixture.setUp()
+    atexit.register(fixture.doCleanups)
+    clone_prepared_fixture(fixture)
+    # A real new BackupAPI publication at schema6, not renamed schema1 bytes.
+    return _closed_seed(fixture, fixture._prepare())
+
+
+def clone_current_prepared_fixture(fixture):
+    """Fresh paths, closed schema6 source and actual published schema6 backup."""
+    return _clone_seed(fixture, _current_seed())
+
+
+def _clone_seed(fixture, seed_data):
+    seed, seed_journal, record = seed_data
     backup = fixture.root / "backups" / record["backup_id"]
     backup.mkdir()
     source_backup = seed.root / "backups" / record["backup_id"]

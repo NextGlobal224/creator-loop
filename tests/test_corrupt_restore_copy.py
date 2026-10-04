@@ -20,8 +20,13 @@ from creator_loop.restore_guard import PendingRestore, require_no_pending_restor
 
 class CorruptRestoreCopyTests(unittest.TestCase):
     def setUp(self):
+        self.setup_fixture()
+
+    def setup_fixture(self, *, closed_current_seed=True):
         self.fixture = preparation_fixture.CorruptRestorePreparationTests()
-        self.fixture.setUp()
+        self.fixture.setup_fixture(
+            6 if closed_current_seed else 1, closed_current_seed=closed_current_seed
+        )
         self.addCleanup(self.fixture.doCleanups)
         self.root = self.fixture.root
         self.manifest = self.fixture.prepare()
@@ -52,6 +57,19 @@ class CorruptRestoreCopyTests(unittest.TestCase):
             self.fixture.candidate,
             **options,
         )
+
+    @unittest.skipUnless(sys.platform == "win32", "native legacy BackupAPI copy")
+    def test_legacy_schema1_backup_still_prepares_and_copies_actual_migrated_stage(
+        self,
+    ):
+        self.setup_fixture(closed_current_seed=False)
+        journal = self.copy()
+        record = json.loads(journal.read_text())
+        self.assertEqual(record["schema_from"], 1)
+        self.assertEqual(record["schema_to"], SCHEMA_VERSION)
+        with closing(open_readonly(self.source.resolve(strict=True))) as db:
+            validate(db)
+        self.assert_retained_or_original()
 
     def assert_protected(self):
         self.assertEqual(

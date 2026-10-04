@@ -10,7 +10,9 @@ import re
 import sqlite3
 import sys
 import time
-from contextlib import ExitStack, closing
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, closing, contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
 
@@ -23,6 +25,13 @@ from creator_loop.preserved_source_validation import _unique_object
 from creator_loop.publication_media import _open_read_lock
 from creator_loop.restore_assessment import _database_identity
 from creator_loop.runtime_files import RuntimeHandle
+from creator_loop.sqlite_recovery_file import hold_recovery_database
+
+
+@dataclass(frozen=True)
+class _HeldInspection:
+    proof: dict[str, Any]
+    recheck: Callable[[], None]
 
 
 def inspect_corrupt_copy(
@@ -35,6 +44,33 @@ def inspect_corrupt_copy(
     DB is still guarded until explicit recovery/fresh health. Unknown states
     keep all bytes and must not be automatically guessed or overwritten.
     """
+    with (
+        AppDataLock(root) as lock,
+        _hold_inspected_copy(
+            root, journal_path, app_lock=lock, timeout_seconds=timeout_seconds
+        ) as result,
+    ):
+        return result.proof
+
+
+@contextmanager
+def _hold_inspected_copy(
+    root: Path,
+    journal_path: Path,
+    *,
+    app_lock: AppDataLock,
+    timeout_seconds: float = 60,
+    sqlite_shared: bool = False,
+    guard_handle: RuntimeHandle | None = None,
+) -> Iterator[_HeldInspection]:
+    """Caller retains its actual app lock; optional RW sharing needs SQLite lock.
+
+    RW sharing is private to recovery, allowing its writer reservation/read-only
+    health child. No DELETE sharing: the main inode cannot be replaced. Recheck
+    all observed/absent evidence after the caller's work before releasing pins.
+    """
+    if not app_lock.held or app_lock.root != root.resolve(strict=True):
+        raise RuntimeError("The matching retained app lock is required")
     if not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 600:
         raise ValueError("Bounded corrupt-copy inspection budget required")
     deadline = time.monotonic() + timeout_seconds
@@ -56,7 +92,7 @@ def inspect_corrupt_copy(
         raise ValueError("Explicit canonical corrupt-copy journal required")
     copy_id = match[1]
     root_id = hashlib.sha256(str(canonical).encode("utf-8")).hexdigest()
-    with AppDataLock(canonical), ExitStack() as handles:
+    with ExitStack() as handles:
         for folder in (
             canonical,
             canonical / "manifests",
@@ -90,7 +126,11 @@ def inspect_corrupt_copy(
             if before is None:
                 absent.add(path)
                 return None
-            stream = handles.enter_context(_open_read_lock(path))
+            stream = handles.enter_context(
+                hold_recovery_database(path)
+                if sqlite_shared and path == canonical / "creator_loop.sqlite3"
+                else _open_read_lock(path)
+            )
             actual = os.fstat(stream.fileno())
             if _identity(actual) != _identity(before):
                 raise RuntimeError("Copy evidence changed before read lease")
@@ -98,6 +138,13 @@ def inspect_corrupt_copy(
             return stream
 
         def read_record(path: Path) -> dict[str, Any]:
+            if (
+                guard_handle is not None
+                and path == canonical / "runtime/restore-in-progress.json"
+            ):
+                if guard_handle.handle is None or guard_handle.path != path:
+                    raise RuntimeError("Matching retained native guard required")
+                return guard_handle.read_json(reject_duplicates=True)
             stream = acquire(path)
             if stream is None or not 0 < os.fstat(stream.fileno()).st_size <= 1024**2:
                 raise ValueError("Bounded existing guarded-copy metadata required")
@@ -276,21 +323,25 @@ def inspect_corrupt_copy(
                             disposition = "UNKNOWN_CURRENT_PHYSICAL_BYTES"
                 except (sqlite3.Error, RuntimeError):
                     check()
-        check()
-        if any(_regular(path) is not None for path in absent):
-            raise RuntimeError(
-                "Previously absent copy evidence appeared during inspection"
-            )
-        for path, (stream, before) in observed.items():
-            actual = _regular(path)
-            if (
-                actual is None
-                or _identity(actual) != _identity(before)
-                or _identity(os.fstat(stream.fileno())) != _identity(before)
-            ):
-                raise RuntimeError("Copy evidence changed during inspection")
-        if {path.name for path in retained.iterdir()} != inventory:
-            raise RuntimeError("Retention inventory changed during inspection")
+
+        def recheck() -> None:
+            check()
+            if any(_regular(path) is not None for path in absent):
+                raise RuntimeError(
+                    "Previously absent copy evidence appeared during inspection"
+                )
+            for path, (stream, before) in observed.items():
+                actual = _regular(path)
+                if (
+                    actual is None
+                    or _identity(actual) != _identity(before)
+                    or _identity(os.fstat(stream.fileno())) != _identity(before)
+                ):
+                    raise RuntimeError("Copy evidence changed during inspection")
+            if {path.name for path in retained.iterdir()} != inventory:
+                raise RuntimeError("Retention inventory changed during inspection")
+
+        recheck()
         phases = {
             "CORRUPT_COPY_GUARD_PENDING",
             "CORRUPT_COPY_GUARDED",
@@ -321,4 +372,5 @@ def inspect_corrupt_copy(
         result["inspection_identity"] = hashlib.sha256(
             json.dumps(result, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
-        return result
+        yield _HeldInspection(result, recheck)
+        recheck()
