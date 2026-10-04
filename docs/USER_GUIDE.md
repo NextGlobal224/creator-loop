@@ -19,6 +19,11 @@ máy Windows 8 GB và release gate vẫn cần nghiệm thu theo
 2. Mở `CreatorLoop.exe` trong thư mục đã giải nén. Bản source dành cho phát triển
    có lệnh riêng trong [README](../README.md); bản onedir đóng gói Qt/Python.
    Engine/model là thành phần riêng, chưa có lựa chọn thực tế được nghiệm thu.
+   Với bản có `USER_GUIDE.html` cạnh EXE, mở file đó bằng trình duyệt để đọc
+   hướng dẫn offline; `docs/` chứa các hướng dẫn sản phẩm liên quan. Thông tin
+   source trong `build-info.json` chỉ nhận diện bản build, không thay checksum,
+   manifest hay bằng chứng nghiệm thu. Link tài liệu phát triển ngoài bộ offline
+   mở repo khi bạn chọn; app không tải engine/model qua các link này.
 3. Dữ liệu mặc định ở `%LOCALAPPDATA%\CreatorLoop`, tách khỏi bản cài. Để dùng
    một data root đã chọn, mở PowerShell tại thư mục bản cài:
 

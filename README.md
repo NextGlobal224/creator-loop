@@ -6,6 +6,8 @@ The [V1 acceptance matrix](docs/PRODUCT_ACCEPTANCE.md) tracks required product f
 
 The Vietnamese [user guide](docs/USER_GUIDE.md) walks through the current Library-to-Observation UI, reopening data, and backup/update/recovery. See [HANDOFF](docs/HANDOFF.md) for the exact local build and its verification limits; the guide does not certify a release.
 
+The packaging workflow adds `USER_GUIDE.html` beside `CreatorLoop.exe`, with offline product guides in `docs/` and source identity in `build-info.json`, before creating/testing the ZIP. Open the HTML file in a browser; basic use and recovery guidance needs no Python or background service. Personal HANDOFF/history, logs, models and user data are excluded. Check HANDOFF for whether a particular checkpoint artifact contains these guides; build identity does not certify its release gate.
+
 ## Source smoke and tests
 
 Requires Python 3.12 x64. From the repository root:
