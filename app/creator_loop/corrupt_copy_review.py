@@ -115,6 +115,15 @@ def review_corrupt_copy(
                 if entry["present"]
             }
         )
+        completed = (
+            copy.get("copied_database_sha256") is not None
+            or copy.get("phase") == "CORRUPT_DB_COMMITTED_GUARDED"
+        )
+        unknown_allowed = (
+            proof["actual_state"].startswith("UNKNOWN_")
+            and originals_complete
+            and not completed
+        )
         review: dict[str, Any] = {
             "corrupt_copy_review_format": 1,
             "data_root_identity": proof["data_root_identity"],
@@ -130,11 +139,20 @@ def review_corrupt_copy(
             "media_assessment": media,
             "media_issue_count": sum(entry["status"] != "valid" for entry in media),
             "loss_warning": LOSS_WARNING,
-            "unknown_continuation_allowed": (
-                proof["actual_state"].startswith("UNKNOWN_")
-                and originals_complete
-                and copy.get("copied_database_sha256") is None
+            "unknown_continuation_allowed": unknown_allowed,
+            "continuation_allowed": not completed
+            and (
+                unknown_allowed
+                or proof["actual_state"]
+                in (
+                    "SOURCE_NOT_MOVED_GUARDED",
+                    "SOURCE_PARTIALLY_RETAINED_GUARDED",
+                    "SOURCE_RETAINED_LIVE_MISSING_GUARDED",
+                    "EMPTY_CURRENT_DATABASE_GUARDED",
+                )
             ),
+            "requires_fresh_restore_decision": completed
+            and proof["actual_state"] != "VALIDATED_COPY_GUARDED",
             "activated": False,
             "restored": False,
         }

@@ -7,6 +7,11 @@ ràng buộc SHA/size của cả main và các sidecar hiện tại; token cũ k
 sau khi bytes hoặc vị trí đổi. Cần đóng app/worker và xác nhận mất thay đổi sau
 backup. Copy đã validated không được recopy. UNKNOWN/nonempty partial cần consent
 riêng và complete original retention như quy trình dưới; mặc định vẫn từ chối.
+Một copy đã có completed physical receipt, hoặc journal đã ghi committed rồi
+main bị mất/rỗng/đổi hay có sidecar mới, cần **fresh restore decision**. Consent
+loss/empty/UNKNOWN của interrupted copy không cấp quyền tạo lại DB trong trường
+hợp này. Readonly review hiển thị `requires_fresh_restore_decision:true` và
+`continuation_allowed:false`; UI khóa resume và consent của interrupted copy.
 
 ```powershell
 $env:PYTHONPATH = 'app'
@@ -58,7 +63,8 @@ consent UNKNOWN không cấp quyền đoán/xóa/sửa evidence. Copy đã có c
 physical receipt rồi đổi bytes cần **fresh restore decision**, không dùng lại
 consent interrupted-copy. Không xóa marker hoặc chạy smoke để bypass.
 Có [Maintenance UI](MAINTENANCE_UI.md) cho guarded copy review/resume/recovery;
-damaged-source review/raw/stage/copy ban đầu vẫn dùng CLI. Actual process-crash
+damaged-source review/raw/stage/copy ban đầu có [dialog riêng](DAMAGED_RESTORE_UI.md).
+Actual process-crash
 tests không chứng minh power loss. Whole flow, exact
 final artifact/required CI, actual engines/models và máy8GB vẫn theo
 [PRODUCT_ACCEPTANCE](PRODUCT_ACCEPTANCE.md); logs/FAIL/scope ở [HANDOFF](HANDOFF.md).

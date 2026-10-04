@@ -245,6 +245,7 @@ class MaintenanceWindow(QMainWindow):
                     installation
                     and journal
                     and copy
+                    and copy.get("continuation_allowed") is True
                     and self.loss_consent.isChecked()
                     and ((known_resume and partial_confirmed) or unknown_confirmed)
                     and (not copy_media_issues or self.media_consent.isChecked())
@@ -268,12 +269,18 @@ class MaintenanceWindow(QMainWindow):
             not busy
             and (
                 self.assessment is not None
-                or bool(copy and state != "VALIDATED_COPY_GUARDED")
+                or bool(
+                    copy
+                    and copy.get("continuation_allowed") is True
+                    and state != "VALIDATED_COPY_GUARDED"
+                )
             )
         )
         self.media_consent.setEnabled(not busy and media_issues)
         self.empty_consent.setEnabled(
-            not busy and bool(copy) and state == "EMPTY_CURRENT_DATABASE_GUARDED"
+            not busy
+            and bool(copy and copy.get("continuation_allowed") is True)
+            and state == "EMPTY_CURRENT_DATABASE_GUARDED"
         )
         self.unknown_consent.setEnabled(
             not busy and bool(copy and copy["unknown_continuation_allowed"])
@@ -446,6 +453,23 @@ class MaintenanceWindow(QMainWindow):
                     or type(review.get("media_issue_count")) is not int
                     or review["media_issue_count"] < 0
                     or type(review.get("unknown_continuation_allowed")) is not bool
+                    or type(review.get("continuation_allowed")) is not bool
+                    or type(review.get("requires_fresh_restore_decision")) is not bool
+                    or (
+                        review["requires_fresh_restore_decision"]
+                        and review["continuation_allowed"]
+                    )
+                    or (
+                        review["unknown_continuation_allowed"]
+                        and not review["continuation_allowed"]
+                    )
+                    or (
+                        proof["actual_state"] == "VALIDATED_COPY_GUARDED"
+                        and (
+                            review["continuation_allowed"]
+                            or review["requires_fresh_restore_decision"]
+                        )
+                    )
                 ):
                     raise ValueError("Invalid or stale copy review")
                 inspection_fields = {
@@ -480,6 +504,11 @@ class MaintenanceWindow(QMainWindow):
                     "Backup chỉ chứa DB, không chứa media. Giữ originals/raw/partial/journals và bản cài cũ.",
                     f"Media cần xử lý: {review['media_issue_count']}; kiểm sức khỏe chỉ đạt khi mọi liên kết có đúng bytes.",
                 ]
+                if review["requires_fresh_restore_decision"]:
+                    summary.append(
+                        "Copy đã hoàn tất rồi nguồn thay đổi/mất/rỗng: cần quyết định khôi phục mới. "
+                        "Consent của interrupted copy không cho phép copy lại. Giữ mọi bytes/guard/journal."
+                    )
                 for entry in proof["current_files"]:
                     summary.append(
                         f"Hiện tại {entry['name']}: {'có' if entry['present'] else 'vắng'}, {entry['byte_size']} bytes, SHA256 {entry['sha256']}"

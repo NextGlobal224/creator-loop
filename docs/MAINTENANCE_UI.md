@@ -76,6 +76,9 @@ health, pointer/metadata và guard clear. Consent mất thay đổi/media ở co
 thay consent health hoặc chữa media lỗi. Xem [recovery](CORRUPT_COPY_RECOVERY.md).
 Originals thiếu/trùng/foreign hoặc completed copy đổi bytes cần fresh restore
 decision riêng; không bật nút để đoán/xóa evidence. UI có scroll khi thiếu chiều cao.
+Completed copy có main mất/rỗng cũng cần quyết định mới; không dùng consent của
+interrupted copy. Readonly review vẫn hiển thị backup/state, nhưng khóa resume
+và loss/empty consent cho luồng chưa được hỗ trợ này, giữ mọi bytes/guard/journal.
 
 Mỗi thao tác chạy trong native Windows Job riêng, được quan sát bằng Qt timer
 với deadline 300s. **Hủy tác vụ đang chạy** hoặc đóng cửa sổ chỉ dừng cây process

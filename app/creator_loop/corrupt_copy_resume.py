@@ -96,6 +96,14 @@ def resume_corrupt_copy(
             proof = held.proof
             if proof["inspection_identity"] != reviewed_inspection:
                 raise ValueError("Inspection changed; review actual copy state again")
+            copy = _record(copy_journal)
+            if proof["actual_state"] != "VALIDATED_COPY_GUARDED" and (
+                copy.get("copied_database_sha256") is not None
+                or copy.get("phase") == "CORRUPT_DB_COMMITTED_GUARDED"
+            ):
+                raise RuntimeError(
+                    "A changed completed copy requires a fresh restore decision"
+                )
             unknown = proof["actual_state"].startswith("UNKNOWN_")
             if proof["actual_state"] not in _KNOWN and not (
                 unknown and confirm_preserve_unknown is True
@@ -118,11 +126,6 @@ def resume_corrupt_copy(
                 raise ValueError(
                     "Explicit consent to preserve the empty partial target required"
                 )
-        copy = _record(copy_journal)
-        if unknown and copy.get("copied_database_sha256") is not None:
-            raise RuntimeError(
-                "A changed completed copy requires a fresh restore decision"
-            )
         if _digest(copy_journal) != proof["journal_sha256"]:
             raise ValueError("Copy journal changed in native lease transition")
         leases.enter_context(_open_read_lock(copy_journal))
