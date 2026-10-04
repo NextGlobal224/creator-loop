@@ -89,11 +89,43 @@ thể không trả về. CLI nguồn/probe CI được bọc timeout; UI selecti
 
 ## Bằng chứng và phần còn thiếu
 
+### Lưu lựa chọn đã kiểm
+
+Với DB đã được tạo bằng app hiện tại, đóng Library rồi chạy:
+
+```powershell
+CreatorLoop.exe --select-components 'D:\MyComponents\selected-components.json'
+```
+
+Từ source, dùng cùng runner timeout bên trên và thay `--check-components` bằng
+`--select-components`. Lệnh kiểm lại bytes và giữ lease qua lượt lưu. App lock
+và SQLite writer reservation điều phối với registry/updater; không migration,
+không thay dữ liệu domain, không cài hay nhận ownership component. Exit 3 khi
+app đang dùng data root; exit 1 khi file/metadata/schema không đạt. Root/DB thiếu
+hoặc hỏng không được tự tạo, sửa hay migrate bởi lệnh này.
+
+Lựa chọn được lưu tại `manifests/storage-roots.json`, field `component_selection`,
+cùng timestamp kiểm và `runtime_compatibility_verified: false`. Root ID,
+registrations/default/offline roots, component installations, backup/update IDs
+và metadata khác được giữ. Với manifest chưa có, tạo root ID một lần từ data root
+có DB hợp lệ. Đây là điều phối, không thêm bảng SQLite. Metadata cũ malformed hoặc
+schema quan sát không khớp bị từ chối để giữ chẩn đoán; không tự sửa lịch sử.
+
+`load_component_selection` chỉ đọc khai báo và mốc kiểm cũ, kể cả khi component
+đã đổi hoặc offline. Nó không cấp phép chạy; thao tác processing phải kiểm lại và
+giữ lease riêng. Atomic publication lỗi/hủy trước publish giữ lựa chọn trước;
+sau publish thành công, lựa chọn mới có thể tồn tại dù caller chưa nhận stdout.
+Đọc lại trạng thái trước khi quyết định thử lại; không lấy việc thiếu stdout làm
+căn cứ xóa/khôi phục file component. UI selection và engine pipeline còn thiếu.
+
 `tests/test_local_components.py` dùng file **fake** để kiểm bytes/identity/bounds,
 license/ownership khai báo, alias, cancellation/deadline và Windows read-sharing.
 `scripts/check_local_components.py` kiểm chính candidate EXE với fake component,
 digest sai, ownership bị từ chối và user data giữ nguyên; nối trong Windows CI.
 Các bằng chứng này không nghiệm thu engine/model thật, ownership cài đặt,
 activation/cleanup, version probe, xử lý transcript/vision hoặc release 8 GB.
+`tests/test_component_selection.py` kiểm app/DB lock thực, preserve root/registry/
+domain, CLI subprocess, stale history, corrupt/missing DB, alias, budget và lỗi
+atomic publication bằng fake component; không nghiệm thu actual engine/model.
 Trạng thái checkpoint và kết quả chưa xác minh nằm ở [HANDOFF](HANDOFF.md),
 phạm vi bắt buộc giữ nguyên ở [PRODUCT_ACCEPTANCE](PRODUCT_ACCEPTANCE.md).

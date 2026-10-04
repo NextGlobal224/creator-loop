@@ -38,6 +38,11 @@ def main() -> int:
         help="Verify selected local component artifacts without opening the user DB",
     )
     parser.add_argument(
+        "--select-components",
+        type=Path,
+        help="Verify and save an external selection with the app closed; no installation",
+    )
+    parser.add_argument(
         "--smoke", action="store_true", help="Create/open a DB and exit"
     )
     parser.add_argument(
@@ -137,6 +142,14 @@ def main() -> int:
         from .local_components import check_components_cli
 
         return check_components_cli(args.check_components)
+    if args.select_components is not None:
+        if any(
+            value for name, value in vars(args).items() if name != "select_components"
+        ):
+            parser.error("Component selection cannot be combined with other operations")
+        from .component_selection import select_components_cli
+
+        return select_components_cli(data_root(), args.select_components)
     if args.backup and (args.smoke or args.ui_smoke):
         parser.error("--backup cannot be combined with smoke modes")
     root = data_root()
