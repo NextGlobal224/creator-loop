@@ -12,6 +12,7 @@ from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
+from creator_loop.database import SCHEMA_VERSION, open_readonly, validate
 from creator_loop.paths import ensure_data_root
 from creator_loop.update_activation import verify_prepared_backup
 
@@ -176,6 +177,53 @@ def main() -> None:
         path.name: path.read_bytes() for path in root.iterdir() if path.is_file()
     }:
         raise RuntimeError("Candidate changed/exposed raw source during preservation")
+    preparation = [
+        str(args.executable),
+        *prefix,
+        "--prepare-corrupt-restore",
+        record["backup_id"],
+        "--restore-candidate",
+        record["candidate_directory"],
+        "--installation-root",
+        str(args.installation_root),
+        "--raw-source-manifest",
+        str(retained_manifest),
+        "--reviewed-restore",
+        body["assessment_identity"],
+        "--confirm-lost-changes",
+    ]
+    staged_result = subprocess.run(
+        preparation, env=environment, capture_output=True, timeout=180
+    )
+    if staged_result.returncode != 0 or not 0 < len(staged_result.stdout) <= 128 * 1024:
+        raise RuntimeError(
+            f"Exact candidate corrupt staging refused: exit {staged_result.returncode}"
+        )
+    staged_receipt = json.loads(staged_result.stdout)
+    relative = Path(staged_receipt["corrupt_restore_preparation"])
+    stage_manifest = (root / relative).resolve(strict=True)
+    if relative.is_absolute() or stage_manifest.parent.parent != root / "backups":
+        raise RuntimeError("Candidate staging receipt escaped the private fixture")
+    stage_record = json.loads(stage_manifest.read_text(encoding="utf-8"))
+    staged_database = stage_manifest.parent / "restored.sqlite3"
+    with closing(open_readonly(staged_database.resolve(strict=True))) as db:
+        validate(db, expected_version=SCHEMA_VERSION)
+    if (
+        any(
+            staged_receipt[key] is not False
+            for key in ("apply_authorized", "activated", "restored")
+        )
+        or stage_record["phase"] != "CORRUPT_RESTORE_STAGED"
+        or stage_record["reviewed_assessment_identity"] != body["assessment_identity"]
+        or stage_record["raw_manifest_sha256"]
+        != hashlib.sha256(retained_manifest.read_bytes()).hexdigest()
+        or stage_record["staged_database_sha256"]
+        != hashlib.sha256(staged_database.read_bytes()).hexdigest()
+        or before
+        != {path.name: path.read_bytes() for path in root.iterdir() if path.is_file()}
+        or b"PRIVATE" in staged_result.stdout + staged_result.stderr
+    ):
+        raise RuntimeError("Candidate staging changed source/proof or claimed apply")
     damaged.unlink()  # own synthetic fixture only: missing-source refusal
     verification = [
         str(args.executable),
@@ -224,8 +272,13 @@ def main() -> None:
     missing = subprocess.run(command, env=environment, capture_output=True, timeout=20)
     if missing.returncode != 4 or damaged.exists():
         raise RuntimeError("Candidate initialized missing damaged source")
+    missing_stage = subprocess.run(
+        preparation, env=environment, capture_output=True, timeout=20
+    )
+    if missing_stage.returncode != 4 or damaged.exists():
+        raise RuntimeError("Candidate staging initialized missing damaged source")
     print(
-        "Exact damaged-source assessment/raw retention/archive revalidation PASS; missing live DB not created; apply/recovery unverified"
+        "Exact damaged-source assessment/raw retention/archive revalidation/BackupAPI staging PASS; missing live DB not created; apply/recovery/health unverified"
     )
 
 

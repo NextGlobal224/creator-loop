@@ -34,6 +34,11 @@ def main() -> int:
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--prepare-corrupt-restore",
+        help="Stage a reviewed backup separately after damaged-source retention; no apply",
+    )
+    parser.add_argument("--raw-source-manifest", type=Path)
+    parser.add_argument(
         "--verify-preserved-source",
         type=Path,
         help="Revalidate an explicit raw-source archive; no live DB assessment or restore",
@@ -166,6 +171,67 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if args.prepare_corrupt_restore is not None or args.raw_source_manifest is not None:
+        if (
+            args.prepare_corrupt_restore is None
+            or args.raw_source_manifest is None
+            or args.restore_candidate is None
+            or args.installation_root is None
+            or args.reviewed_restore is None
+            or not args.confirm_lost_changes
+            or any(
+                value
+                for name, value in vars(args).items()
+                if name
+                not in (
+                    "prepare_corrupt_restore",
+                    "raw_source_manifest",
+                    "restore_candidate",
+                    "installation_root",
+                    "reviewed_restore",
+                    "confirm_lost_changes",
+                    "confirm_media_issues",
+                )
+            )
+        ):
+            parser.error(
+                "Corrupt staging requires explicit backup/candidate/archive/review/loss consent only"
+            )
+        from .corrupt_restore_preparation import prepare_corrupt_restore
+
+        try:
+            root = data_root()
+            manifest = prepare_corrupt_restore(
+                root,
+                args.prepare_corrupt_restore,
+                args.installation_root,
+                args.restore_candidate,
+                args.raw_source_manifest,
+                reviewed_identity=args.reviewed_restore,
+                confirm_lost_changes=args.confirm_lost_changes,
+                confirm_media_issues=args.confirm_media_issues,
+            )
+            print(
+                json.dumps(
+                    {
+                        "corrupt_restore_preparation": str(manifest.relative_to(root)),
+                        "raw_source_preserved": True,
+                        "apply_authorized": False,
+                        "activated": False,
+                        "restored": False,
+                    }
+                )
+            )
+            return 0
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Corrupt staging refused: {type(exc).__name__}; keep DB/sidecars/backups/partial evidence",
+                file=sys.stderr,
+            )
+            return 4
     if args.verify_preserved_source is not None or args.reviewed_damage is not None:
         if (
             args.verify_preserved_source is None

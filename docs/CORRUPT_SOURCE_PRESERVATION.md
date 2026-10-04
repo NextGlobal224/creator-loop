@@ -78,6 +78,6 @@ fresh review và các xác nhận riêng. Không sửa manifest bằng tay để
 
 Test crash là crash tiến trình trên fixture, không phải nghiệm thu mất điện,
 ổ đĩa lỗi hoặc mọi filesystem. Phần tiếp theo còn thiếu:
-fresh review/loss/media consent, guarded apply/crash recovery/fresh health,
+[staging với fresh review/loss/media consent](CORRUPT_RESTORE_PREPARATION.md), guarded apply/crash recovery/fresh health,
 UI và exact final artifact. Trạng thái/log ở [HANDOFF](HANDOFF.md); yêu cầu V1
 vẫn theo [PRODUCT_ACCEPTANCE](PRODUCT_ACCEPTANCE.md).

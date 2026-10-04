@@ -90,6 +90,10 @@ as described in [confirmed restore](docs/RESTORE_APPLY.md). In Library, choose
 open maintenance. `CreatorLoop.exe --maintenance` opens the same window even
 when a restore guard blocks Library. See [maintenance UI](docs/MAINTENANCE_UI.md)
 for backup, explicit update/restore consent, recovery, cancel and retained logs.
+For an unreadable source, use the separate [damaged-source review](docs/CORRUPT_RESTORE_ASSESSMENT.md),
+[raw retention](docs/CORRUPT_SOURCE_PRESERVATION.md), then [confirmed staging](docs/CORRUPT_RESTORE_PREPARATION.md).
+This stages a validated migrated backup separately; guarded replacement, recovery
+and runtime health for damaged-source restoration remain open.
 
 `--stage-update ZIP --release-manifest JSON --installation-root DIR` verifies a supplied Windows ZIP and its complete file inventory, then stages a separate version directory while retaining existing installations and user data. It does not activate the candidate or migrate the DB. See [staging instructions](docs/INSTALLATION_STAGING.md). CI tests staging and a bounded launcher/schema smoke from the exact ZIP; final updater orchestration and release acceptance remain open.
 
