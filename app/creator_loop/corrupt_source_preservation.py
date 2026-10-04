@@ -43,30 +43,35 @@ def _create_file(handles: ExitStack, path: Path) -> BinaryIO:
     return handles.enter_context(path.open("x+b"))
 
 
+def _rename_by_handle(destination: Path, stream: BinaryIO) -> None:
+    """Native no-replace rename; caller retains canonical destination namespace."""
+    if sys.platform != "win32":
+        raise OSError("Native retained-file rename requires Windows")
+    import msvcrt
+
+    kernel = _kernel32()
+    name = str(destination).encode("utf-16-le")
+    size = max(ctypes.sizeof(_RenameInfo), _RenameInfo.name.offset + len(name) + 2)
+    buffer = ctypes.create_string_buffer(size)
+    info = _RenameInfo.from_buffer(buffer)
+    info.flags = 0  # ReplaceIfExists=False, RootDirectory=NULL.
+    info.length = len(name)
+    ctypes.memmove(ctypes.addressof(buffer) + _RenameInfo.name.offset, name, len(name))
+    # FileRenameInfo=3, using the original exclusive CREATE_NEW handle.
+    # https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info
+    if not kernel.SetFileInformationByHandle(
+        msvcrt.get_osfhandle(stream.fileno()), 3, buffer, size
+    ):
+        raise ctypes.WinError(ctypes.get_last_error())
+    os.fsync(stream.fileno())
+
+
 def _publish_new_manifest(temporary: Path, destination: Path, stream: BinaryIO) -> None:
     """Atomic non-overwriting publication inside the retained owned directory."""
     if temporary.parent != destination.parent:
         raise ValueError("Manifest publication must stay in the owned directory")
     if sys.platform == "win32":
-        import msvcrt
-
-        kernel = _kernel32()
-        name = str(destination).encode("utf-16-le")
-        size = max(ctypes.sizeof(_RenameInfo), _RenameInfo.name.offset + len(name) + 2)
-        buffer = ctypes.create_string_buffer(size)
-        info = _RenameInfo.from_buffer(buffer)
-        info.flags = 0  # ReplaceIfExists=False, RootDirectory=NULL.
-        info.length = len(name)
-        ctypes.memmove(
-            ctypes.addressof(buffer) + _RenameInfo.name.offset, name, len(name)
-        )
-        # FileRenameInfo=3, using the original exclusive CREATE_NEW handle.
-        # https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info
-        if not kernel.SetFileInformationByHandle(
-            msvcrt.get_osfhandle(stream.fileno()), 3, buffer, size
-        ):
-            raise ctypes.WinError(ctypes.get_last_error())
-        os.fsync(stream.fileno())
+        _rename_by_handle(destination, stream)
     else:
         os.link(temporary, destination)  # exclusive publication, same filesystem
         temporary.unlink()

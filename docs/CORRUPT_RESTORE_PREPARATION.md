@@ -76,7 +76,8 @@ file vừa bị sửa. Exit0 trả `stage_revalidated: true`; `current_source_as
 stage, raw archive hoặc live data khi verification thất bại. Loader không lấy
 app writer lock; apply phải giữ lock và kiểm live inputs/consent riêng.
 
-Guarded replacement, durable runtime guard, actual-state crash recovery, fresh
+[Guarded copy](CORRUPT_RESTORE_COPY.md) thực hiện replacement và giữ runtime guard;
+actual-state crash recovery, fresh
 runtime health, UI và final artifact/release vẫn cần triển khai/nghiệm thu riêng.
 Apply sau này phải revalidate source/archive/stage/backup/candidate/media và các
 xác nhận dưới lock, journal trước mutation; không tin consent hoặc checksum cũ.

@@ -84,21 +84,7 @@ def _progress(check: Callable[[], None]) -> int:
     return 0
 
 
-@contextmanager
-def hold_corrupt_database(
-    root: Path,
-    *,
-    timeout_seconds: float = 60,
-    cancelled: Callable[[], bool] | None = None,
-) -> Iterator[dict[str, Any]]:
-    """Own app lock and readonly DB/sidecar handles through the caller's review.
-
-    Hashing is streamed. Windows sharing refuses concurrent write/delete;
-    portable tests prove snapshot checks only. Blocking OS I/O still requires
-    an outer process deadline. No files are copied, replaced, deleted or repaired.
-    """
-    if not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 600:
-        raise ValueError("Damage inspection needs a bounded work deadline")
+def _damage_root(root: Path) -> Path:
     canonical = root.resolve(strict=True)
     if os.path.normcase(str(root.absolute())) != os.path.normcase(str(canonical)):
         raise ValueError("Canonical data root required")
@@ -106,6 +92,43 @@ def hold_corrupt_database(
         path = canonical / name
         if path.is_symlink() or path.is_junction() or not path.is_dir():
             raise ValueError("Real coordination folders required")
+    return canonical
+
+
+@contextmanager
+def hold_corrupt_database(
+    root: Path,
+    *,
+    timeout_seconds: float = 60,
+    cancelled: Callable[[], bool] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Own app lock and readonly source leases; never modify source/sidecars."""
+    if not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 600:
+        raise ValueError("Damage inspection needs a bounded work deadline")
+    canonical = _damage_root(root)
+    with AppDataLock(canonical):
+        with _hold_corrupt_source_locked(
+            canonical, timeout_seconds=timeout_seconds, cancelled=cancelled
+        ) as damage:
+            yield damage
+
+
+@contextmanager
+def _hold_corrupt_source_locked(
+    root: Path,
+    *,
+    timeout_seconds: float = 60,
+    cancelled: Callable[[], bool] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Caller retains the app lock; this context owns only readonly source leases.
+
+    Hashing is streamed. Windows sharing refuses concurrent write/delete;
+    portable tests prove snapshot checks only. Blocking OS I/O still requires
+    an outer process deadline. No files are copied, replaced, deleted or repaired.
+    """
+    if not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 600:
+        raise ValueError("Damage inspection needs a bounded work deadline")
+    canonical = _damage_root(root)
     deadline = time.monotonic() + timeout_seconds
 
     def check() -> None:
@@ -115,7 +138,7 @@ def hold_corrupt_database(
             raise TimeoutError("Damage inspection exceeded its work budget")
 
     check()
-    with AppDataLock(canonical), ExitStack() as handles:
+    with ExitStack() as handles:
         if any(
             path.name != "app-data.lock" for path in (canonical / "runtime").iterdir()
         ):

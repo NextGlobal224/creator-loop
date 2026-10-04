@@ -33,6 +33,11 @@ def main() -> int:
 
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--copy-corrupt-restore",
+        type=Path,
+        help="Guarded confirmed DB replacement; requires explicit health recovery before launch",
+    )
     parser.add_argument("--verify-corrupt-preparation", type=Path)
     parser.add_argument(
         "--reviewed-preparation", help="SHA256 of the selected preparation manifest"
@@ -175,6 +180,66 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if args.copy_corrupt_restore is not None:
+        if (
+            args.reviewed_preparation is None
+            or args.reviewed_restore is None
+            or args.installation_root is None
+            or args.restore_candidate is None
+            or not args.confirm_lost_changes
+            or any(
+                value
+                for name, value in vars(args).items()
+                if name
+                not in (
+                    "copy_corrupt_restore",
+                    "reviewed_preparation",
+                    "reviewed_restore",
+                    "installation_root",
+                    "restore_candidate",
+                    "confirm_lost_changes",
+                    "confirm_media_issues",
+                )
+            )
+        ):
+            parser.error(
+                "Guarded corrupt copy requires only explicit preparation/review/candidate/installation/loss consent"
+            )
+        from .corrupt_restore_copy import copy_corrupt_restore
+
+        try:
+            root = data_root()
+            journal = copy_corrupt_restore(
+                root,
+                args.copy_corrupt_restore,
+                args.installation_root,
+                args.restore_candidate,
+                reviewed_preparation=args.reviewed_preparation,
+                reviewed_identity=args.reviewed_restore,
+                confirm_lost_changes=args.confirm_lost_changes,
+                confirm_media_issues=args.confirm_media_issues,
+            )
+            print(
+                json.dumps(
+                    {
+                        "corrupt_restore_journal": str(journal.relative_to(root)),
+                        "phase": "CORRUPT_DB_COMMITTED_GUARDED",
+                        "requires_recovery_health": True,
+                        "activated": False,
+                        "restored": False,
+                    }
+                )
+            )
+            return 0
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Guarded corrupt copy refused: {type(exc).__name__}; keep guard/DB/sidecars/backups/partial evidence",
+                file=sys.stderr,
+            )
+            return 4
     if (
         args.verify_corrupt_preparation is not None
         or args.reviewed_preparation is not None

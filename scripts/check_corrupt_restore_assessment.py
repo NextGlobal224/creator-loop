@@ -310,8 +310,65 @@ def main() -> None:
         raise RuntimeError(
             "Stage verification requires/initializes the missing live source"
         )
+    if sys.platform == "win32":
+        # Restore only our synthetic damaged fixture after missing-source tests.
+        # No candidate health/model or user DB is executed by this copy probe.
+        damaged.write_bytes(before[damaged.name])
+        copy_command = [
+            str(args.executable),
+            *prefix,
+            "--copy-corrupt-restore",
+            str(stage_manifest),
+            "--reviewed-preparation",
+            hashlib.sha256(stage_manifest.read_bytes()).hexdigest(),
+            "--reviewed-restore",
+            body["assessment_identity"],
+            "--restore-candidate",
+            record["candidate_directory"],
+            "--installation-root",
+            str(args.installation_root),
+            "--confirm-lost-changes",
+        ]
+        copied = subprocess.run(
+            copy_command, env=environment, capture_output=True, timeout=180
+        )
+        if copied.returncode != 0 or not 0 < len(copied.stdout) <= 128 * 1024:
+            raise RuntimeError(
+                f"Exact guarded corrupt copy refused: exit {copied.returncode}"
+            )
+        copy_receipt = json.loads(copied.stdout)
+        copy_journal = (root / copy_receipt["corrupt_restore_journal"]).resolve(
+            strict=True
+        )
+        if copy_journal.parent != root / "manifests":
+            raise RuntimeError("Guarded copy journal escaped fixture")
+        copy_record = json.loads(copy_journal.read_text(encoding="utf-8"))
+        if (
+            copy_receipt["requires_recovery_health"] is not True
+            or copy_receipt["restored"] is not False
+            or copy_receipt["activated"] is not False
+            or copy_record["phase"] != "CORRUPT_DB_COMMITTED_GUARDED"
+            or not (root / "runtime/restore-in-progress.json").is_file()
+        ):
+            raise RuntimeError(
+                "Guarded copy omitted guard or claimed completed restore"
+            )
+        originals = root / "backups" / copy_record["retained_directory"]
+        if originals.parent != root / "backups":
+            raise RuntimeError("Retained original directory escaped fixture")
+        for name, original in before.items():
+            if (originals / name).read_bytes() != original:
+                raise RuntimeError("Guarded copy lost original source/sidecar bytes")
+            if (retained_manifest.parent / name).read_bytes() != original:
+                raise RuntimeError(
+                    "Guarded copy changed separately retained raw archive"
+                )
+        with closing(open_readonly(damaged.resolve(strict=True))) as restored:
+            validate(restored)
+        if b"PRIVATE" in copied.stdout + copied.stderr:
+            raise RuntimeError("Guarded copy exposed original private fixture bytes")
     print(
-        "Exact damaged-source assessment/raw retention/archive/BackupAPI staging/stage verification PASS; missing live DB not created; apply/recovery/health unverified"
+        "Exact damaged-source assessment/raw/archive/BackupAPI staging/stage verification PASS; Windows guarded copy retains originals and guard; recovery/health unverified"
     )
 
 
