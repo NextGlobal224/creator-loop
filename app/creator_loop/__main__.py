@@ -34,6 +34,10 @@ def main() -> int:
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--preserve-corrupt-source",
+        help="Retain reviewed damaged DB/sidecar bytes separately; no restore",
+    )
+    parser.add_argument(
         "--inspect-corrupt-restore",
         help="Review damaged SQLite bytes and an explicit backup; no restore",
     )
@@ -153,6 +157,41 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if args.preserve_corrupt_source is not None:
+        if any(
+            value
+            for name, value in vars(args).items()
+            if name != "preserve_corrupt_source"
+        ):
+            parser.error(
+                "Raw-source preservation cannot be combined with other operations"
+            )
+        from .corrupt_source_preservation import preserve_corrupt_source
+
+        try:
+            root = data_root()
+            manifest = preserve_corrupt_source(root, args.preserve_corrupt_source)
+            print(
+                json.dumps(
+                    {
+                        "raw_source_manifest": str(manifest.relative_to(root)),
+                        "raw_source_preserved": True,
+                        "consistent_backup": False,
+                        "restore_authorized": False,
+                        "restored": False,
+                    }
+                )
+            )
+            return 0
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Raw-source preservation refused: {type(exc).__name__}; keep DB/sidecars/backups/partial evidence",
+                file=sys.stderr,
+            )
+            return 4
     if args.inspect_corrupt_restore is not None:
         if (
             args.restore_candidate is None

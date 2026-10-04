@@ -7,6 +7,7 @@ not permission to replace a database or execute a recovery candidate.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 import sqlite3
@@ -120,7 +121,7 @@ def hold_corrupt_database(
         ):
             raise RuntimeError("Resolve retained runtime work before damage inspection")
         observed: dict[str, tuple[BinaryIO, os.stat_result] | None] = {}
-        fingerprints = []
+        fingerprints: list[dict[str, Any]] = []
         # Acquire every present source handle before SQLite reads or hashing.
         for name in _NAMES:
             check()
@@ -171,7 +172,7 @@ def hold_corrupt_database(
                 raise RuntimeError(
                     "Database/sidecar inventory changed during inspection"
                 )
-        yield {
+        damage = {
             "damage_inspection_format": 1,
             "sqlite_view": "immutable_readonly_inspection",
             "wal_recoverability_assessed": False,
@@ -181,3 +182,10 @@ def hold_corrupt_database(
             "current_changes_assessable": False,
             "restore_authorized": False,
         }
+        damage["data_root_identity"] = hashlib.sha256(
+            str(canonical).encode("utf-8")
+        ).hexdigest()
+        damage["damage_identity"] = hashlib.sha256(
+            json.dumps(damage, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        yield damage

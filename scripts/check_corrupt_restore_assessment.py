@@ -1,6 +1,7 @@
 """Exact candidate probe on a new private damaged-source fixture, never live data."""
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -104,12 +105,83 @@ def main() -> None:
         path.name: path.read_bytes() for path in root.iterdir() if path.is_file()
     }:
         raise RuntimeError("Candidate changed raw source/sidecars")
+    preserve = [
+        str(args.executable),
+        *prefix,
+        "--preserve-corrupt-source",
+        body["damage"]["damage_identity"],
+    ]
+    mixed = subprocess.run(
+        preserve + ["--smoke"], env=environment, capture_output=True, timeout=20
+    )
+    if mixed.returncode != 2:
+        raise RuntimeError(
+            "Candidate mixed raw-source preservation and DB initialization"
+        )
+    stale = subprocess.run(
+        [*preserve[:-1], "0" * 64], env=environment, capture_output=True, timeout=60
+    )
+    if stale.returncode != 4 or list((root / "backups").glob("raw-source-*")):
+        raise RuntimeError("Candidate accepted an unreviewed damaged-source identity")
+    saved = subprocess.run(preserve, env=environment, capture_output=True, timeout=180)
+    if saved.returncode != 0 or not 0 < len(saved.stdout) <= 128 * 1024:
+        raise RuntimeError(
+            f"Exact candidate raw-source preservation refused: exit {saved.returncode}"
+        )
+    receipt = json.loads(saved.stdout)
+    if receipt["raw_source_preserved"] is not True or any(
+        receipt[key] is not False
+        for key in ("consistent_backup", "restore_authorized", "restored")
+    ):
+        raise RuntimeError("Candidate claimed unsupported raw-source recovery")
+    relative = Path(receipt["raw_source_manifest"])
+    retained_manifest = (root / relative).resolve(strict=True)
+    if (
+        relative.is_absolute()
+        or retained_manifest.parent.parent != root / "backups"
+        or retained_manifest.name != "raw-source-manifest.json"
+    ):
+        raise RuntimeError("Candidate raw-source receipt escaped the private fixture")
+    retained = json.loads(retained_manifest.read_text(encoding="utf-8"))
+    if (
+        retained["damage"] != body["damage"]
+        or retained["raw_bytes_verified"] is not True
+        or any(
+            retained[key] is not False
+            for key in (
+                "consistent_backup",
+                "restore_authorized",
+                "wal_recoverability_assessed",
+                "media_included",
+            )
+        )
+    ):
+        raise RuntimeError(
+            "Candidate raw-source manifest differs from fresh reviewed source"
+        )
+    if {path.name for path in retained_manifest.parent.iterdir()} != set(before) | {
+        retained_manifest.name
+    }:
+        raise RuntimeError("Candidate raw-source inventory changed")
+    for entry in retained["damage"]["raw_files"]:
+        if entry["present"]:
+            copied = (retained_manifest.parent / entry["name"]).read_bytes()
+            if (
+                copied != before[entry["name"]]
+                or len(copied) != entry["byte_size"]
+                or hashlib.sha256(copied).hexdigest() != entry["sha256"]
+            ):
+                raise RuntimeError("Candidate raw-source retained bytes/digest differ")
+    if b"PRIVATE" in saved.stdout + saved.stderr or before != {
+        path.name: path.read_bytes() for path in root.iterdir() if path.is_file()
+    }:
+        raise RuntimeError("Candidate changed/exposed raw source during preservation")
     damaged.unlink()  # own synthetic fixture only: missing-source refusal
     missing = subprocess.run(command, env=environment, capture_output=True, timeout=20)
     if missing.returncode != 4 or damaged.exists():
         raise RuntimeError("Candidate initialized missing damaged source")
     print(
-        "Exact damaged-source backup/candidate/media assessment PASS; raw bytes retained; apply/recovery unverified"
+        "Exact damaged-source assessment and separate raw-source preservation PASS; original bytes unchanged; apply/recovery unverified"
     )
 
 

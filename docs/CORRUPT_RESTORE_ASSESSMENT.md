@@ -38,10 +38,12 @@ media issue hiển thị để review. `current_schema`/`current_counts` là `nu
 mất từ DB hỏng. Backup DB không chứa media; file mới vẫn còn, không được tự xóa.
 Sửa nguồn, sidecar, registry, backup, candidate hoặc media cần đánh giá lại.
 
-`raw_source_preserved: false` nghĩa là chưa tạo bản giữ bytes nguồn riêng;
+`raw_source_preserved: false` nghĩa là assessment này chưa tạo/xác minh archive;
 `apply_supported: false` và `restored: false` là trạng thái bắt buộc của slice này.
 Không đưa proof format2 cho `--apply-restore` thường, không thay file DB bằng tay,
-không xóa WAL/guard hoặc đoán candidate. Phần còn thiếu: giữ raw source bền vững,
+không xóa WAL/guard hoặc đoán candidate. Có thể dùng `damage.damage_identity`
+để [giữ riêng raw source](CORRUPT_SOURCE_PRESERVATION.md) dưới app lock, fresh
+hash và fsync; archive không thay backup SQLite hợp lệ. Phần còn thiếu: archive revalidation,
 review/xác nhận mất thay đổi và media riêng, apply có journal/guard cùng crash
 recovery và fresh health trên exact artifact. Raw-source preservation không được
 thay backup DB đã validate bằng SQLite Backup API.
