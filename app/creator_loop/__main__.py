@@ -34,6 +34,11 @@ def main() -> int:
         return run_decode_worker(Path(sys.argv[2]))
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--inspect-corrupt-copy",
+        type=Path,
+        help="Inspect guarded copy actual bytes/positions without changing data or guard",
+    )
+    parser.add_argument(
         "--copy-corrupt-restore",
         type=Path,
         help="Guarded confirmed DB replacement; requires explicit health recovery before launch",
@@ -180,6 +185,29 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if args.inspect_corrupt_copy is not None:
+        if any(
+            value
+            for name, value in vars(args).items()
+            if name != "inspect_corrupt_copy"
+        ):
+            parser.error("Corrupt copy inspection requires only an explicit journal")
+        from .corrupt_restore_inspection import inspect_corrupt_copy
+
+        try:
+            print(
+                json.dumps(inspect_corrupt_copy(data_root(), args.inspect_corrupt_copy))
+            )
+            return 0
+        except DataRootBusy as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                f"Corrupt copy inspection refused: {type(exc).__name__}; keep guard and all evidence",
+                file=sys.stderr,
+            )
+            return 4
     if args.copy_corrupt_restore is not None:
         if (
             args.reviewed_preparation is None

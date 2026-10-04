@@ -43,7 +43,8 @@ sandbox chặn mọi arbitrary byte writer. Blocking I/O cần process timeout n
 Exit0 trả journal và phase `CORRUPT_DB_COMMITTED_GUARDED`;
 `requires_recovery_health: true`, `activated: false`, `restored: false`.
 **Guard vẫn chặn Library/managed launch**: copy thành công chưa là restore hoàn
-tất. Activation, actual-state recovery và fresh runtime health còn cần triển
+tất. Đối chiếu [inspection trạng thái thực](CORRUPT_RESTORE_INSPECTION.md) bằng journal.
+Activation, actual-state recovery và fresh runtime health còn cần triển
 khai/nghiệm thu riêng; không xóa guard hoặc dùng restore thường để bypass.
 Exit2 là input thiếu/mixed, exit3 app lock bận, exit4 từ chối/lỗi.
 

@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import test_update_preparation as preparation_fixture
+from corrupt_restore_fixture import clone_prepared_fixture
 from creator_loop.app_lock import AppDataLock, DataRootBusy
 from creator_loop.corrupt_restore_assessment import assess_corrupt_restore
 from creator_loop.corrupt_restore_preparation import prepare_corrupt_restore
@@ -28,9 +29,14 @@ class CorruptRestorePreparationTests(unittest.TestCase):
         self.fixture = preparation_fixture.UpdatePreparationTests()
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
-        self.fixture._legacy(version)
+        if version != 1:
+            self.fixture._legacy(version)
         self.root = self.fixture.root.resolve()
-        journal = self.fixture._prepare()
+        journal = (
+            clone_prepared_fixture(self.fixture)
+            if version == 1
+            else self.fixture._prepare()
+        )
         record = json.loads(journal.read_text())
         self.candidate = Path(record["candidate_directory"])
         self.backup_id = record["backup_id"]

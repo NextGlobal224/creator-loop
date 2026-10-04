@@ -367,8 +367,39 @@ def main() -> None:
             validate(restored)
         if b"PRIVATE" in copied.stdout + copied.stderr:
             raise RuntimeError("Guarded copy exposed original private fixture bytes")
+        inspected = subprocess.run(
+            [
+                str(args.executable),
+                *prefix,
+                "--inspect-corrupt-copy",
+                str(copy_journal),
+            ],
+            env=environment,
+            capture_output=True,
+            timeout=90,
+        )
+        if inspected.returncode != 0 or not 0 < len(inspected.stdout) <= 128 * 1024:
+            raise RuntimeError(
+                f"Exact guarded-copy inspection refused: exit {inspected.returncode}"
+            )
+        actual_state = json.loads(inspected.stdout)
+        if (
+            actual_state["actual_state"] != "VALIDATED_COPY_GUARDED"
+            or actual_state["guard_retained"] is not True
+            or actual_state["current_database_identity"]
+            != copy_record["restored_database_identity"]
+            or actual_state["restored"] is not False
+            or actual_state["activated"] is not False
+            or not all(
+                entry["in_retention"] for entry in actual_state["original_locations"]
+            )
+            or b"PRIVATE" in inspected.stdout + inspected.stderr
+        ):
+            raise RuntimeError(
+                "Candidate actual-state inspector guessed/lost guard or disclosed bytes"
+            )
     print(
-        "Exact damaged-source assessment/raw/archive/BackupAPI staging/stage verification PASS; Windows guarded copy retains originals and guard; recovery/health unverified"
+        "Exact damaged review/raw/archive/BackupAPI stage/verification and Windows guarded copy/actual-state inspection PASS; originals/guard retained; recovery/health unverified"
     )
 
 
