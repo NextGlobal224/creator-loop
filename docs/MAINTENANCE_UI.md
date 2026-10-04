@@ -78,7 +78,11 @@ Originals thiếu/trùng/foreign hoặc completed copy đổi bytes cần fresh 
 decision riêng; không bật nút để đoán/xóa evidence. UI có scroll khi thiếu chiều cao.
 Completed copy có main mất/rỗng cũng cần quyết định mới; không dùng consent của
 interrupted copy. Readonly review vẫn hiển thị backup/state, nhưng khóa resume
-và loss/empty consent cho luồng chưa được hỗ trợ này, giữ mọi bytes/guard/journal.
+và loss/empty consent của interrupted resume, giữ mọi bytes/guard/journal.
+Chọn **Copy đã đổi: quyết định khôi phục mới** cho [luồng fresh riêng](FRESH_COMPLETED_RESTORE.md):
+chọn rõ original journal/backup/candidate, đánh giá mới, fresh/loss/media consent
+mặc định tắt. Copy bàn giao original journal và bỏ mọi proof/health consent cũ,
+vẫn có guard; cần actual-state review và health riêng.
 
 Mỗi thao tác chạy trong native Windows Job riêng, được quan sát bằng Qt timer
 với deadline 300s. **Hủy tác vụ đang chạy** hoặc đóng cửa sổ chỉ dừng cây process

@@ -5,7 +5,9 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from creator_loop.update_backup import _digest
@@ -21,6 +23,7 @@ def main() -> None:
         "work-root",
     ):
         parser.add_argument(f"--{name}", type=Path, required=True)
+    parser.add_argument("--maintenance-ui", action="store_true")
     args = parser.parse_args()
     parent = args.work_root.resolve()
     parent.mkdir(parents=True, exist_ok=False)
@@ -141,10 +144,15 @@ def main() -> None:
             (root / name).read_bytes() != entry[0] for name, entry in current.items()
         ):
             raise RuntimeError("Refused fresh copy changed protected files")
-        copied = invoke(command)
-        if copied.returncode:
-            raise RuntimeError("Actual confirmed fresh copy failed")
-        receipt = json.loads(copied.stdout)
+        if args.maintenance_ui:
+            receipt = _ui_copy(
+                root, journal, record, args.executable, args.installation_root
+            )
+        else:
+            copied = invoke(command)
+            if copied.returncode:
+                raise RuntimeError("Actual confirmed fresh copy failed")
+            receipt = json.loads(copied.stdout)
         if (
             receipt.get("phase") != "FRESH_DB_COMMITTED_GUARDED"
             or receipt.get("guard_retained") is not True
@@ -200,18 +208,22 @@ def main() -> None:
             or len(proof.get("fresh_retention_history", [])) != 1
         ):
             raise RuntimeError("Fresh copy missing actual state/history proof")
-        recovered = invoke(
-            [
-                "--recover-corrupt-copy",
-                str(journal),
-                "--installation-root",
-                str(args.installation_root),
-                "--reviewed-inspection",
-                proof["inspection_identity"],
-                "--confirm-recovery",
-            ]
-        )
-        if recovered.returncode or (root / "runtime/restore-in-progress.json").exists():
+        if args.maintenance_ui:
+            _ui_health(root, journal, args.executable, args.installation_root)
+            recovered_code = 0
+        else:
+            recovered_code = invoke(
+                [
+                    "--recover-corrupt-copy",
+                    str(journal),
+                    "--installation-root",
+                    str(args.installation_root),
+                    "--reviewed-inspection",
+                    proof["inspection_identity"],
+                    "--confirm-recovery",
+                ]
+            ).returncode
+        if recovered_code or (root / "runtime/restore-in-progress.json").exists():
             raise RuntimeError("Separate actual owned health/guard clear failed")
         recovery = json.loads(
             (
@@ -244,6 +256,148 @@ def main() -> None:
     print(
         "Supplied CLI fresh missing/empty/unknown/sidecar choice, distinct consent, native retention, guarded copy and separate actual owned health PASS; not final GUI/product/hardware/release acceptance"
     )
+    if args.maintenance_ui:
+        print(
+            "SOURCE Qt fresh4state -> supplied exact CLI/candidate, default-off consent, guarded handoff, re-review and separate actual owned health PASS; not full frozen GUI/product acceptance"
+        )
+
+
+def _wait_ui(app, window):
+    deadline = time.monotonic() + 180
+    while window.command.busy and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    app.processEvents()
+    if window.command.busy:
+        raise TimeoutError("Owned fresh UI command exceeded probe deadline")
+
+
+def _ui_copy(root, journal, record, executable, installation):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from creator_loop.fresh_restore_ui import FreshRestoreWindow
+    from creator_loop.maintenance_ui import MaintenanceWindow
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    parent = MaintenanceWindow(root, installation)
+    parent.candidate.setText(record["candidate_directory"])
+    parent.backup_id.setText(record["backup_id"])
+    parent.journal.setText(str(journal))
+    parent.buttons["fresh-completed-restore"].click()
+    window = parent.fresh_window
+    if not isinstance(window, FreshRestoreWindow):
+        parent.close()
+        raise RuntimeError("Parent did not open distinct fresh dialog")
+    ticks = []
+    heartbeat = QTimer()
+    heartbeat.setInterval(20)
+    heartbeat.timeout.connect(lambda: ticks.append(time.monotonic()))
+    heartbeat.start()
+    try:
+        with (
+            patch.object(sys, "executable", str(executable)),
+            patch.object(
+                sys,
+                "frozen",
+                not executable.name.lower().startswith("python"),
+                create=True,
+            ),
+        ):
+            window.review_button.click()
+            _wait_ui(app, window)
+            if window.proof is None or any(
+                box.isChecked()
+                for box in (
+                    window.fresh_consent,
+                    window.loss_consent,
+                    window.media_consent,
+                )
+            ):
+                raise RuntimeError("Fresh UI failed review/default-off consent")
+            if window.proof["backup_created_at"] not in window.review.toPlainText():
+                raise RuntimeError("Fresh UI omitted selected backup time")
+            window.loss_consent.setChecked(True)
+            if window.copy_button.isEnabled():
+                raise RuntimeError("Loss consent bypassed distinct fresh consent")
+            window.fresh_consent.setChecked(True)
+            if not window.copy_button.isEnabled():
+                raise RuntimeError("Fresh reviewed copy not enabled")
+            window.copy_button.click()
+            _wait_ui(app, window)
+            if (
+                window.isVisible()
+                or parent.copy_review is not None
+                or parent.health_consent.isChecked()
+            ):
+                raise RuntimeError(
+                    "Fresh UI did not hand off guarded copy with new health required"
+                )
+            if (
+                parent.journal.text() != str(journal)
+                or window.command.log_directory is None
+            ):
+                raise RuntimeError("Fresh handoff changed original journal")
+            receipt = json.loads(
+                (window.command.log_directory / "stdout.log").read_text(
+                    encoding="utf-8"
+                )
+            )
+    finally:
+        parent.close()
+        heartbeat.stop()
+        app.processEvents()
+    if (
+        window.command.process is not None
+        or parent.command.process is not None
+        or len(ticks) < 2
+    ):
+        raise RuntimeError("Fresh UI owned cleanup/heartbeat failed")
+    return receipt
+
+
+def _ui_health(root, journal, executable, installation):
+    from creator_loop.maintenance_ui import MaintenanceWindow
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    parent = MaintenanceWindow(root, installation)
+    parent.journal.setText(str(journal))
+    try:
+        with (
+            patch.object(sys, "executable", str(executable)),
+            patch.object(
+                sys,
+                "frozen",
+                not executable.name.lower().startswith("python"),
+                create=True,
+            ),
+        ):
+            parent.buttons["review-corrupt-copy"].click()
+            _wait_ui(app, parent)
+            if (
+                parent.copy_review is None
+                or parent.copy_review["inspection"]["actual_state"]
+                != "VALIDATED_COPY_GUARDED"
+            ):
+                raise RuntimeError("Fresh parent actual-state re-review failed")
+            if (
+                parent.buttons["recover-corrupt-copy"].isEnabled()
+                or parent.health_consent.isChecked()
+            ):
+                raise RuntimeError("Fresh parent defaulted to health consent")
+            parent.health_consent.setChecked(True)
+            if not parent.buttons["recover-corrupt-copy"].isEnabled():
+                raise RuntimeError("Separate consented actual health not enabled")
+            parent.buttons["recover-corrupt-copy"].click()
+            _wait_ui(app, parent)
+            if (root / "runtime/restore-in-progress.json").exists():
+                raise RuntimeError("Actual fresh parent health did not clear guard")
+    finally:
+        parent.close()
+        app.processEvents()
+    if parent.command.process is not None:
+        raise RuntimeError("Fresh parent owned health cleanup incomplete")
 
 
 if __name__ == "__main__":

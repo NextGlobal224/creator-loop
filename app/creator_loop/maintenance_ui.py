@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from creator_loop.fresh_restore_ui import FreshRestoreWindow
 from creator_loop.maintenance_process import MaintenanceCommand
 from creator_loop.restore_assessment import assessment_identity
 
@@ -39,6 +40,7 @@ class MaintenanceWindow(QMainWindow):
         self.assessment: dict[str, Any] | None = None
         self.copy_review: dict[str, Any] | None = None
         self.damaged_window: QMainWindow | None = None
+        self.fresh_window: FreshRestoreWindow | None = None
         self.operation = ""
         self.pending_selection: tuple[str, ...] = ()
         self.command = MaintenanceCommand(self.root, self)
@@ -109,6 +111,7 @@ class MaintenanceWindow(QMainWindow):
                 ("resume-corrupt-copy", "Tiếp tục copy đã đánh giá"),
                 ("recover-corrupt-copy", "Khôi phục copy và kiểm sức khỏe"),
                 ("damaged-restore", "Nguồn hỏng: giữ raw, staging và copy"),
+                ("fresh-completed-restore", "Copy đã đổi: quyết định khôi phục mới"),
             )
         ):
             button = QPushButton(title)
@@ -226,6 +229,7 @@ class MaintenanceWindow(QMainWindow):
             ready = {
                 "backup": True,
                 "damaged-restore": True,
+                "fresh-completed-restore": bool(installation and journal),
                 "stage-update": bool(installation and zip_path and manifest),
                 "prepare-update": bool(
                     installation
@@ -300,6 +304,39 @@ class MaintenanceWindow(QMainWindow):
         self.cancel_button.setEnabled(busy)
 
     def _action(self, kind: str) -> None:
+        if kind == "fresh-completed-restore":
+            if self.command.busy or not self.buttons[kind].isEnabled():
+                return
+            self._invalidate()
+            if self.fresh_window is None:
+                self.fresh_window = FreshRestoreWindow(
+                    self.root,
+                    self.installation.text().strip(),
+                    self.candidate.text().strip(),
+                    self.backup_id.text().strip(),
+                    self.journal.text().strip(),
+                    self,
+                )
+                self.fresh_window.state_changed.connect(self._invalidate)
+                self.fresh_window.copy_ready.connect(self._fresh_copy_ready)
+            elif (
+                not self.fresh_window.isVisible() and not self.fresh_window.command.busy
+            ):
+                for target, value in zip(
+                    self.fresh_window.fields,
+                    (
+                        self.installation.text().strip(),
+                        self.candidate.text().strip(),
+                        self.backup_id.text().strip(),
+                        self.journal.text().strip(),
+                    ),
+                    strict=True,
+                ):
+                    target.setText(value)
+                self.fresh_window._invalidate()
+            self.fresh_window.show()
+            self.fresh_window.raise_()
+            return
         if kind == "damaged-restore":
             if self.command.busy:
                 return
@@ -368,6 +405,20 @@ class MaintenanceWindow(QMainWindow):
         if kind != "backup":
             args += ["--installation-root", installation]
         self._start(kind, args)
+
+    def _fresh_copy_ready(
+        self, journal: str, installation: str, candidate: str, backup_id: str
+    ) -> None:
+        self.installation.setText(installation)
+        self.candidate.setText(candidate)
+        self.backup_id.setText(backup_id)
+        self.journal.setText(journal)
+        # The original journal/selectors may be unchanged; old consent still
+        # must never authorize health after a new current bundle was copied.
+        self._invalidate()
+        self.status.setText(
+            "Copy mới vẫn có guard. Đánh giá copy lại rồi xác nhận kiểm sức khỏe riêng."
+        )
 
     def _apply(self) -> None:
         review = self.assessment
@@ -615,6 +666,8 @@ class MaintenanceWindow(QMainWindow):
         self._refresh()
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self.fresh_window is not None:
+            self.fresh_window.close()
         if self.damaged_window is not None:
             self.damaged_window.close()
         self.command.cancel()

@@ -63,7 +63,21 @@ native IDs. Không sửa/xóa journal hoặc gộp archive bằng tay. Evidence 
 trùng, foreign hoặc bị đổi sẽ từ chối; giữ tất cả để chẩn đoán. History bị chặn
 khi vượt bounded budget (64 records); không tự xóa lịch sử để vượt giới hạn.
 
-Fresh UI chưa nối; CLI/backend và SOURCE/EXE proofs có scope riêng trong
+Trong Maintenance, chọn **Copy đã đổi: quyết định khôi phục mới** để mở dialog
+riêng. Chọn original copy journal, backup ID và candidate cụ thể rồi chọn
+**Đánh giá quyết định mới**. Không tự chọn backup theo thời điểm. Đọc thời điểm
+backup, schema, current bundle, media và cảnh báo mất thay đổi; xác nhận fresh
+decision và mất thay đổi bằng hai ô riêng. Media có vấn đề cần xác nhận riêng.
+Các ô mặc định tắt; đổi selector, lỗi hoặc đóng dialog xóa proof/consent.
+
+**Copy mới và giữ guard** chạy owned command với deadline300s/output1MiB,
+không activate/clear guard. Hủy/đóng chỉ dừng command của dialog, giữ mọi
+evidence; không hứa chưa đổi dữ liệu khi đã bắt đầu copy. Maintenance nhận lại
+original journal nhưng bỏ proof/health consent cũ ngay cả khi selector không
+đổi. Chọn **Đánh giá copy có guard** lại rồi xác nhận health riêng; media chưa
+hợp lệ vẫn chặn health. Đóng cửa sổ cha cũng đóng dialog và owned command.
+
+GUI đang ở checkpoint triển khai; CLI/backend và SOURCE/EXE proofs có scope riêng trong
 [HANDOFF](HANDOFF.md). Chưa là full frozen product, engine/model thật, Windows
 8GB/physical volumes, required CI/tag/release acceptance. Các yêu cầu V1 trong
 [PRODUCT_ACCEPTANCE](PRODUCT_ACCEPTANCE.md) giữ nguyên.

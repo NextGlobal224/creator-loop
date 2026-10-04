@@ -101,8 +101,8 @@ Known interrupted-copy states have [consented continuation](docs/CORRUPT_COPY_RE
 that preserves original/partial bytes and keeps the launch guard. Interrupted
 unknown/nonempty partial bundles need separate reviewed retention consent and
 complete original evidence. Changed completed copies have a distinct
-[fresh review/copy CLI](docs/FRESH_COMPLETED_RESTORE.md), explicitly selecting the
-bound backup/candidate and retaining every current bundle; fresh GUI remains open.
+[fresh review/copy CLI and Maintenance dialog](docs/FRESH_COMPLETED_RESTORE.md),
+explicitly selecting the bound backup/candidate and retaining every current bundle.
 Maintenance provides [guarded copy review/resume/health-recovery controls](docs/MAINTENANCE_UI.md)
 with separate default-off consents. Full frozen product validation, complete
 failure recovery and release acceptance remain open.
