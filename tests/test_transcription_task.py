@@ -23,7 +23,11 @@ if sys.platform == "win32":
     from creator_loop.processing_recovery import recover_processing_startup
     from creator_loop.storage_paths import resolve_storage_path
     from creator_loop.transcription_command import TranscriptionCommand
-    from creator_loop.transcription_task import run_transcription_task
+    from creator_loop.transcription_task import (
+        _read_task_cancellation,
+        run_transcription_task,
+    )
+    from creator_loop.windows_owned_file import OwnedWindowsFile
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
 
@@ -219,6 +223,60 @@ class TranscriptionTaskTests(unittest.TestCase):
         self.assertEqual(
             hashlib.sha256(self.path.read_bytes()).hexdigest(), self.before
         )
+
+    def test_cancel_publication_exclusive_writer_is_retried_before_complete_read(self):
+        self.select(hang=True)
+        self.command.start_task(self.original.file_id)
+        self.until(self.engine_started)
+        self.assertIsNotNone(self.command.workspace)
+        control = self.command.workspace / "cancel.json"
+        owned = OwnedWindowsFile.create_new(control)
+        try:
+            payload = json.dumps(
+                {"format": 1, "request_id": self.command.request_id, "cancel": True}
+            ).encode()
+            owned.stream.write(payload[:5])
+            owned.stream.flush()
+            os.fsync(owned.stream.fileno())
+            # Publication is visible by pathname, but the exclusive writer
+            # prevents reading until fsync/close. Do not turn this into FAILED.
+            deadline = time.perf_counter() + 0.3
+            while time.perf_counter() < deadline:
+                self.app.processEvents()
+                time.sleep(0.005)
+            self.assertTrue(self.command.busy, str(self.results) + str(self.failures))
+            owned.stream.write(payload[5:])
+            owned.stream.flush()
+            os.fsync(owned.stream.fileno())
+        finally:
+            owned.close()
+        self.until(lambda: not self.command.busy)
+        code, body = self.report()
+        self.assertEqual((code, body["status"]), (2, "CANCELLED"), body)
+        self.assertEqual(
+            self.query(
+                "SELECT task_type,status FROM processing_runs ORDER BY created_at"
+            ),
+            [("VIDEO_AUDIO_DECODE", "SUCCEEDED"), ("AUDIO_TRANSCRIPTION", "CANCELLED")],
+        )
+
+    def test_closed_malformed_cancel_record_is_not_retried_or_accepted(self):
+        path = self.root / "runtime/cancel-test.json"
+        identity = "a" * 32
+        for body in (
+            {"format": True, "request_id": identity, "cancel": True},
+            {"format": 1, "request_id": "b" * 32, "cancel": True},
+            {"format": 1, "request_id": identity, "cancel": 1},
+        ):
+            path.write_text(json.dumps(body), encoding="utf-8")
+            with self.subTest(body=body), self.assertRaises(ValueError):
+                _read_task_cancellation(path, identity)
+        path.write_text(
+            '{"format":1,"format":1,"request_id":"' + identity + '","cancel":true}',
+            encoding="utf-8",
+        )
+        with self.assertRaises(ValueError):
+            _read_task_cancellation(path, identity)
 
     def test_unbound_private_entry_refuses_without_db_initialization(self):
         before = self.db_path.read_bytes()

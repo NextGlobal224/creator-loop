@@ -26,6 +26,30 @@ TASK_JOB_MEMORY = 1024 * 1024**2
 TASK_TIMEOUT = 420
 
 
+def _read_task_cancellation(path: Path, request_id: str) -> bool:
+    try:
+        with RuntimeHandle(path, read_only=True) as control:
+            payload = control.read_json(reject_duplicates=True)
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        if getattr(error, "winerror", None) == 32:
+            # CREATE_NEW publishes the pathname before its exclusive writer
+            # fsyncs/closes. No partial bytes are readable; retry on the next
+            # bounded worker poll. All other I/O and malformed records fail.
+            return False
+        raise
+    if (
+        set(payload) != {"format", "request_id", "cancel"}
+        or type(payload["format"]) is not int
+        or payload["format"] != 1
+        or payload["request_id"] != request_id
+        or payload["cancel"] is not True
+    ):
+        raise ValueError("Invalid task cancellation record")
+    return True
+
+
 def _emit(body: dict[str, object]) -> None:
     print(json.dumps(body, ensure_ascii=True, allow_nan=False), flush=True)
 
@@ -127,14 +151,9 @@ def run_transcription_task(request: Path) -> int:
                 raise OSError("Task must execute in an owned Job")
 
             def cancelled() -> bool:
-                path = request.parent / "cancel.json"
-                if not path.exists():
-                    return False
-                with RuntimeHandle(path) as control:
-                    payload = control.read_json(reject_duplicates=True)
-                if payload != {"format": 1, "request_id": request_id, "cancel": True}:
-                    raise ValueError("Invalid task cancellation record")
-                return True
+                return _read_task_cancellation(
+                    request.parent / "cancel.json", request_id
+                )
 
             # Qt/DB/component preflight, hashing and writes all occur off GUI.
             from PySide6.QtGui import QGuiApplication
