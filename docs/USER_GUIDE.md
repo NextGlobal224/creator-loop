@@ -20,7 +20,8 @@ máy Windows 8 GB và release gate vẫn cần nghiệm thu theo
    có lệnh riêng trong [README](../README.md); bản onedir đóng gói Qt/Python.
    Engine/model là thành phần riêng, chưa có lựa chọn thực tế được nghiệm thu.
    Với bản có `USER_GUIDE.html` cạnh EXE, mở file đó bằng trình duyệt để đọc
-   hướng dẫn offline; `docs/` chứa các hướng dẫn sản phẩm liên quan. Thông tin
+   hướng dẫn offline; `docs/` chứa các hướng dẫn sản phẩm liên quan, gồm
+   transcription và chọn RAW → Evidence. Thông tin
    source trong `build-info.json` chỉ nhận diện bản build, không thay checksum,
    manifest hay bằng chứng nghiệm thu. Link tài liệu phát triển ngoài bộ offline
    mở repo khi bạn chọn; app không tải engine/model qua các link này.

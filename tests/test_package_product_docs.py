@@ -80,6 +80,10 @@ class ProductDocsTests(unittest.TestCase):
         files = list(self.root.rglob("*.html"))
         self.assertEqual(len(files), len(DOCUMENTS))
         guide = (self.root / "USER_GUIDE.html").read_text(encoding="utf-8")
+        guide_links = Links()
+        guide_links.feed(guide)
+        self.assertIn("docs/TRANSCRIPT_EVIDENCE.html", guide_links.targets)
+        self.assertIn("docs/VIDEO_TRANSCRIPTION_PIPELINE.html", guide_links.targets)
         for text in (
             "Creator Loop",
             "Evidence",

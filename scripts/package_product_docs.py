@@ -11,6 +11,8 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 DOCUMENTS = (
     "USER_GUIDE.md",
     "LOCAL_COMPONENTS.md",
+    "VIDEO_TRANSCRIPTION_PIPELINE.md",
+    "TRANSCRIPT_EVIDENCE.md",
     "MAINTENANCE_UI.md",
     "MEDIA_CANCEL.md",
     "RUNTIME_RECOVERY.md",
