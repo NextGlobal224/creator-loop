@@ -241,7 +241,9 @@ with patch('creator_loop.library_ui.LibraryWindow',AutoLibrary):
         )
         self.assertTrue(
             any(
-                "1" in message and "thumbnail" in message and "giữ nguyên" in message
+                "1" in message
+                and "tác vụ xử lý bị gián đoạn" in message
+                and "giữ nguyên" in message
                 for message in messages
             )
         )

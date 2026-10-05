@@ -1337,8 +1337,8 @@ def _run(
         messages = []
         if recovery.interrupted_run_ids:
             messages.append(
-                f"Đã ghi nhận {len(recovery.interrupted_run_ids)} tác vụ thumbnail bị gián đoạn; "
-                "chọn ảnh gốc trong Library để chạy thumbnail lại."
+                f"Đã ghi nhận {len(recovery.interrupted_run_ids)} tác vụ xử lý bị gián đoạn; "
+                "dữ liệu được giữ nguyên, chạy lại sẽ tạo lượt xử lý mới."
             )
         if recovery.unverified_running_ids:
             messages.append(

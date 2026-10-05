@@ -6,11 +6,13 @@ import hashlib
 import json
 import math
 import os
+import stat
+import struct
 import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Callable
 from uuid import uuid4
 
 from PySide6.QtCore import QCoreApplication, QThread, qVersion
@@ -18,6 +20,7 @@ from PySide6.QtGui import QImage, QImageReader
 
 from creator_loop import __version__
 from creator_loop.owned_process import OwnedWindowsProcess
+from creator_loop.pcm_decode import MAX_PCM_FRAMES
 from creator_loop.publication_media import _open_read_lock
 from creator_loop.runtime_ownership import bind_workspace_child, create_workspace_marker
 
@@ -37,6 +40,8 @@ def decode_isolated(
     timeout_seconds: float = 8,
     require_audio: bool = False,
     source: BinaryIO | None = None,
+    max_pcm_frames: int = MAX_PCM_FRAMES,
+    cancelled: Callable[[], bool] = lambda: False,
 ) -> tuple[dict[str, Any], QImage | None]:
     """Keep the original handle locked until the owned tree has exited.
 
@@ -48,13 +53,24 @@ def decode_isolated(
         raise OSError("Isolated Qt decoder requires Windows")
     if not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 120:
         raise ValueError("Decoder deadline must be finite and between 0 and 120s")
-    if mode not in ("video", "audio") or type(start_ms) is not int or start_ms < 0:
+    if (
+        mode not in ("video", "audio", "pcm")
+        or type(start_ms) is not int
+        or start_ms < 0
+    ):
         raise ValueError("Invalid decoder mode/position")
+    if mode == "pcm" and (
+        start_ms != 0
+        or end_ms is not None
+        or type(max_pcm_frames) is not int
+        or not 0 < max_pcm_frames <= MAX_PCM_FRAMES
+    ):
+        raise ValueError("PCM requires a complete zero-origin track and bounded output")
     if mode == "audio" and (type(end_ms) is not int or end_ms <= start_ms):
         raise ValueError("Invalid decoder audio range")
     if _decoding:
         raise RuntimeError("Another media decoder is already running")
-    if QThread.currentThread().isInterruptionRequested():
+    if cancelled() or QThread.currentThread().isInterruptionRequested():
         raise InterruptedError("Media decoder cancelled before startup")
     canonical = Path(root).resolve(strict=True)
     for name in ("runtime", "logs"):
@@ -88,6 +104,7 @@ def decode_isolated(
                         "end_ms": end_ms,
                         "require_audio": require_audio,
                         "timeout_seconds": timeout_seconds,
+                        **({"max_pcm_frames": max_pcm_frames} if mode == "pcm" else {}),
                     }
                 ),
                 encoding="utf-8",
@@ -96,7 +113,7 @@ def decode_isolated(
             environment["QT_QPA_PLATFORM"] = "offscreen"
             prefix = [] if getattr(sys, "frozen", False) else ["-m", "creator_loop"]
             deadline = time.monotonic() + timeout_seconds
-            cancelled = [False]
+            shutdown_cancelled = [False]
             with OwnedWindowsProcess(
                 Path(sys.executable),
                 [*prefix, "--decode-media", str(request)],
@@ -112,7 +129,7 @@ def decode_isolated(
             ) as process:
 
                 def cancel() -> None:
-                    cancelled[0] = True
+                    shutdown_cancelled[0] = True
                     process.close()
 
                 app = QCoreApplication.instance()
@@ -120,9 +137,12 @@ def decode_isolated(
                     app.aboutToQuit.connect(cancel)
                 try:
                     while True:
-                        if QThread.currentThread().isInterruptionRequested():
+                        if (
+                            cancelled()
+                            or QThread.currentThread().isInterruptionRequested()
+                        ):
                             raise InterruptedError("Media decoder cancelled by user")
-                        if cancelled[0]:
+                        if shutdown_cancelled[0]:
                             raise InterruptedError(
                                 "Media decoder cancelled on app shutdown"
                             )
@@ -140,7 +160,7 @@ def decode_isolated(
                 finally:
                     if app is not None:
                         app.aboutToQuit.disconnect(cancel)
-            if QThread.currentThread().isInterruptionRequested():
+            if cancelled() or QThread.currentThread().isInterruptionRequested():
                 raise InterruptedError("Media decoder cancelled by user")
             response = directory / "response.json"
             if not response.is_file() or response.stat().st_size > 4096:
@@ -155,6 +175,51 @@ def decode_isolated(
                 if body.get("timeout") is True:
                     raise TimeoutError(message)
                 raise ValueError(message)
+            if mode == "pcm":
+                frames = body.get("frames")
+                if (
+                    type(frames) is not int
+                    or not 0 < frames <= max_pcm_frames
+                    or type(body.get("duration_ms")) is not int
+                    or body["duration_ms"] != (frames * 1000 + 15999) // 16000
+                ):
+                    raise ValueError("Invalid PCM result frames/duration")
+                pcm = directory / "audio.wav"
+                if pcm.is_symlink() or pcm.resolve(strict=True) != pcm:
+                    raise ValueError("PCM result must be a regular owned file")
+                with _open_read_lock(pcm) as output:
+                    info = os.fstat(output.fileno())
+                    if (
+                        not stat.S_ISREG(info.st_mode)
+                        or info.st_nlink != 1
+                        or info.st_size != 44 + frames * 2
+                    ):
+                        raise ValueError("Invalid PCM result size/type")
+                    raw = output.read(44 + max_pcm_frames * 2 + 1)
+                header = struct.pack(
+                    "<4sI4s4sIHHIIHH4sI",
+                    b"RIFF",
+                    36 + frames * 2,
+                    b"WAVE",
+                    b"fmt ",
+                    16,
+                    1,
+                    1,
+                    16000,
+                    32000,
+                    2,
+                    16,
+                    b"data",
+                    frames * 2,
+                )
+                if (
+                    len(raw) != info.st_size
+                    or raw[:44] != header
+                    or hashlib.sha256(raw).hexdigest() != body.get("pcm_sha256")
+                ):
+                    raise ValueError("Invalid PCM result header/digest")
+                body["pcm_wav"] = raw
+                return body, None
             if (
                 type(body.get("duration_ms")) is not int
                 or body["duration_ms"] <= start_ms
@@ -267,6 +332,26 @@ def run_decode_worker(request: Path) -> int:
                 duration_ms=decoded_audio.duration_ms,
                 buffer_start_ms=decoded_audio.buffer_start_ms,
                 buffer_end_ms=decoded_audio.buffer_end_ms,
+            )
+        elif body["mode"] == "pcm":
+            from creator_loop.pcm_decode import decode_pcm_local
+
+            if body.get("start_ms") != 0 or body.get("end_ms") is not None:
+                raise ValueError("PCM worker requires the complete zero-origin track")
+            target = request.parent / "audio.wav"
+            with target.open("xb") as output:
+                pcm = decode_pcm_local(
+                    device,
+                    output,
+                    max_frames=body["max_pcm_frames"],
+                    timeout_seconds=body["timeout_seconds"],
+                )
+                output.flush()
+                os.fsync(output.fileno())
+            result.update(
+                frames=pcm.frames,
+                duration_ms=pcm.duration_ms,
+                pcm_sha256=hashlib.sha256(target.read_bytes()).hexdigest(),
             )
         else:
             raise ValueError("Invalid decoder mode")
