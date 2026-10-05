@@ -13,7 +13,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from creator_loop.app_lock import AppDataLock, DataRootBusy
-from creator_loop.database import SCHEMA_VERSION, validate
+from creator_loop.database import SCHEMA_VERSION, _sqlite_uri, validate
 from creator_loop.local_components import (
     DEFAULT_WORKER_MEMORY,
     ComponentPreflightError,
@@ -106,18 +106,19 @@ def save_component_selection(
     if not lock.held or lock.root != canonical:
         raise RuntimeError("Selection requires this data root's held app lock")
     source = canonical / "creator_loop.sqlite3"
+    source_io = file_io_path(source)
     if (
-        source.is_symlink()
-        or source.is_junction()
-        or not source.is_file()
-        or source.stat().st_nlink != 1
+        source_io.is_symlink()
+        or source_io.is_junction()
+        or not source_io.is_file()
+        or source_io.stat().st_nlink != 1
     ):
         raise ComponentPreflightError("Existing unaliased user database required")
     with hold_verified_components(
         specs, worker_memory_limit=worker_memory_limit, cancelled=cancelled
     ) as verified:
         with closing(
-            sqlite3.connect(source.as_uri() + "?mode=rw", uri=True, timeout=5)
+            sqlite3.connect(_sqlite_uri(source) + "?mode=rw", uri=True, timeout=5)
         ) as db:
             db.execute("PRAGMA foreign_keys=ON")
             db.execute("BEGIN IMMEDIATE")

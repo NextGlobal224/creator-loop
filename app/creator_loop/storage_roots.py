@@ -105,19 +105,19 @@ def default_storage_root_id(data_root: Path) -> str | None:
 
 
 def _write_manifest(path: Path, payload: dict[str, object]) -> None:
-    path.parent.mkdir(exist_ok=True)
+    file_io_path(path.parent).mkdir(exist_ok=True)
     temporary = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
     created = False
     try:
-        with temporary.open("x", encoding="utf-8") as stream:
+        with file_io_path(temporary).open("x", encoding="utf-8") as stream:
             created = True
             json.dump(payload, stream, ensure_ascii=False, indent=2)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        os.replace(file_io_path(temporary), file_io_path(path))
     finally:
         if created:
-            temporary.unlink(missing_ok=True)
+            file_io_path(temporary).unlink(missing_ok=True)
 
 
 def set_default_storage_root(data_root: Path, root_id: str | None) -> None:

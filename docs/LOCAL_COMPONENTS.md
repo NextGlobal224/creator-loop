@@ -133,6 +133,14 @@ CLI nguồn/probe CI được bọc timeout. Engine pipeline còn thiếu.
 
 ### Lưu lựa chọn đã kiểm
 
+Hồi quy Windows cho root dài có Unicode kiểm riêng việc tạo DB mới, mở lại,
+backup khi WAL còn hoạt động, migration cùng backup trước nâng cấp và guard
+restore. Lưu selection ở root này giữ dữ liệu domain và component không thuộc
+app; metadata cũ malformed vẫn bị từ chối. Các đường dẫn lưu trong metadata và
+thông báo giữ dạng canonical; chỉ I/O dùng spelling Windows mở rộng.
+Xem `tests/test_data_root_long_paths.py`. Phạm vi này không nghiệm thu toàn bộ
+giao diện, compatibility engine/model, chất lượng hoặc resource trên máy 8 GB.
+
 Với DB đã được tạo bằng app hiện tại, đóng Library rồi chạy:
 
 ```powershell
