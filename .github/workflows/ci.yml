@@ -237,6 +237,14 @@ jobs:
         run: |
           cd release
           sha256sum -c SHA256SUMS.txt
+      - name: Refuse incomplete V1 release gate
+        run: >-
+          python scripts/check_release_gate.py
+          --artifact "release/CreatorLoop-${GITHUB_SHA}-win-x64.zip"
+          --manifest release/release-manifest.json
+          --expected-commit "$GITHUB_SHA"
+          --expected-run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          --tag "$GITHUB_REF_NAME"
       - name: Publish tested bytes
         env:
           GH_TOKEN: ${{ github.token }}

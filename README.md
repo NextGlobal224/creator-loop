@@ -71,6 +71,12 @@ The launcher holds `runtime/app-data.lock` for the complete app session, before 
 
 ## CI and release
 
+Tag publication now checks the [V1 release gate](docs/RELEASE_GATE.md) before
+uploading tested bytes. Development/unresolved manifests, unaccepted V1
+prerequisites, or mismatched commit/run/tag/ZIP/guide identity refuse publication.
+The current manifest writer produces development checkpoints; green CI alone
+does not make them V1 releases or replace real engine/model/8 GB acceptance.
+
 For explicitly selected local engine/model files, `--check-components MANIFEST`
 checks pinned metadata and physical digest/size without opening the user DB or
 executing the components. See [local component preflight](docs/LOCAL_COMPONENTS.md)
