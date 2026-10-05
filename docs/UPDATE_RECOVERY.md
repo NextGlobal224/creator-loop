@@ -65,3 +65,9 @@ failure retention. Health orchestration fixtures use real readonly SQLite
 checks; native process behavior has its own tests. CI also probes inspect/resume
 and fresh health from the exact ZIP, simulating a lagging coordination journal.
 That artifact probe is not a claim of engine/model or full V1 release acceptance.
+
+Journal publication uses extended Windows file paths for the temporary write,
+replacement and failure cleanup. This also covers a temporary filename longer
+than 260 characters when the journal itself fits the legacy limit. Canonical
+paths, ownership, retained guards and the actual-state recovery rules stay the
+same; an I/O failure still requires inspection of the retained evidence.
