@@ -17,7 +17,7 @@ Các dòng1–23 trong ma trận Gate của [PRODUCT_ACCEPTANCE](PRODUCT_ACCEPTA
 phải có trạng thái `ĐÃ NGHIỆM THU`, evidence và cột còn thiếu trống/`—`. Chỉ cập
 nhật trạng thái sau khi xem bằng chứng đúng commit/artifact/phạm vi, gồm máy8GB
 và engine/model thật. Mục24 chứa hành động publish nên chưa cần đánh dấu đã
-nghiệm thu trước chính hành động đó; artifact phải có đầy đủ21offline guides,
+nghiệm thu trước chính hành động đó; artifact phải có đầy đủ23offline guides,
 launcher và build-info đúng commit/target. Sau publish, cập nhật evidence của
 mục24 bằng tag/release/CI/tested bytes thực tế.
 

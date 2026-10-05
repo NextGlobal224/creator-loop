@@ -21,9 +21,14 @@ from .paths import data_root, ensure_data_root
 MAINTENANCE_REQUESTED = 20
 COMPONENTS_REQUESTED = 21
 TRANSCRIPTION_REQUESTED = 22
+TRANSCRIPT_REVIEW_REQUESTED = 24
 
 
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--transcript-review-task":
+        from .transcript_review_task import run_transcript_review_task
+
+        return run_transcript_review_task(Path(sys.argv[2]))
     if len(sys.argv) == 3 and sys.argv[1] == "--transcribe-video-task":
         from .transcription_task import run_transcription_task
 
@@ -1307,6 +1312,18 @@ def main() -> int:
                 if task_result == LIBRARY_REQUESTED:
                     continue  # reacquire a fresh app lock before Library/recovery.
                 return task_result
+            if launch_result == TRANSCRIPT_REVIEW_REQUESTED:
+                from .transcript_review_ui import (
+                    LIBRARY_REQUESTED,
+                    run_transcript_review,
+                )
+
+                review_result = run_transcript_review(
+                    root, *args.transcript_review_selection
+                )
+                if review_result == LIBRARY_REQUESTED:
+                    continue
+                return review_result
             return launch_result
     except DataRootBusy as exc:
         print(str(exc), file=sys.stderr)
@@ -1355,7 +1372,7 @@ def _run(
             raise RuntimeError("UI startup recovery requires the app coordination lock")
         recovery = recover_processing_startup(root, coordination)
         runtime_recovery = recover_runtime_startup(root, coordination)
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)
     window = LibraryWindow(root)
     if (
         recovery is not None
@@ -1401,6 +1418,9 @@ def _run(
 
         QTimer.singleShot(200, app.quit)
     result = app.exec()
+    if window.transcript_review_selection is not None:
+        args.transcript_review_selection = window.transcript_review_selection
+        return TRANSCRIPT_REVIEW_REQUESTED
     if window.transcription_selection is not None:
         args.transcription_selection = window.transcription_selection
         return TRANSCRIPTION_REQUESTED

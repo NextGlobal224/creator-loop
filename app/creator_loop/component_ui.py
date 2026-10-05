@@ -95,6 +95,7 @@ class ComponentWindow(QMainWindow):
         )
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setWordWrap(False)
+        self._size_columns()
         layout.addWidget(self.table)
         self.consent = QCheckBox(
             "Tôi đã đối chiếu file, phiên bản, nguồn/license và quyền dùng cục bộ của lựa chọn này"
@@ -204,8 +205,14 @@ class ComponentWindow(QMainWindow):
                 tip = value + "\n" + spec.license_url if column == 5 else value
                 item.setToolTip("<qt>" + escape(tip).replace("\n", "<br>") + "</qt>")
                 self.table.setItem(row, column, item)
+        self._size_columns()
+
+    def _size_columns(self) -> None:
+        header = self.table.horizontalHeader()
         for column, width in enumerate((110, 70, 140, 220, 150, 150, 140, 90)):
-            self.table.setColumnWidth(column, width)
+            self.table.setColumnWidth(
+                column, max(width, header.sectionSizeHint(column))
+            )
 
     def _finished(self, code: int, raw: str) -> None:
         if self.close_pending:

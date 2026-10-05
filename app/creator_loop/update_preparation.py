@@ -30,17 +30,18 @@ from creator_loop.windows_paths import file_io_path
 
 def _journal(path: Path, record: dict[str, Any]) -> None:
     temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    temporary_io = file_io_path(temporary)
     created = False
     try:
-        with temporary.open("x", encoding="utf-8") as stream:
+        with temporary_io.open("x", encoding="utf-8") as stream:
             created = True
             json.dump(record, stream, sort_keys=True, indent=2)
             stream.flush()
             os.fsync(stream.fileno())
-        temporary.replace(path)
+        temporary_io.replace(file_io_path(path))
     finally:
         if created:
-            temporary.unlink(missing_ok=True)
+            temporary_io.unlink(missing_ok=True)
 
 
 def manifest_identity(manifest: dict[str, Any]) -> str:

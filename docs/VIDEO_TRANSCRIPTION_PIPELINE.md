@@ -1,9 +1,13 @@
 # Video → PCM → RAW — checkpoint service
 
-LOCAL service foundation: caller là owned I/O process, giữ app lock đúng root,
+Service/recovery đã merge PR78, task/UI/budget/log privacy đã merge PR79.
+Caller là owned I/O process, giữ app lock đúng root,
 Qt event loop và timeout cấp tiến trình cho toàn lượt gồm preflight/SQLite/I/O.
-Source UI đã nối owned task/progress/cancel và Library handoff; frozen entry
-point mới chưa được build/probe. Không gọi services trực tiếp trên GUI thread.
+Source UI đã nối owned task/progress/cancel và Library handoff. Exact CI79
+frozen task/decoder đã chạy selected engine trên known English VIDEO và kiểm
+RAW/lineage/reopen trong phạm vi SOURCE Qt caller; bằng chứng/bytes tại
+[HANDOFF](HANDOFF.md). Chưa whole frozen frontend/quality/resource/release.
+Không gọi services trực tiếp trên GUI thread.
 
 Trong Library, chọn original VIDEO rồi **Chép lời Video bằng engine/model đã
 chọn**. Library đóng và nhả app lock trước khi mở cửa sổ tác vụ. Chọn ngôn ngữ

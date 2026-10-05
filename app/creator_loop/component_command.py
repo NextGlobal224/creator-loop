@@ -8,6 +8,7 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import BinaryIO
 from uuid import uuid4
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -59,6 +60,8 @@ class ComponentCommand(QObject):
         before_resume: Callable[[dict[str, object]], None] | None = None,
         component_version: str = __version__,
         log_prefix: str = "component-check",
+        capture_output: bool = True,
+        stdout_sink: BinaryIO | None = None,
     ) -> None:
         if self.busy:
             raise RuntimeError("Component command already running")
@@ -76,6 +79,8 @@ class ComponentCommand(QObject):
             environment=environment,
             memory_limit_bytes=memory_limit_bytes,
             before_resume=before_resume,
+            capture_output=capture_output,
+            stdout_sink=stdout_sink,
         )
         self.failure = None
         self.cleanup_deadline = None

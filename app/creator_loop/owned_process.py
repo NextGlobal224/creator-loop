@@ -22,6 +22,7 @@ from typing import Any, BinaryIO
 from uuid import uuid4
 
 from creator_loop.windows_owned_file import _kernel32
+from creator_loop.windows_paths import file_io_path
 
 
 class _BasicLimits(ctypes.Structure):
@@ -341,7 +342,7 @@ class OwnedWindowsProcess:
         self.thread: int | None = None
         self.streams: list[BinaryIO] = []
         self.record: dict[str, object] = {}
-        log_directory.mkdir()  # caller chooses a new owned log directory
+        file_io_path(log_directory).mkdir()  # caller chooses a new owned directory
         self.stdout_path = log_directory / "stdout.log"
         self.stderr_path = log_directory / "stderr.log"
         self.started = time.monotonic()
@@ -366,12 +367,12 @@ class OwnedWindowsProcess:
             self.streams.append(
                 _duplicate_write_output(self.kernel, stdout_sink)
                 if stdout_sink is not None
-                else self.stdout_path.open("xb")
+                else file_io_path(self.stdout_path).open("xb")
                 if capture_output
                 else open(os.devnull, "wb")
             )
             self.streams.append(
-                self.stderr_path.open("xb")
+                file_io_path(self.stderr_path).open("xb")
                 if capture_output
                 else open(os.devnull, "wb")
             )
@@ -486,7 +487,7 @@ class OwnedWindowsProcess:
                 "component_version": component_version,
             }
             # Recovery evidence exists before any owned code can run.
-            with (self.stdout_path.parent / "ownership.json").open(
+            with file_io_path(self.stdout_path.parent / "ownership.json").open(
                 "x", encoding="utf-8"
             ) as stream:
                 json.dump(self.record, stream, sort_keys=True)

@@ -14,6 +14,7 @@ from typing import Any
 from creator_loop.database import SCHEMA_VERSION, open_readonly, validate
 from creator_loop.owned_process import OwnedWindowsProcess
 from creator_loop.storage_paths import resolve_storage_path
+from creator_loop.windows_paths import file_io_path
 
 
 def readonly_health(root: Path) -> dict[str, object]:
@@ -102,14 +103,14 @@ def run_health_check(
             "ownership": process.record,
             **asdict(outcome),
         }
-    (log_directory / "result.json").write_text(
+    file_io_path(log_directory / "result.json").write_text(
         json.dumps(record, sort_keys=True, indent=2), encoding="utf-8"
     )
     if outcome.timed_out:
         raise TimeoutError("Candidate health timed out; owned tree stopped")
     if outcome.exit_code != 0:
         raise RuntimeError("Candidate health failed; inspect its bounded logs")
-    with process.stdout_path.open("rb") as stream:
+    with file_io_path(process.stdout_path).open("rb") as stream:
         raw = stream.read(1024 * 1024 + 1)
     if len(raw) > 1024 * 1024:
         raise RuntimeError("Candidate health output exceeds metadata budget")
