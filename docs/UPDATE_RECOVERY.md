@@ -71,3 +71,5 @@ replacement and failure cleanup. This also covers a temporary filename longer
 than 260 characters when the journal itself fits the legacy limit. Canonical
 paths, ownership, retained guards and the actual-state recovery rules stay the
 same; an I/O failure still requires inspection of the retained evidence.
+Native exclusive archive creation also uses the extended spelling while keeping
+CREATE_NEW, sharing flags and handle-based rollback unchanged.

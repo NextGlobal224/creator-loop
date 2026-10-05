@@ -9,6 +9,8 @@ from ctypes import wintypes
 from pathlib import Path
 from typing import BinaryIO
 
+from creator_loop.windows_paths import file_io_path
+
 _GENERIC_READ = 0x80000000
 _GENERIC_WRITE = 0x40000000
 _DELETE = 0x00010000
@@ -82,7 +84,7 @@ class OwnedWindowsFile:
 
         kernel32 = _kernel32()
         handle = kernel32.CreateFileW(
-            str(path),
+            str(file_io_path(path)),
             _GENERIC_READ | _GENERIC_WRITE | _DELETE,
             0,
             None,
