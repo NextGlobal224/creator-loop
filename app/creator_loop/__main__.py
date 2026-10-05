@@ -169,6 +169,11 @@ def main() -> int:
         help="Read saved component declarations; not a fresh file check",
     )
     parser.add_argument(
+        "--check-whisper-runtime",
+        action="store_true",
+        help="Rehash selected profile and check engine CLI version; no model inference",
+    )
+    parser.add_argument(
         "--check-components",
         type=Path,
         help="Verify selected local component artifacts without opening the user DB",
@@ -284,6 +289,18 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if args.check_whisper_runtime:
+        if any(
+            value
+            for name, value in vars(args).items()
+            if name != "check_whisper_runtime"
+        ):
+            parser.error(
+                "Engine version checks cannot be combined with other operations"
+            )
+        from .whisper_runtime_probe import check_whisper_runtime_cli
+
+        return check_whisper_runtime_cli(data_root())
     if args.apply_completed_copy_restore is not None:
         if (
             args.fresh_restore_backup is None

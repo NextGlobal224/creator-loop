@@ -13,6 +13,13 @@ suốt tác vụ, từ chối file lạ trong runtime directory, kiểm identity
 PCM16/16kHz/mono; một tác vụ tuần tự, noGPU/OMP2/beam1/best1, Job memory cap
 và deadline được cấp rõ. Không đổi component hoặc tăng cap tự động khi lỗi.
 
+[Preflight version](LOCAL_COMPONENTS.md#kiểm-phiên-bản-engine-đã-lưu-trên-windows)
+là lệnh riêng `--check-whisper-runtime` và action Components: fresh hashes/leases,
+held PE headers và actual CLI `--version` dưới native Job/private bounded pipe.
+Nó không gọi adapter inference, không nâng saved compatibility, không chứng
+minh model/quality/resource8GB hoặc clean-target prerequisite. Bằng chứng source
+version-only và build tương ứng tra HANDOFF; không gán cho artifact cũ.
+
 RAW JSON giữ nguyên bytes/text/hash trong workspace có parent/child creation
 identity ghi trước resume. Adapter trả RAW, suggested segments, input/component
 hashes và native ownership/memory/timing. Offset không hợp lệ bị từ chối, không
@@ -32,7 +39,6 @@ có trong nguồn, nên chất lượng tiếng Việt và dữ liệu thực v�
 
 PCM/durable RAW (`asset_files.role=OTHER`, MIME JSON, lineage/run)/terminal states
 và known-executor recovery đã có trong service PR78. Budget/progress/cancel UI
-còn checkpoint source mới: full885/12SKIP và source265 hash đã xác minh;
-chưa CI/artifact mới. Còn Vietnamese
+đã merge PR79 với required checks đạt; artifact/probe scopes ở HANDOFF. Còn Vietnamese
 quality, long input, RAM/disk pressure/prerequisites và exact final artifact.
 Không thêm enum/table chỉ để lưu transcript; SQLite vẫn là nguồn chuẩn metadata.

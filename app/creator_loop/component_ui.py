@@ -112,6 +112,9 @@ class ComponentWindow(QMainWindow):
         self.inspect = QPushButton("Xem lựa chọn đã lưu")
         self.inspect.clicked.connect(self._inspect)
         buttons.addWidget(self.inspect)
+        self.runtime_check = QPushButton("Kiểm phiên bản engine đã lưu")
+        self.runtime_check.clicked.connect(self._check_runtime)
+        buttons.addWidget(self.runtime_check)
         buttons.addStretch()
         layout.addLayout(buttons)
         self.status = QLabel(
@@ -150,6 +153,7 @@ class ComponentWindow(QMainWindow):
         )
         self.cancel.setEnabled(busy)
         self.inspect.setEnabled(not busy)
+        self.runtime_check.setEnabled(not busy)
 
     def _start(self, operation: str, arguments: list[str]) -> None:
         self.operation = operation
@@ -186,6 +190,10 @@ class ComponentWindow(QMainWindow):
     def _inspect(self) -> None:
         self._invalidate()
         self._start("inspect", ["--inspect-components"])
+
+    def _check_runtime(self) -> None:
+        self._invalidate()
+        self._start("runtime", ["--check-whisper-runtime"])
 
     def _display(self, specs: tuple[ComponentSpec, ...]) -> None:
         self.table.setRowCount(len(specs))
@@ -267,6 +275,20 @@ class ComponentWindow(QMainWindow):
                     self.status.setText("Chưa lưu lựa chọn component cho dữ liệu này.")
                 else:
                     raise ValueError("Invalid historical selection")
+            elif self.operation == "runtime":
+                if (
+                    body["check"] != "ENGINE_CLI_VERSION_CONFIRMED"
+                    or body["engine_version"] != "1.8.7"
+                    or body["pe_amd64_verified"] is not True
+                    or body["model_executed"] is not False
+                    or body["model_compatibility_verified"] is not False
+                    or body["runtime_compatibility_verified"] is not False
+                ):
+                    raise ValueError("Version startup cannot grant compatibility")
+                self.status.setText(
+                    "Engine đã khởi động và báo phiên bản 1.8.7. "
+                    "Chưa chạy model; chưa xác nhận tương thích, chất lượng hoặc máy 8 GB."
+                )
             elif (
                 self.operation == "save"
                 and body["selection"] == "SAVED"

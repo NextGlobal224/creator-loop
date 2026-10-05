@@ -151,6 +151,12 @@ tin version/source/license. Preflight chỉ kiểm file/metadata rồi lưu lự
 không chứng minh engine chạy được, không tự tải/cài component. Xem
 [component cục bộ](LOCAL_COMPONENTS.md). Bộ Whisper đã chọn dùng budget768MiB;
 chọn rõ budget và kiểm/lưu lại, không lấy lịch sử lựa chọn làm preflight mới.
+Trong cửa sổ Engine/model, **Kiểm phiên bản engine đã lưu** kiểm lại sáu file
+và khởi động CLI của bộ Whisper1.8.7 đã chọn trong tác vụ riêng. Kết quả đúng
+version chưa chạy model, chưa xác nhận tương thích/chất lượng/resource8GB;
+lựa chọn đã lưu không tự được nâng trạng thái nghiệm thu. Hủy hoặc đóng cửa sổ
+chờ worker đã sở hữu thoát. Entry point này cần bản source/build mới có nó;
+tra checkpoint trước khi dùng bản41c8d43 cũ. Chi tiết lỗi/CLI ở hướng dẫn component.
 Chọn original VIDEO → **Chép lời Video bằng engine/model đã chọn**. Library
 đóng để nhả lock; cửa sổ tác vụ cho chọn ngôn ngữ/budget khớp selection rồi
 **Tạo PCM và chép lời máy**. Mỗi lần chạy tạo file/run mới; PCM thành công vẫn

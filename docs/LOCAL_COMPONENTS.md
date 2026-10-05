@@ -46,10 +46,52 @@ kiểm này không thực thi lệnh version, không kiểm format/model compati
 không thay nghiệm thu engine/model thật.
 
 `worker_memory_bytes` là commit budget dự kiến cho **một worker tuần tự**, trong
-khoảng 64 MiB–4 GiB của native Job. CLI hiện từ chối khai báo vượt cap mặc định
-512 MiB. Service có tham số cap cho caller tương ứng với Job của tác vụ; không
+khoảng 64 MiB–4 GiB của native Job. CLI mặc định512 MiB; cap khác phải được chọn
+tường minh bằng `--component-worker-memory-mib` khi check/select. Service có tham số cap cho caller tương ứng với Job của tác vụ; không
 cộng ngân sách các worker tuần tự, không suy RAM từ kích thước model. Preflight
 chưa tạo worker engine hay đo RAM; lựa chọn cap thật và kiểm máy 8 GB còn thiếu.
+
+## Kiểm phiên bản engine đã lưu trên Windows
+
+Trong cửa sổ Engine/model, dùng **Kiểm phiên bản engine đã lưu** sau khi lưu lựa
+chọn. Có thể chạy CLI riêng khi app sử dụng data root đó đã đóng:
+
+```powershell
+$env:CREATOR_LOOP_DATA_ROOT = 'D:\MyCreatorLoopData'
+CreatorLoop.exe --check-whisper-runtime
+```
+
+Lệnh không khởi tạo/migrate DB, không đổi lựa chọn hoặc nghiệm thu. Nó cần DB
+hiện có/không có restore guard, kiểm lại size/hash/lease cả6file của profile CPU
+whisper.cpp1.8.7/base multilingual đã chọn; kiểm header AMD64 PE32+ từ held file,
+rồi chạy đúng EXE `--version` dưới native Job/cap đã lưu. PATH/cwd chỉ System32;
+không tải, tìm executable thay thế, activate hoặc dọn component unowned. Header
+theo [Microsoft PE format](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format);
+static header check không chứng minh mọi DLL đã được loader sử dụng.
+
+Worker GUI có timeout180s/cap256MiB cho I/O; child engine version có deadline15s,
+cap riêng theo lựa chọn (vẫn chịu giới hạn Job cha). Stdout/stderr engine đi qua
+private pipe tối đa32KiB, chỉ nhận đúng một dòng version; không lưu transcript
+hoặc raw engine output vào default logs. Timeout/cancel chỉ dừng native cây do
+worker sở hữu. Outer CLI logs chỉ ghi JSON metadata/error category; ownership
+metadata được giữ. Cleanup pipe chưa xác nhận thì giữ buffer/lease và từ chối.
+
+Exit0 `ENGINE_CLI_VERSION_CONFIRMED` xác nhận CLI báo đúng1.8.7 trên máy đang
+chạy. `model_executed`, `model_compatibility_verified` và
+`runtime_compatibility_verified` đều `false`; không tự nâng saved selection.
+Exit3 root đang bận; exit1 thiếu lựa chọn/file/prerequisite, guard, hash/PE/version,
+output hoặc deadline không đạt. Version-only không chạy model và không chứng
+minh delay-loaded dependencies, chất lượng, resource8GB hoặc clean-target runtime.
+Build41c8d43 trước source mới chưa có entry point này; không gán proof cho build cũ.
+
+Runtime đã chọn có imports MSVCP140/VCRUNTIME140/VCRUNTIME140_1/VCOMP140 và
+Windows UCRT, ngoài năm file engine. Theo
+[Microsoft Visual C++ runtime](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist),
+Redistributable phải đúng kiến trúc x64 và không cũ hơn toolchain dùng để build
+binary. Minimum runtime/toolchain version cùng clean-target test của bộ này
+chưa được nghiệm thu; version-only PASS trên máy đang có DLL không thay kiểm đó.
+Creator Loop không chép System32 DLL vào engine/build hoặc tự cài Redistributable.
+License MIT của engine/model không cấp quyền phân phối Microsoft runtime.
 
 ## Chạy kiểm tra
 

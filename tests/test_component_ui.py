@@ -136,6 +136,53 @@ class ComponentUiTests(unittest.TestCase):
         self.assertIsNone(self.window.fingerprint)
         self.assertEqual(self.window.table.rowCount(), 0)
 
+    def test_engine_version_result_cannot_grant_model_compatibility_or_save_consent(
+        self,
+    ):
+        self.review()
+        self.window.consent.setChecked(True)
+        self.window._invalidate()
+        self.window.operation = "runtime"
+        body = {
+            "check": "ENGINE_CLI_VERSION_CONFIRMED",
+            "engine_version": "1.8.7",
+            "pe_amd64_verified": True,
+            "model_executed": False,
+            "model_compatibility_verified": False,
+            "runtime_compatibility_verified": False,
+        }
+        self.window._finished(0, json.dumps(body))
+        self.assertIn("Chưa chạy model", self.window.status.text())
+        self.assertFalse(self.window.save.isEnabled())
+        self.assertFalse(self.window.consent.isChecked())
+        for field in (
+            "model_executed",
+            "model_compatibility_verified",
+            "runtime_compatibility_verified",
+        ):
+            with self.subTest(field=field):
+                self.window.operation = "runtime"
+                self.window._finished(0, json.dumps({**body, field: True}))
+                self.assertIn("không hợp lệ", self.window.status.text())
+                self.assertFalse(self.window.save.isEnabled())
+
+    @unittest.skipUnless(sys.platform == "win32", "actual bounded component CLI")
+    def test_actual_engine_version_action_refuses_unconfigured_profile_and_preserves_data(
+        self,
+    ):
+        before = self.db.read_bytes(), self.user_manifest.read_bytes()
+        self.window._check_runtime()
+        self.assertFalse(self.window.runtime_check.isEnabled())
+        self.until(lambda: not self.window.command.busy)
+        self.assertTrue(self.window.runtime_check.isEnabled())
+        self.assertFalse(self.window.save.isEnabled())
+        self.assertEqual(
+            (self.db.read_bytes(), self.user_manifest.read_bytes()), before
+        )
+        self.assertEqual(
+            self.window.status.text().split("\n")[0], "ComponentPreflightError"
+        )
+
     @unittest.skipUnless(sys.platform == "win32", "actual bounded component CLI")
     def test_actual_explicit_768_budget_saved_without_runtime_claim(self):
         self.entry["worker_memory_bytes"] = 768 * 1024**2
