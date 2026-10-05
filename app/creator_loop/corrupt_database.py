@@ -58,7 +58,7 @@ def _damage_code(path: Path, check: Callable[[], None], deadline: float) -> int:
             sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True)
         ) as db:
             db.execute(
-                f"PRAGMA busy_timeout={max(1, min(10000, int((deadline - time.monotonic()) * 1000)))}"
+                f"PRAGMA busy_timeout={max(1, min(10000, int((deadline - time.perf_counter()) * 1000)))}"
             )
             db.set_progress_handler(lambda: _progress(check), 1000)
             try:
@@ -131,12 +131,15 @@ def _hold_corrupt_source_locked(
     if not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 600:
         raise ValueError("Damage inspection needs a bounded work deadline")
     canonical = _damage_root(root)
-    deadline = time.monotonic() + timeout_seconds
+    # Python3.12 Windows monotonic may use a coarse tick. A work budget shorter
+    # than that tick still expires; use the highest-resolution duration clock
+    # consistently, including the SQLite remaining-time calculation.
+    deadline = time.perf_counter() + timeout_seconds
 
     def check() -> None:
         if cancelled is not None and cancelled():
             raise InterruptedError("Damage inspection cancelled")
-        if time.monotonic() >= deadline:
+        if time.perf_counter() >= deadline:
             raise TimeoutError("Damage inspection exceeded its work budget")
 
     check()

@@ -16,6 +16,15 @@ Staging kiểm digest ZIP và từng file, inventory khớp chính xác, size/bu
 
 Trên Windows, I/O giải nén, kiểm inventory và đọc migration dùng dạng extended path cho các file nội bộ có đường dẫn vượt260 ký tự. Tên candidate, binding và kiểm separation/ownership vẫn dùng đường dẫn canonical ban đầu; không đổi registry hoặc cần quyền Administrator để ghi các file này. Đây không phải cam kết mọi engine, Explorer hoặc công cụ ngoài hỗ trợ đường dẫn dài. Căn cứ API: [Microsoft — giới hạn đường dẫn](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation).
 
+Frozen runtime hook dùng I/O alias của cùng bundle; nếu volume đã có tên8.3 ngắn
+hơn và samefile, Qt/import/DLL resources dùng alias đó. Không tạo junction,
+mapping, bật short-name hay sửa registry. Qt có thể canonicalize extended path
+về tên dài và không tải được DLL/plugin. Khi volume không cung cấp alias phù hợp,
+đường dẫn sâu có thể bị từ chối ngay ở bootstrap/health; updater giữ candidate,
+backup và version cũ theo [activation](UPDATE_ACTIVATION.md), không coi stage
+thành công là app đã chạy được. Chọn installation root ngắn hơn cho lần chuẩn bị
+mới nếu gặp giới hạn này; không tự di chuyển hoặc xóa dữ liệu/installation cũ.
+
 **Stage chưa activate hoặc migrate DB.** Service không chạy candidate, không sửa DB/media và không thay installation đang dùng. Snapshot DB phải được tạo và kiểm trước phần update làm thay đổi DB. Dùng [preparation](UPDATE_PREPARATION.md) cho backup→stage→migration/media-reference check, rồi [activation/health](UPDATE_ACTIVATION.md); nếu bị gián đoạn, dùng [recovery](UPDATE_RECOVERY.md) và quy trình restore có xác nhận theo hướng dẫn. Không tự chạy candidate trên DB cũ chỉ để thử vì launcher có thể thực hiện migration; health trước update phải dùng fixture/copy, còn health sau migration phải được updater kiểm soát. Các service này chưa thay nghiệm thu updater/release toàn V1.
 
 CI build và test exact ZIP, tạo manifest từ file đã giải nén/test, rồi stage ZIP đó với process timeout120s; launcher/schema smoke riêng trên fixture dùng60s. Log được đính kèm Windows artifact. Đây là kiểm tra staging/launcher; chưa thay nghiệm thu toàn luồng, engine/model, máy8GB hay release gate.

@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
+from unittest.mock import patch
 
 from creator_loop.database import SCHEMA_VERSION, initialize
 from creator_loop.paths import ensure_data_root
@@ -35,6 +36,35 @@ class ReadonlyHealthTests(unittest.TestCase):
                 "storage_reference": "not_applicable",
             },
         )
+        self.assertEqual(self.path.read_bytes(), before)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows frozen runtime preflight")
+    def test_broken_frozen_qt_cannot_report_database_only_health_success(self):
+        before = self.path.read_bytes()
+        with (
+            patch("sys.frozen", True, create=True),
+            patch(
+                "importlib.import_module",
+                side_effect=ImportError("fixture DLL unavailable"),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Bundled Qt runtime"):
+                readonly_health(self.root)
+        self.assertEqual(self.path.read_bytes(), before)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows frozen plugin preflight")
+    def test_importable_qt_with_invalid_owned_plugin_refuses_health(self):
+        before = self.path.read_bytes()
+        bundle = self.root / "private bundle"
+        platforms = bundle / "PySide6/plugins/platforms"
+        platforms.mkdir(parents=True)
+        (platforms / "qwindows.dll").write_bytes(b"invalid bundled plugin")
+        with (
+            patch("sys.frozen", True, create=True),
+            patch("sys._MEIPASS", str(bundle), create=True),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Bundled Qt platform plugin"):
+                readonly_health(self.root)
         self.assertEqual(self.path.read_bytes(), before)
 
     def test_health_resolves_actual_sample_and_refuses_missing_media(self):

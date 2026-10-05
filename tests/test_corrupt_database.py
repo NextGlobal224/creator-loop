@@ -180,6 +180,22 @@ class CorruptDatabaseTests(unittest.TestCase):
             pass
         self.assertEqual(self.source.read_bytes(), self.content)
 
+    def test_sub_tick_deadline_expires_even_when_coarse_clock_is_unchanged(self):
+        before = self.snapshot()
+        with (
+            patch("creator_loop.corrupt_database.time.monotonic", return_value=100.0),
+            patch(
+                "creator_loop.corrupt_database.time.perf_counter",
+                side_effect=[100.0, 100.001],
+            ),
+        ):
+            with self.assertRaises(TimeoutError):
+                with hold_corrupt_database(self.root, timeout_seconds=1e-9):
+                    pass
+        self.assertEqual(self.snapshot(), before)
+        with AppDataLock(self.root):
+            pass
+
     @unittest.skipUnless(sys.platform == "win32", "native sharing lease")
     def test_windows_all_source_handles_deny_write_delete_replace_until_release(self):
         wal = self.source.with_name(self.source.name + "-wal")

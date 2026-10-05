@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
+import sys
 from contextlib import closing
 from dataclasses import asdict
 from pathlib import Path
@@ -15,6 +17,29 @@ from creator_loop.storage_paths import resolve_storage_path
 
 
 def readonly_health(root: Path) -> dict[str, object]:
+    if sys.platform == "win32" and getattr(sys, "frozen", False):
+        # Database queries alone must not bless a packaged app with broken DLLs.
+        # Import lightweight bundled dependencies; no window, model or engine.
+        try:
+            for module in (
+                "PySide6.QtCore",
+                "PySide6.QtGui",
+                "PySide6.QtWidgets",
+                "PySide6.QtMultimedia",
+                "PySide6.QtMultimediaWidgets",
+            ):
+                importlib.import_module(module)
+        except (ImportError, OSError) as exc:
+            raise RuntimeError("Bundled Qt runtime is unavailable") from exc
+        core = importlib.import_module("PySide6.QtCore")
+        platforms = Path(getattr(sys, "_MEIPASS")) / "PySide6/plugins/platforms"
+        # Qt may import successfully while its platform DLLs fail to load.
+        # Explicit owned paths prevent an ambient plugin from masking a broken
+        # bundle. Loading the factories creates no window/model/engine.
+        for name in ("qwindows.dll", "qoffscreen.dll"):
+            plugin = core.QPluginLoader(str(platforms / name))
+            if not plugin.load():
+                raise RuntimeError("Bundled Qt platform plugin is unavailable")
     canonical = root.resolve(strict=True)
     source = canonical / "creator_loop.sqlite3"
     if not source.is_file() or source.is_symlink() or source.is_junction():
