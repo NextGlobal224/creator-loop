@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -99,6 +100,103 @@ class InstallationStageTests(unittest.TestCase):
         second = self._stage()
         self.assertNotEqual(target, second)
         self.assertTrue(target.is_dir())
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows extended-path I/O")
+    def test_long_unicode_members_stage_verify_and_reject_tampering(self):
+        from creator_loop.update_activation import verify_candidate
+
+        name = (
+            "CreatorLoop/_internal/"
+            + ("Huế dữ liệu " * 12).rstrip()
+            + "/"
+            + "x" * 100
+            + ".dat"
+        )
+        self.members[name] = b"long-path fixture bytes"
+        self._write()
+        original_zip = self.archive.read_bytes()
+        target = self._stage()
+        path = target / name
+        self.addCleanup(shutil.rmtree, Path("\\\\?\\" + str(target)))
+        self.assertGreater(len(str(path)), 260)
+        extended = Path("\\\\?\\" + str(path))
+        self.assertEqual(extended.read_bytes(), self.members[name])
+        self.assertEqual(verify_candidate(target, self.installation), self.manifest)
+        self.assertEqual(self.archive.read_bytes(), original_zip)
+        self.assertEqual(self.db.read_bytes(), b"untouched fixture database")
+        self.assertEqual((self.old / "keep.txt").read_bytes(), b"old installation")
+        extended.write_bytes(b"changed candidate bytes")
+        with self.assertRaisesRegex(ValueError, "inventory or digest changed"):
+            verify_candidate(target, self.installation)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows extended-path cleanup")
+    def test_failed_long_member_verification_cleans_only_owned_staging(self):
+        name = (
+            "CreatorLoop/_internal/"
+            + ("Cài đặt " * 16).rstrip()
+            + "/"
+            + "x" * 100
+            + ".dat"
+        )
+        self.members[name] = b"long-path fixture bytes"
+        self._write()
+        self.manifest["files"][name]["sha256"] = "0" * 64
+        self._save()
+        with self.assertRaisesRegex(ValueError, "file digest mismatch"):
+            self._stage()
+        self._preserved()
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows bundled migration I/O")
+    def test_bundled_migration_reads_long_resource_path(self):
+        from creator_loop.database import MIGRATIONS, _migration_sql
+
+        migration = MIGRATIONS[-1]
+        expected = _migration_sql(migration)
+        package = self.base / ("Bản cài thử " + "x" * 180)
+        package_io = Path("\\\\?\\" + str(package))
+        (package_io / "migrations").mkdir(parents=True)
+        self.addCleanup(shutil.rmtree, package_io)
+        destination = package_io / "migrations" / f"{migration}.sql"
+        destination.write_text(expected[0], encoding="utf-8")
+        self.assertGreater(len(str(destination)) - 4, 260)
+        with patch("creator_loop.database.sys._MEIPASS", str(package), create=True):
+            self.assertEqual(_migration_sql(migration), expected)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows long candidate read locks")
+    def test_long_candidate_member_metadata_and_read_lease_keep_write_delete_denied(
+        self,
+    ):
+        from creator_loop.corrupt_database import _regular
+        from creator_loop.publication_media import _open_read_lock
+
+        name = (
+            "CreatorLoop/_internal/"
+            + ("Huế dữ liệu " * 12).rstrip()
+            + "/"
+            + "x" * 100
+            + ".dat"
+        )
+        self.members[name] = b"long candidate lease bytes"
+        self._write()
+        candidate = self._stage()
+        candidate_io = Path("\\\\?\\" + str(candidate))
+        self.addCleanup(shutil.rmtree, candidate_io)
+        path = candidate / name
+        path_io = candidate_io / name
+        self.assertGreater(len(str(path)), 260)
+        metadata = _regular(path)
+        self.assertIsNotNone(metadata)
+        self.assertEqual(metadata.st_size, len(self.members[name]))
+        with _open_read_lock(path) as held:
+            self.assertEqual(held.read(), self.members[name])
+            with self.assertRaises(PermissionError):
+                path_io.write_bytes(b"changed during lease")
+            with self.assertRaises(PermissionError):
+                path_io.unlink()
+            with self.assertRaises(PermissionError):
+                path_io.rename(path_io.with_suffix(".moved"))
+        self.assertEqual(path_io.read_bytes(), self.members[name])
+        path_io.unlink()
 
     def test_zip_and_member_digest_mismatches_never_publish(self):
         self.manifest["artifact_sha256"] = "0" * 64

@@ -20,6 +20,7 @@ from typing import Any, BinaryIO
 
 from creator_loop.app_lock import AppDataLock
 from creator_loop.publication_media import _open_read_lock
+from creator_loop.windows_paths import file_io_path
 
 _NAMES = tuple(
     "creator_loop.sqlite3" + suffix for suffix in ("", "-wal", "-shm", "-journal")
@@ -31,10 +32,11 @@ def _identity(value: os.stat_result) -> tuple[int, int, int, int]:
 
 
 def _regular(path: Path) -> os.stat_result | None:
-    if path.is_symlink() or path.is_junction():
+    path_io = file_io_path(path)
+    if path_io.is_symlink() or path_io.is_junction():
         raise ValueError("Linked database/sidecar cannot be assessed")
     try:
-        value = path.stat()
+        value = path_io.stat()
     except FileNotFoundError:
         return None
     if not stat.S_ISREG(value.st_mode) or value.st_nlink != 1:

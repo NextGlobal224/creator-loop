@@ -73,10 +73,10 @@ jobs:
         env:
           PYTHONPATH: app
         shell: powershell
-        timeout-minutes: 13
+        timeout-minutes: 16
         run: |
           $ErrorActionPreference = 'Stop'
-          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 720 -CommandArgs @('-u','scripts/run_suite_with_diagnostics.py')
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 900 -CommandArgs @('-u','scripts/run_suite_with_diagnostics.py')
           $testExit = $LASTEXITCODE
           $run = Get-ChildItem .local-test-logs -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'result.json') } | Sort-Object Name -Descending | Select-Object -First 1
           if ($run) {

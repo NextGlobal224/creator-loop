@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from creator_loop.windows_paths import file_io_path
+
 MAX_EXPANDED_BYTES = 2 * 1024**3
 MAX_FILES = 10000
 MAX_MANIFEST_BYTES = 16 * 1024**2
@@ -41,7 +43,7 @@ def _safe_path(name: str) -> tuple[str, ...]:
 
 
 def load_release_manifest(path: Path) -> dict[str, Any]:
-    with path.open("rb") as stream:
+    with file_io_path(path).open("rb") as stream:
         raw = stream.read(MAX_MANIFEST_BYTES + 1)
     if len(raw) > MAX_MANIFEST_BYTES:
         raise ValueError("Release manifest exceeds metadata budget")
@@ -195,7 +197,7 @@ def stage_installation(
     completed = (
         root / f"{manifest['app_version']}-{manifest['git_commit'][:12]}-{stage_id}"
     )
-    with artifact.open("rb") as source:
+    with file_io_path(artifact).open("rb") as source:
         if (
             hashlib.file_digest(source, "sha256").hexdigest()
             != manifest["artifact_sha256"]
@@ -230,12 +232,13 @@ def stage_installation(
                     actual_files.add(name)
             if actual_files != set(files):
                 raise ValueError("Archive lacks required inventory files")
-            temporary.mkdir()
+            temporary_io = file_io_path(temporary)
+            temporary_io.mkdir()
             try:
                 for member in members:
                     if member.is_dir():
                         continue
-                    destination = temporary.joinpath(*_safe_path(member.filename))
+                    destination = temporary_io.joinpath(*_safe_path(member.filename))
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     digest = hashlib.sha256()
                     written = 0
@@ -256,7 +259,7 @@ def stage_installation(
                         or written != member.file_size
                     ):
                         raise ValueError("Installation file digest mismatch")
-                with (temporary / "release-manifest.json").open(
+                with (temporary_io / "release-manifest.json").open(
                     "x", encoding="utf-8"
                 ) as output_manifest:
                     json.dump(manifest, output_manifest, sort_keys=True, indent=2)
@@ -268,7 +271,7 @@ def stage_installation(
                     != manifest["artifact_sha256"]
                 ):
                     raise ValueError("Artifact changed during staging")
-                temporary.rename(completed)
+                temporary_io.rename(file_io_path(completed))
                 return completed
             except BaseException:
                 if (
@@ -277,5 +280,5 @@ def stage_installation(
                     or temporary.resolve(strict=True).parent != root
                 ):
                     raise OSError("Staging path changed; cleanup refused")
-                shutil.rmtree(temporary)
+                shutil.rmtree(temporary_io)
                 raise

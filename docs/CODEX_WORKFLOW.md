@@ -40,12 +40,18 @@ Runner ưu tiên Python/test native; encoded PowerShell có vấn đề stderr C
 
 ### Budget full suite
 
-Full Windows dùng process timeout720s/CI step13 phút; product deadlines từng test,
+Full Windows dùng process timeout900s/CI step16 phút; product deadlines từng test,
 playback heartbeat8s, RAM512MiB, health60s và recovery180s không đổi. Không bỏ test/assertion.
 Căn cứ measured coverage, FAIL420/600, timing/projection và phạm vi từng checkpoint
 tra [HANDOFF/lịch sử](HANDOFF.md) cùng `corrupt-recovery-full-timeout-timings.json`
-và `fresh-full-timeout-profile.json` trong `.local-test-logs/`; số đo đã được giữ, không audit lại.
-Budget720 có khoảng103.5s trên projected616.469s của mốc fresh600; nếu vẫn FAIL,
+và `fresh-full-timeout-profile.json`, `installation-long-path-full-timeout-profile.json`
+trong `.local-test-logs/`; số đo đã được giữ, không audit lại.
+Budget720 từng có khoảng103.5s trên projected616.469s của mốc fresh600. Lượt720
+ngày05/10 dừng sau718STOP: 712ca chung chậm từ517.264s lên714.732s,6ca mới0.907s,
+86ca cũ chưa chạy65.375s; projection theo tỷ lệ đo805.971s. Benchmark read-only
+6migration ngắn không giải thích mức chậm toàn suite; đây chưa phải root-cause
+performance hoặc bằng chứng PASS. Budget900 có khoảng94s trên projection này.
+Giữ nguyên test/assertion và deadlines sản phẩm; nếu vẫn FAIL,
 đọc START/STOP/stack và chẩn đoán trước retry/đổi budget, không suy speedup từ scoped PASS.
 
 ### Task mới

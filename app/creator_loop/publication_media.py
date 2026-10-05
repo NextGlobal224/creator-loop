@@ -14,6 +14,7 @@ from typing import BinaryIO
 from creator_loop.originals import READ_CHUNK_SIZE
 from creator_loop.storage_paths import resolve_storage_path
 from creator_loop.windows_owned_file import _INVALID_HANDLE_VALUE, _kernel32
+from creator_loop.windows_paths import file_io_path
 
 
 def _open_read_lock(path: Path) -> BinaryIO:
@@ -24,7 +25,9 @@ def _open_read_lock(path: Path) -> BinaryIO:
     import msvcrt
 
     kernel32 = _kernel32()
-    handle = kernel32.CreateFileW(str(path), 0x80000000, 1, None, 3, 0x80, None)
+    handle = kernel32.CreateFileW(
+        str(file_io_path(path)), 0x80000000, 1, None, 3, 0x80, None
+    )
     if handle == _INVALID_HANDLE_VALUE:
         raise ctypes.WinError(ctypes.get_last_error())
     try:

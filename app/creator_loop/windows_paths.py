@@ -1,0 +1,26 @@
+"""Extended Win32 file-I/O spelling, without changing canonical path identities.
+
+This is not a containment, ownership or link check. Callers must retain those
+checks on the original paths before using the alias for file operations.
+https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+
+def file_io_path(path: Path) -> Path:
+    """Use Unicode extended paths without an administrator registry change."""
+    if sys.platform != "win32":
+        return path
+    value = os.path.abspath(path)
+    if value.startswith("\\\\?\\"):
+        return Path(value)
+    if value.startswith("\\\\.\\"):
+        raise ValueError("Device namespaces are not installation file paths")
+    if value.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + value[2:])
+    return Path("\\\\?\\" + value)
