@@ -3,12 +3,28 @@
 import os
 import runpy
 import sys
+import tempfile
 import unittest
+from importlib.machinery import EXTENSION_SUFFIXES, ExtensionFileLoader, FileFinder
 from pathlib import Path
 from unittest.mock import patch
 
 
 class PackagingBootstrapTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "win32", "Windows extended namespace")
+    def test_bundle_root_without_short_alias_keeps_native_extension_discovery(self):
+        hook = Path(__file__).resolve().parents[1] / "packaging/windows_long_paths.py"
+        with patch.object(sys, "frozen", False, create=True):
+            alias = runpy.run_path(str(hook))["_bundle_import_path"]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve(strict=True)
+            (root / "_fixture.pyd").write_bytes(b"marker, never executed")
+            extended = "\\\\?\\" + str(root)
+            mapped = alias(str(root), str(root), extended)
+            finder = FileFinder(mapped, (ExtensionFileLoader, EXTENSION_SUFFIXES))
+            self.assertIsNotNone(finder.find_spec("_fixture"))
+            self.assertEqual(mapped, extended)
+
     def test_source_execution_keeps_import_paths_environment_and_runtime_state(self):
         hook = Path(__file__).resolve().parents[1] / "packaging/windows_long_paths.py"
         paths = list(sys.path)

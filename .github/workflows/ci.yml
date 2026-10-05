@@ -20,7 +20,8 @@ jobs:
       - name: Install native Qt test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libegl1 libopengl0
+          sudo apt-get install --yes --no-install-recommends libegl1 libopengl0 libpulse0
+          python -c "from PySide6 import QtWidgets, QtMultimedia"
       - name: Lint, format, type check
         run: |
           ruff check app tests scripts packaging

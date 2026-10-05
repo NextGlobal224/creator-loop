@@ -74,6 +74,8 @@ def _bundle_import_path(path, original, bundle):
         return path
     if relative == os.pardir or relative.startswith(os.pardir + os.sep):
         return path
+    if relative == os.curdir:
+        return bundle  # Extended Windows names must not gain a literal "." child.
     return os.path.join(bundle, relative)
 
 
