@@ -15,6 +15,7 @@ from creator_loop.windows_owned_file import (
     _kernel32,
     _mark_for_deletion,
 )
+from creator_loop.windows_paths import file_io_path
 
 
 class _Information(ctypes.Structure):
@@ -30,6 +31,14 @@ class _Information(ctypes.Structure):
         ("index_high", w.DWORD),
         ("index_low", w.DWORD),
     ]
+
+
+def _canonical_spelling(value: str) -> Path:
+    if value.startswith("\\\\?\\UNC\\"):
+        value = "\\\\" + value[8:]
+    elif value.startswith("\\\\?\\"):
+        value = value[4:]
+    return Path(value)
 
 
 class RuntimeHandle:
@@ -97,7 +106,7 @@ class RuntimeHandle:
         # directory itself cannot be replaced while the handle is retained.
         sharing = 3 if allow_child_writes else 1
         handle = self.kernel.CreateFileW(
-            str(self.path), access, sharing, None, 3, flags, None
+            str(file_io_path(self.path)), access, sharing, None, 3, flags, None
         )
         if handle == _INVALID_HANDLE_VALUE:
             raise ctypes.WinError(ctypes.get_last_error())
@@ -120,12 +129,11 @@ class RuntimeHandle:
             )
             if not 0 < length < len(buffer):
                 raise ctypes.WinError(ctypes.get_last_error())
-            final = buffer.value
-            if final.startswith("\\\\?\\UNC\\"):
-                final = "\\\\" + final[8:]
-            elif final.startswith("\\\\?\\"):
-                final = final[4:]
-            if Path(final) != self.path or self.path.resolve(strict=True) != self.path:
+            final = _canonical_spelling(buffer.value)
+            resolved = _canonical_spelling(
+                str(file_io_path(self.path).resolve(strict=True))
+            )
+            if final != self.path or resolved != self.path:
                 raise OSError("Runtime handle target does not match the owned path")
         except BaseException:
             self.close()

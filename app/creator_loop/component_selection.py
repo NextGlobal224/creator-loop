@@ -29,6 +29,7 @@ from creator_loop.storage_roots import (
     _manifest_path,
     _write_manifest,
 )
+from creator_loop.windows_paths import file_io_path
 
 
 @dataclass(frozen=True)
@@ -75,7 +76,8 @@ def _selection_path(root: Path) -> Path:
     path = _manifest_path(root)
     if path.parent.is_symlink() or path.parent.is_junction():
         raise ComponentPreflightError("Real coordination folder required")
-    if path.exists() and (path.is_junction() or path.stat().st_nlink != 1):
+    io = file_io_path(path)
+    if io.is_symlink() or io.is_junction() or (io.exists() and io.stat().st_nlink != 1):
         raise ComponentPreflightError("Unaliased coordination file required")
     return path
 
@@ -83,7 +85,7 @@ def _selection_path(root: Path) -> Path:
 def load_component_selection(root: Path) -> ComponentSelection | None:
     """Historical declarations only; never treat this read as fresh preflight."""
     path = _selection_path(root)
-    return _selection(_load(path)) if path.exists() else None
+    return _selection(_load(path)) if file_io_path(path).exists() else None
 
 
 def save_component_selection(
@@ -124,7 +126,7 @@ def save_component_selection(
                 path = _selection_path(canonical)
                 payload = (
                     _load(path)
-                    if path.exists()
+                    if file_io_path(path).exists()
                     else {
                         "manifest_version": 1,
                         "data_root_id": uuid4().hex,

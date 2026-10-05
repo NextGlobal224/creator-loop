@@ -13,6 +13,7 @@ from uuid import uuid4
 from creator_loop.database import _connect_write
 from creator_loop.storage_volumes import volume_identity
 from creator_loop.transactions import atomic_transaction
+from creator_loop.windows_paths import file_io_path
 
 
 class StorageRootError(ValueError):
@@ -39,7 +40,7 @@ def _manifest_path(data_root: Path) -> Path:
 
 def _load(path: Path) -> dict[str, object]:
     try:
-        with path.open("rb") as stream:
+        with file_io_path(path).open("rb") as stream:
             raw = stream.read(1024 * 1024 + 1)
         if len(raw) > 1024 * 1024:
             raise StorageRootError("Storage manifest exceeds metadata budget")

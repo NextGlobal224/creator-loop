@@ -4,6 +4,7 @@ import hashlib
 import sqlite3
 import sys
 from pathlib import Path
+from urllib.parse import quote
 from uuid import uuid4
 
 from creator_loop.windows_paths import file_io_path
@@ -149,6 +150,11 @@ def backup(
 
 
 def open_readonly(path: Path) -> sqlite3.Connection:
-    db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+    uri = path.as_uri()
+    if sys.platform == "win32" and len(str(path).encode("utf-16-le")) // 2 >= 248:
+        # URI authority must stay empty: Path(\\?\...).as_uri() treats '?' as
+        # a server. Encode the I/O spelling as a filename, retaining mode=ro.
+        uri = "file:" + quote(str(file_io_path(path)), safe="/:")
+    db = sqlite3.connect(uri + "?mode=ro", uri=True)
     db.execute("PRAGMA foreign_keys=ON")
     return db
