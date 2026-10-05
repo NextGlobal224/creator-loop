@@ -73,3 +73,8 @@ paths, ownership, retained guards and the actual-state recovery rules stay the
 same; an I/O failure still requires inspection of the retained evidence.
 Native exclusive archive creation also uses the extended spelling while keeping
 CREATE_NEW, sharing flags and handle-based rollback unchanged.
+Owned worker log directories, exclusive stdout/stderr and pre-resume ownership
+records also use extended Windows I/O paths. Health result publication and
+bounded output reads use the same spelling. Recorded canonical paths, native
+process/Job identity, suspension until ownership is recorded, deadlines and
+failure retention are unchanged.

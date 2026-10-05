@@ -71,8 +71,24 @@ class IsolatedPlaybackTests(unittest.TestCase):
         self.assertTrue(predicate(), self.errors)
 
     def cleanup_player(self):
+        expected = self.path.read_bytes()
+        process = self.player.process
         self.player.stop()
-        self.until(lambda: self.player.process is None)
+        self.until(
+            lambda: (
+                self.player.process is None
+                and self.player.pipe is None
+                and self.player.held is None
+                and self.player.workspace is None
+            )
+        )
+        if process is not None:
+            self.assertIsNone(process.job)
+            self.assertIsNone(process.process)
+            self.assertEqual(process.streams, [])
+        # Native child and parent duplicate/input leases must all be released.
+        with self.path.open("r+b") as stream:
+            self.assertEqual(stream.read(), expected)
 
     def monitor(self):
         process = self.player.process

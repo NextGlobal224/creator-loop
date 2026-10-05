@@ -793,6 +793,9 @@ class LibraryUiTests(unittest.TestCase):
                 ("CORRECT", "editor", "Chọn lại đoạn"),
             )
 
+        corrected_colors: list[QColor] = []
+        corrected_cleanup: list[bool] = []
+
         def inspect_corrected(dialog: VideoRangeView) -> object:
             self.assertEqual(
                 (dialog.segment.start_ms, dialog.segment.end_ms), (100, 400)
@@ -801,24 +804,37 @@ class LibraryUiTests(unittest.TestCase):
                 Path(dialog.segment.player.source().toLocalFile()).resolve(),
                 stored.resolve(),
             )
-            colors: list[QColor] = []
             dialog.segment.video.videoSink().videoFrameChanged.connect(
                 lambda frame: (
-                    colors.append(frame.toImage().pixelColor(0, 0))
+                    corrected_colors.append(frame.toImage().pixelColor(0, 0))
                     if frame.isValid()
                     else None
                 )
             )
-            dialog.segment.play()
-            deadline = time.monotonic() + 2
-            while (
-                not any(color.red() > color.blue() for color in colors)
-                and time.monotonic() < deadline
-            ):
-                app.processEvents()
-                time.sleep(0.01)
-            self.assertTrue(any(color.red() > color.blue() for color in colors))
-            dialog.done(0)
+            try:
+                dialog.segment.play()
+                deadline = time.monotonic() + 2
+                while (
+                    not any(color.red() > color.blue() for color in corrected_colors)
+                    and time.monotonic() < deadline
+                ):
+                    app.processEvents()
+                    time.sleep(0.01)
+            finally:
+                dialog.done(0)
+                deadline = time.monotonic() + 12
+                while (
+                    dialog.segment.player.process is not None
+                    or dialog.segment.player.pipe is not None
+                    or dialog.segment.player.held is not None
+                ) and time.monotonic() < deadline:
+                    app.processEvents()
+                    time.sleep(0.01)
+                corrected_cleanup.append(
+                    dialog.segment.player.process is None
+                    and dialog.segment.player.pipe is None
+                    and dialog.segment.player.held is None
+                )
             return VideoRangeView.DialogCode.Accepted
 
         for row in range(window.evidence_table.rowCount()):
@@ -830,6 +846,11 @@ class LibraryUiTests(unittest.TestCase):
         with patch.object(VideoRangeView, "exec", inspect_corrected):
             window.reopen_selected_video_evidence()
             self._wait_for_worker(app, window)
+        self.assertTrue(
+            any(color.red() > color.blue() for color in corrected_colors),
+            corrected_colors,
+        )
+        self.assertEqual(corrected_cleanup, [True])
         for row in range(window.evidence_table.rowCount()):
             if (
                 window.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
