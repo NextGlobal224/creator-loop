@@ -45,17 +45,21 @@ Nếu budget không đủ, giữ FAIL và giải quyết budget/component có c�
 Whisper CLI nhận WAV16-bit; audio cần được đưa về PCM16/16kHz/mono theo
 [hướng dẫn upstream](https://github.com/ggml-org/whisper.cpp/blob/v1.8.7/README.md#quick-start).
 Decode/preview hiện có dùng bundled Qt6.10.2/PySide6, không model ảnh ngoài.
-Adapter PCM/WAV→whisper/transcript/provenance đã có LOCAL WIP và scoped real/fake
-tests, xem [checkpoint adapter](WHISPER_ADAPTER.md); chưa video/DB/UI integration. Lựa
-chọn này không tự xác minh RAW transcript, OCR/vision hoặc engine integration.
+Adapter PCM/WAV→whisper/transcript/provenance đã merge PR77; PCM/VIDEO→RAW,
+lineage và recovery đã merge PR78; owned task/UI/budget/log privacy đã merge PR79.
+Xem [adapter](WHISPER_ADAPTER.md), [pipeline](VIDEO_TRANSCRIPTION_PIPELINE.md)
+và [HANDOFF](HANDOFF.md) để phân biệt test thật/fake, source và exact artifact.
+RAW→Evidence review là follow-up local chưa có required CI mới. Các mốc này
+không tự nghiệm thu chất lượng/resource, OCR/vision hoặc toàn luồng GUI.
 FFmpeg chưa được chọn thêm; nếu cần hỗ trợ input ngoài decode Qt đã kiểm,
 phải pin và kiểm binary/license riêng trước sử dụng.
 
 Tiếp theo: giữ component ngoài Git/build, hoàn tất prerequisite/runtime checks;
 ghi manifest unowned/local-use bằng
-đường dẫn thực, không tự cấp ownership hoặc cleanup. Triển khai adapter bounded
-worker và kiểm real video/audio mẫu, cancel/timeout/crash/unowned preservation,
-RAM/đĩa/thời gian trên máy8GB. Chỉ cập nhật compatibility/acceptance khi có bằng
+đường dẫn thực, không tự cấp ownership hoặc cleanup. Adapter bounded worker đã
+có kiểm real video/audio mẫu và lifecycle trong phạm vi bằng chứng tại HANDOFF;
+tiếp tục quality/resource, RAM/đĩa/thời gian trên máy8GB, whole frozen GUI và
+clean-target prerequisites còn thiếu. Chỉ cập nhật compatibility/acceptance khi có bằng
 chứng thật; giữ fake engine trong PR CI và không đưa model vào release.
 
 Metadata nguồn đã lưu tại `.local-test-logs/whisper-v1.8.7-release-metadata.json`
