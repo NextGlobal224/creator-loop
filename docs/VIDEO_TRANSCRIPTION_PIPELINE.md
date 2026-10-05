@@ -2,8 +2,22 @@
 
 LOCAL service foundation: caller là owned I/O process, giữ app lock đúng root,
 Qt event loop và timeout cấp tiến trình cho toàn lượt gồm preflight/SQLite/I/O.
-Chưa có GUI task/progress/cancel hoặc frozen final entry point cho pipeline này.
-Không gọi services trực tiếp trên GUI thread.
+Source UI đã nối owned task/progress/cancel và Library handoff; frozen entry
+point mới chưa được build/probe. Không gọi services trực tiếp trên GUI thread.
+
+Trong Library, chọn original VIDEO rồi **Chép lời Video bằng engine/model đã
+chọn**. Library đóng và nhả app lock trước khi mở cửa sổ tác vụ. Chọn ngôn ngữ
+và budget khớp component selection đã lưu, rồi tạo PCM/chép lời. Worker lấy
+lock mới, kiểm bytes/lineage và xử lý tuần tự; GUI không hash model hoặc ghi DB.
+**Mở lại Library** chỉ sau khi cây worker thoát và lấy lock mới để đọc/reconcile.
+
+Task outer Job1024MiB/deadline420s bao phủ preflight/I/O/decode/transcription;
+decoder cap512MiB/120s giữ nguyên, selected Whisper worker512 hoặc768MiB/240s
+được cấp rõ (mặc định component CLI vẫn512). Không tăng budget tự động khi lỗi.
+Request/workspace và native child identity được bind trước resume; private CLI
+từ chối unbound/malformed request trước DB. Hủy/đóng gửi cancel hợp tác; sau12s
+chưa terminal mới dùng owned-tree fallback, chờ tối đa8s rồi giữ cửa sổ/ownership
+nếu chưa chứng minh thoát. Interrupted run dùng witness recovery khi mở lại.
 
 `create_video_audio_derivative` kiểm VIDEO ORIGINAL MP4 bất biến và duration,
 chạy Qt streaming decoder trong Job512MiB; giữ inherited read-only original
@@ -34,5 +48,12 @@ Việt và có thể đề xuất range ngoài nguồn ngắn. Adapter từ ch�
 không tự clipping/ACCEPT hoặc đổi model. Bằng chứng scoped/real và FAIL trong
 HANDOFF; full838/CI PR77 thuộc foundation trước PCM/pipeline WIP, không chứng
 minh service mới. Full869/12SKIP service checkpoint đã PASS, source260 hash không đổi;
-còn requiredCI mới, GUI task/selection budget, real speech video,
-resource/long input, exact frozen build, walkthrough và điều kiện release.
+Service đã qua requiredCI PR78; task UI/budget/log privacy còn LOCAL: full885
+(873PASS/12SKIP) đã đạt, source265 hash không đổi; chưa requiredCI/exact artifact
+mới. Probe source UI với synthetic known
+English MP4 + selected engine thật đã lưu RAW/provenance và khớp3segments;
+không nghiệm thu chất lượng tiếng Việt hoặc long input/RAM pressure. Native
+stdout/stderr bị đưa vào NUL; log chỉ ownership/outcome/resource, RAW giữ nguyên.
+Source GUI-parent crash với engine thật đã xác minh nested task/engine chết trước
+outer Job cleanup, lock lấy lại được và known ASR run thành FAILED khi recovery.
+Còn resource/long input, prerequisites, exact frozen build, walkthrough và release.

@@ -96,6 +96,8 @@ class ComponentUiTests(unittest.TestCase):
                 {
                     "check": "LOCAL_ARTIFACTS_VERIFIED",
                     "runtime_compatibility_verified": False,
+                    "worker_memory_limit": self.window.worker_budget.currentData()
+                    * 1024**2,
                     "review_manifest": json.loads(component_manifest_bytes(specs)),
                     "review_fingerprint": component_review_fingerprint(specs),
                 }
@@ -123,6 +125,41 @@ class ComponentUiTests(unittest.TestCase):
         self.assertFalse(self.window.save.isEnabled())
         self.assertIsNone(self.window.fingerprint)
         self.assertFalse(self.window.consent.isChecked())
+
+    def test_worker_budget_change_invalidates_review_and_consent(self):
+        self.review()
+        self.window.consent.setChecked(True)
+        self.window.worker_budget.setCurrentIndex(1)
+        self.assertEqual(self.window.worker_budget.currentData(), 768)
+        self.assertFalse(self.window.save.isEnabled())
+        self.assertFalse(self.window.consent.isChecked())
+        self.assertIsNone(self.window.fingerprint)
+        self.assertEqual(self.window.table.rowCount(), 0)
+
+    @unittest.skipUnless(sys.platform == "win32", "actual bounded component CLI")
+    def test_actual_explicit_768_budget_saved_without_runtime_claim(self):
+        self.entry["worker_memory_bytes"] = 768 * 1024**2
+        self.write_request(self.entry)
+        self.window._check()
+        self.until(lambda: not self.window.command.busy)
+        self.assertIsNone(self.window.fingerprint)
+        self.assertFalse(self.window.save.isEnabled())
+        self.window.worker_budget.setCurrentIndex(1)
+        self.window._check()
+        self.until(lambda: not self.window.command.busy)
+        self.assertIsNotNone(self.window.fingerprint)
+        self.assertTrue(self.window.worker_budget.isEnabled())
+        self.window.consent.setChecked(True)
+        self.window._save()
+        self.until(lambda: not self.window.command.busy)
+        selection = load_component_selection(self.root)
+        self.assertEqual(selection.worker_memory_limit, 768 * 1024**2)
+        self.assertEqual(selection.specs[0].worker_memory_bytes, 768 * 1024**2)
+        body = json.loads(self.user_manifest.read_bytes())
+        self.assertFalse(body["component_selection"]["runtime_compatibility_verified"])
+        self.assertEqual(body["last_backup_id"], self.baseline["last_backup_id"])
+        self.assertEqual(self.model.read_bytes(), self.payload)
+        self.assertFalse(self.window.save.isEnabled())
 
     def test_history_display_never_grants_fresh_review_or_consent(self):
         self.review()

@@ -131,6 +131,13 @@ chưa có, mở Library để tạo DB trước. Cửa sổ Component không t�
 3. Sau khi đối chiếu quyền dùng cục bộ, tự đánh dấu ô xác nhận rồi bấm
    **Kiểm lại và lưu lựa chọn**. Ô xác nhận mặc định bỏ chọn.
 
+Chọn budget worker512MiB (mặc định) hoặc768MiB cho Whisper base CPU đã chốt.
+Đổi budget xóa review/consent cũ; kiểm và đối chiếu lại trước lưu. Đây là giới
+hạn được cấu hình, chưa chứng minh engine chạy được hoặc đủ RAM trên máy đích.
+CLI check/select nhận `--component-worker-memory-mib N` (64–4096), không truyền
+thì vẫn512; không kết hợp option này với tác vụ khác. Task Video hiện hỗ trợ
+512/768 và yêu cầu budget khớp selection đã lưu, không tự tăng khi xử lý lỗi.
+
 Worker kiểm lại bytes ngay trước lưu. Kết quả review gắn với toàn bộ khai báo;
 thay path hoặc sửa khai báo sau review yêu cầu kiểm lại. Đổi nội dung file dù giữ
 nguyên khai báo cũng bị kiểm digest từ chối. CLI có thể dùng

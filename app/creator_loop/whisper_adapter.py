@@ -27,7 +27,11 @@ from uuid import uuid4
 
 from creator_loop.app_lock import AppDataLock
 from creator_loop.local_components import ComponentSpec, hold_verified_components
-from creator_loop.owned_process import OwnedWindowsProcess, _ExtendedLimits
+from creator_loop.owned_process import (
+    OwnedWindowsProcess,
+    ProcessOutcome,
+    _ExtendedLimits,
+)
 from creator_loop.publication_media import _open_read_lock
 from creator_loop.runtime_files import RuntimeHandle
 from creator_loop.runtime_ownership import bind_workspace_child, create_workspace_marker
@@ -80,6 +84,43 @@ class WhisperRunError(RuntimeError):
         super().__init__(message)
         self.workspace = workspace
         self.exit_code = exit_code
+
+
+def _record_outcome(
+    worker: OwnedWindowsProcess,
+    logs: Path,
+    outcome: ProcessOutcome,
+    status: str,
+    settings: WhisperSettings,
+    started: float,
+) -> int:
+    """Native stdout/stderr may contain transcript; log metadata only."""
+    if sys.platform != "win32":
+        raise OSError("Whisper native outcome requires Windows")
+    metrics = _ExtendedLimits()
+    if not worker.kernel.QueryInformationJobObject(
+        worker.job, 9, ctypes.byref(metrics), ctypes.sizeof(metrics), None
+    ):
+        raise ctypes.WinError(ctypes.get_last_error())
+    with (logs / "outcome.json").open("x", encoding="utf-8") as stream:
+        json.dump(
+            {
+                "format": 1,
+                "status": status,
+                "exit_code": outcome.exit_code,
+                "run_id": worker.record["run_id"],
+                "job_id": worker.record["job_id"],
+                "memory_limit_bytes": settings.memory_limit_bytes,
+                "peak_job_commit_bytes": metrics.peak_job,
+                "elapsed_seconds": time.perf_counter() - started,
+                "native_output_logged": False,
+            },
+            stream,
+            allow_nan=False,
+        )
+        stream.flush()
+        os.fsync(stream.fileno())
+    return metrics.peak_job
 
 
 def _pairs(pairs):
@@ -289,6 +330,7 @@ def transcribe_whisper_wav(
                 if key.upper().startswith(("PYTHON", "QT_", "QML_")):
                     environment.pop(key)
             started = time.perf_counter()
+            logs = canonical / "logs" / ("whisper-" + uuid4().hex)
             with OwnedWindowsProcess(
                 executable.path,
                 [
@@ -309,10 +351,11 @@ def transcribe_whisper_wav(
                     "-of",
                     str(workspace / "raw"),
                 ],
-                canonical / "logs" / ("whisper-" + uuid4().hex),
+                logs,
                 component_version=component,
                 environment=environment,
                 cwd=workspace,
+                capture_output=False,
                 memory_limit_bytes=settings.memory_limit_bytes,
                 before_resume=lambda child: bind_workspace_child(
                     workspace, marker, child
@@ -321,20 +364,29 @@ def transcribe_whisper_wav(
                 while not worker.tree_finished():
                     if cancelled():
                         worker.stop(130)
+                        _record_outcome(
+                            worker, logs, worker.wait(1), "CANCELLED", settings, started
+                        )
                         raise InterruptedError("Whisper native task cancelled")
                     if time.perf_counter() - started >= settings.timeout_seconds:
                         worker.stop(124)
+                        _record_outcome(
+                            worker, logs, worker.wait(1), "TIMED_OUT", settings, started
+                        )
                         raise TimeoutError(
                             "Whisper exceeded its owned process deadline"
                         )
                     time.sleep(0.01)
-                metrics = _ExtendedLimits()
-                if not worker.kernel.QueryInformationJobObject(
-                    worker.job, 9, ctypes.byref(metrics), ctypes.sizeof(metrics), None
-                ):
-                    raise ctypes.WinError(ctypes.get_last_error())
                 ownership = worker.record.copy()
                 outcome = worker.wait(1)
+                peak_job_commit_bytes = _record_outcome(
+                    worker,
+                    logs,
+                    outcome,
+                    "EXITED" if outcome.exit_code == 0 else "FAILED",
+                    settings,
+                    started,
+                )
                 if outcome.exit_code != 0:
                     raise WhisperRunError(
                         "Whisper native task failed; retain RAW/logs",
@@ -372,7 +424,7 @@ def transcribe_whisper_wav(
                 workspace,
                 ownership,
                 tuple((item.component_id, item.sha256) for item in specs),
-                metrics.peak_job,
+                peak_job_commit_bytes,
                 time.perf_counter() - started,
             )
     finally:

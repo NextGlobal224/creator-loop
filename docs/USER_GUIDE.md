@@ -148,9 +148,17 @@ mới không chuyển originals cũ. Giữ tệp và log khi digest mismatch/cra
 Chọn **Đóng Library để chọn engine/model cục bộ** nếu có file đã chọn và thông
 tin version/source/license. Preflight chỉ kiểm file/metadata rồi lưu lựa chọn;
 không chứng minh engine chạy được, không tự tải/cài component. Xem
-[component cục bộ](LOCAL_COMPONENTS.md). Transcription/model processing thực và
-budget trên máy 8 GB còn cần đầu vào và nghiệm thu; quan sát nhập tay không
-thay bằng chứng engine/model.
+[component cục bộ](LOCAL_COMPONENTS.md). Bộ Whisper đã chọn dùng budget768MiB;
+chọn rõ budget và kiểm/lưu lại, không lấy lịch sử lựa chọn làm preflight mới.
+Chọn original VIDEO → **Chép lời Video bằng engine/model đã chọn**. Library
+đóng để nhả lock; cửa sổ tác vụ cho chọn ngôn ngữ/budget khớp selection rồi
+**Tạo PCM và chép lời máy**. Mỗi lần chạy tạo file/run mới; PCM thành công vẫn
+giữ nếu chép lời lỗi. **Hủy tác vụ** hoặc đóng cửa sổ chờ worker thoát, giữ RAW
+và lịch sử đã tạo. **Mở lại Library** xem từng task, không một completed toàn Asset.
+Chép lời máy chưa được ACCEPT và chưa tự tạo Evidence; dùng nguồn/âm thanh để
+kiểm, rồi tạo/review Evidence theo luồng trên. Task UI hiện là source checkpoint,
+chưa có trong ZIP CI78; xem [pipeline/phạm vi](VIDEO_TRANSCRIPTION_PIPELINE.md).
+Chất lượng tiếng Việt, long input và tài nguyên trên máy8GB còn chờ nghiệm thu.
 
 ## Sao lưu, cập nhật và khôi phục
 

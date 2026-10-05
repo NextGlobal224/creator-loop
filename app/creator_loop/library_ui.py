@@ -562,6 +562,7 @@ class LibraryWindow(QMainWindow):
         self.root = root
         self.maintenance_requested = False
         self.components_requested = False
+        self.transcription_selection: tuple[str, str] | None = None
         self._close_after_worker = False
         self._media_cancel_requested = False
         self._worker: QThread | None = None
@@ -631,6 +632,12 @@ class LibraryWindow(QMainWindow):
         self.components_button.clicked.connect(self.choose_components)
         self._buttons.append(self.components_button)
         layout.addWidget(self.components_button)
+        self.transcription_button = QPushButton(
+            "Chép lời Video bằng engine/model đã chọn"
+        )
+        self.transcription_button.clicked.connect(self.choose_transcription)
+        self._buttons.append(self.transcription_button)
+        layout.addWidget(self.transcription_button)
         self.cancel_media_button = QPushButton("Hủy giải mã media")
         self.cancel_media_button.setEnabled(False)
         self.cancel_media_button.clicked.connect(self._cancel_media_worker)
@@ -1709,6 +1716,22 @@ class LibraryWindow(QMainWindow):
         self.components_requested = True
         if not self.close():
             self.components_requested = False
+
+    def choose_transcription(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.table.currentRow()
+        if row < 0 or table_item(self.table, row, 0).text() != "VIDEO":
+            QMessageBox.information(
+                self, "Chọn Video", "Chọn một original VIDEO để chép lời."
+            )
+            return
+        self.transcription_selection = (
+            str(table_item(self.table, row, 0).data(Qt.ItemDataRole.UserRole)),
+            table_item(self.table, row, 1).text(),
+        )
+        if not self.close():
+            self.transcription_selection = None
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._worker is not None:

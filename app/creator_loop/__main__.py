@@ -20,9 +20,14 @@ from .paths import data_root, ensure_data_root
 
 MAINTENANCE_REQUESTED = 20
 COMPONENTS_REQUESTED = 21
+TRANSCRIPTION_REQUESTED = 22
 
 
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--transcribe-video-task":
+        from .transcription_task import run_transcription_task
+
+        return run_transcription_task(Path(sys.argv[2]))
     if len(sys.argv) == 3 and sys.argv[1] == "--play-media":
         from .playback_child import run_playback_worker
 
@@ -171,6 +176,11 @@ def main() -> int:
     parser.add_argument(
         "--reviewed-components",
         help="Bind saved selections to the reviewed declarations",
+    )
+    parser.add_argument(
+        "--component-worker-memory-mib",
+        type=int,
+        help="Explicit processing worker budget (64-4096 MiB); default remains 512",
     )
     parser.add_argument(
         "--components",
@@ -870,6 +880,11 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 4
+    if args.component_worker_memory_mib is not None:
+        if not 64 <= args.component_worker_memory_mib <= 4096:
+            parser.error("Component worker memory must be 64-4096 MiB")
+        if args.check_components is None and args.select_components is None:
+            parser.error("Component worker memory requires a check or selection")
     if args.inspect_components:
         if any(
             value for name, value in vars(args).items() if name != "inspect_components"
@@ -892,23 +907,36 @@ def main() -> int:
         return run_components(data_root(), ui_smoke=args.ui_smoke)
     if args.check_components is not None:
         if any(
-            value for name, value in vars(args).items() if name != "check_components"
+            value
+            for name, value in vars(args).items()
+            if name not in ("check_components", "component_worker_memory_mib")
         ):
             parser.error("Component checks cannot be combined with other operations")
         from .local_components import check_components_cli
 
-        return check_components_cli(args.check_components)
+        return check_components_cli(
+            args.check_components,
+            worker_memory_limit=(args.component_worker_memory_mib or 512) * 1024**2,
+        )
     if args.select_components is not None:
         if any(
             value
             for name, value in vars(args).items()
-            if name not in ("select_components", "reviewed_components")
+            if name
+            not in (
+                "select_components",
+                "reviewed_components",
+                "component_worker_memory_mib",
+            )
         ):
             parser.error("Component selection cannot be combined with other operations")
         from .component_selection import select_components_cli
 
         return select_components_cli(
-            data_root(), args.select_components, args.reviewed_components
+            data_root(),
+            args.select_components,
+            args.reviewed_components,
+            worker_memory_limit=(args.component_worker_memory_mib or 512) * 1024**2,
         )
     if args.backup and (args.smoke or args.ui_smoke):
         parser.error("--backup cannot be combined with smoke modes")
@@ -1261,17 +1289,25 @@ def main() -> int:
     if not args.compatible_only:
         ensure_data_root(root)
     try:
-        with AppDataLock(root) as coordination:
-            launch_result = _run(args, root, coordination=coordination)
-        if launch_result == MAINTENANCE_REQUESTED:
-            from .maintenance_ui import run_maintenance
+        while True:
+            with AppDataLock(root) as coordination:
+                launch_result = _run(args, root, coordination=coordination)
+            if launch_result == MAINTENANCE_REQUESTED:
+                from .maintenance_ui import run_maintenance
 
-            return run_maintenance(root, args.installation_root)
-        if launch_result == COMPONENTS_REQUESTED:
-            from .component_ui import run_components
+                return run_maintenance(root, args.installation_root)
+            if launch_result == COMPONENTS_REQUESTED:
+                from .component_ui import run_components
 
-            return run_components(root)
-        return launch_result
+                return run_components(root)
+            if launch_result == TRANSCRIPTION_REQUESTED:
+                from .transcription_ui import LIBRARY_REQUESTED, run_transcription
+
+                task_result = run_transcription(root, *args.transcription_selection)
+                if task_result == LIBRARY_REQUESTED:
+                    continue  # reacquire a fresh app lock before Library/recovery.
+                return task_result
+            return launch_result
     except DataRootBusy as exc:
         print(str(exc), file=sys.stderr)
         return 3
@@ -1365,6 +1401,9 @@ def _run(
 
         QTimer.singleShot(200, app.quit)
     result = app.exec()
+    if window.transcription_selection is not None:
+        args.transcription_selection = window.transcription_selection
+        return TRANSCRIPTION_REQUESTED
     if window.components_requested:
         return COMPONENTS_REQUESTED
     return MAINTENANCE_REQUESTED if window.maintenance_requested else result

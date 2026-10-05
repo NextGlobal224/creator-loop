@@ -35,6 +35,26 @@ class RuntimeRecoveryTests(unittest.TestCase):
             Path(__file__).resolve().parents[1] / "app"
         )
 
+    def test_shared_request_readers_deny_write_rename_and_deletion(self):
+        request = self.root / "runtime/shared-request.json"
+        original = b'{"format":1,"keep":"immutable"}'
+        request.write_bytes(original)
+        with RuntimeHandle(request, read_only=True) as parent:
+            with RuntimeHandle(request, read_only=True) as child:
+                self.assertEqual(child.read_json(), {"format": 1, "keep": "immutable"})
+                with self.assertRaises(OSError):
+                    with request.open("wb"):
+                        pass
+                with self.assertRaises(OSError):
+                    request.rename(request.with_suffix(".moved"))
+                with self.assertRaises(OSError):
+                    request.unlink()
+                with self.assertRaises(RuntimeError):
+                    parent.discard()
+                with self.assertRaises(RuntimeError):
+                    child.discard()
+        self.assertEqual(request.read_bytes(), original)
+
     def prepare(self, name="decode-dead0001", child=True):
         workspace = self.root / "runtime" / name
         workspace.mkdir()
