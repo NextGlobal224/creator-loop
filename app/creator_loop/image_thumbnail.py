@@ -11,7 +11,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from PySide6 import __version__ as pyside_version
-from PySide6.QtCore import QBuffer, QIODevice, Qt
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
+from PySide6.QtGui import QImageWriter
 
 from creator_loop.database import _connect_write
 from creator_loop.image_evidence import read_verified_image
@@ -87,9 +88,9 @@ def create_image_thumbnail(
             )
             encoded = QBuffer()
             encoded.open(QIODevice.OpenModeFlag.WriteOnly)
-            if not scaled.save(encoded, "PNG"):
+            if not QImageWriter(encoded, QByteArray(b"PNG")).write(scaled):
                 raise ValueError("Thumbnail PNG encoding failed")
-            png = bytes(encoded.data())
+            png = encoded.data().data()
             storage_key, destination = new_storage_destination(
                 root, "THUMBNAIL", stored_name
             )

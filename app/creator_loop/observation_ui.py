@@ -242,8 +242,8 @@ class ObservationDialog(QDialog):
             payload: list[MetricInput] = []
             for row in range(self.metrics.rowCount()):
                 values = [
-                    self.metrics.item(row, col).text()
-                    if self.metrics.item(row, col)
+                    item.text()
+                    if (item := self.metrics.item(row, col)) is not None
                     else ""
                     for col in range(6)
                 ]

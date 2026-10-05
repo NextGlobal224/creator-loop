@@ -591,6 +591,7 @@ class CreatorDialog(QDialog):
         idle = self._worker is None
         editable = idle and self._editable()
         selected = self.selected_version_id() is not None
+        widget: QWidget
         for widget in (
             self.project,
             self.version,

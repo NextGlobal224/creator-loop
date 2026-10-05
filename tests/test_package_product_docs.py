@@ -27,7 +27,7 @@ class ProductDocsTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name) / "Bản cài đặt Huế"
+        self.root = Path(temporary.name).resolve(strict=True) / "Bản cài đặt Huế"
         self.root.mkdir()
         (self.root / "CreatorLoop.exe").write_bytes(
             b"synthetic package marker, never executed"

@@ -19,7 +19,7 @@ class InstallationStageTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.base = Path(temporary.name)
+        self.base = Path(temporary.name).resolve(strict=True)
         self.installation = self.base / "Cài đặt Huế"
         self.installation.mkdir()
         self.data = self.base / "Dữ liệu"

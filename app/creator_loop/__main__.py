@@ -1357,8 +1357,8 @@ def _run(
         notice.setTextFormat(Qt.TextFormat.PlainText)
         notice.setWordWrap(True)
         central = window.centralWidget()
-        if central is not None and central.layout() is not None:
-            central.layout().addWidget(notice)
+        if central is not None and (layout := central.layout()) is not None:
+            layout.addWidget(notice)
     window.show()
     if args.ui_smoke:
         from PySide6.QtCore import QTimer

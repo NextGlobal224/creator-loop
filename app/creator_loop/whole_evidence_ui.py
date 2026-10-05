@@ -170,6 +170,8 @@ class WholeEvidenceDialog(QDialog):
         self, source: WholeSource, *, content: str = "", correction: bool = False
     ) -> None:
         super().__init__()
+        if source.media_type == "TEXT" and source.text_snapshot is None:
+            raise ValueError("Whole TEXT Evidence requires its verified snapshot")
         self.correction = correction
         self.setWindowTitle(
             "Sửa Evidence toàn nguồn" if correction else "Evidence toàn nguồn"
@@ -182,7 +184,9 @@ class WholeEvidenceDialog(QDialog):
         self.content = QTextEdit()
         self.content.setMaximumHeight(85)
         self.content.setPlainText(
-            source.text_snapshot if source.media_type == "TEXT" else content
+            source.text_snapshot
+            if source.text_snapshot is not None and source.media_type == "TEXT"
+            else content
         )
         self.content.setReadOnly(source.media_type == "TEXT")
         form.addRow(

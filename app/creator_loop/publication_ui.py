@@ -48,6 +48,7 @@ from creator_loop.publication import (
     package_snapshot,
 )
 from creator_loop.publication_media import hold_registered_file
+from creator_loop.qt_table_items import table_item
 from creator_loop.whole_evidence import WholeSource, read_verified_whole_source
 from creator_loop.whole_evidence_ui import WholeEvidenceView
 
@@ -353,7 +354,7 @@ class PublicationDialog(QDialog):
         self.prepare_button.clicked.connect(self.prepare)
         self.new_post_button.clicked.connect(lambda: self.posts.setCurrentCell(-1, -1))
         self.publish_button.clicked.connect(self.publish)
-        for widget in (
+        for text_widget in (
             self.actor,
             self.reason,
             self.platform,
@@ -362,7 +363,7 @@ class PublicationDialog(QDialog):
             self.external_url,
             self.published_at,
         ):
-            widget.textChanged.connect(self._refresh)
+            text_widget.textChanged.connect(self._refresh)
         self.review_confirmed.toggled.connect(self._refresh)
         self.post_confirmed.toggled.connect(self._refresh)
         self.items.itemSelectionChanged.connect(self._item_changed)
@@ -507,7 +508,7 @@ class PublicationDialog(QDialog):
                     )
                     for col, value in enumerate((kind, str(position), payload, digest)):
                         self.items.setItem(row, col, QTableWidgetItem(value))
-                    self.items.item(row, 0).setData(
+                    table_item(self.items, row, 0).setData(
                         Qt.ItemDataRole.UserRole, (file_id, digest)
                     )
                 if self.items.rowCount():
@@ -571,6 +572,7 @@ class PublicationDialog(QDialog):
             and self._snapshot is None
             and self.selected_package_id() is None
         )
+        widget: QWidget
         for widget in (
             self.project,
             self.packages,
@@ -777,7 +779,7 @@ class PublicationDialog(QDialog):
 
     def preview_file(self) -> None:
         if self.preview_button.isEnabled():
-            file_id, digest = self.items.item(self.items.currentRow(), 0).data(
+            file_id, digest = table_item(self.items, self.items.currentRow(), 0).data(
                 Qt.ItemDataRole.UserRole
             )
             self._start(self._task("PREVIEW", file_id=file_id, digest=digest))

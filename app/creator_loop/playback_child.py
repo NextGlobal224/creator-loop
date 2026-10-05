@@ -266,7 +266,7 @@ def run_playback_worker(request: Path) -> int:
         digest, size = hashlib.sha256(), 0
         device.seek(0)
         while not device.atEnd():
-            chunk = bytes(device.read(1024 * 1024))
+            chunk = device.read(1024 * 1024).data()
             if not chunk:
                 raise OSError("Cannot read inherited playback source")
             digest.update(chunk)

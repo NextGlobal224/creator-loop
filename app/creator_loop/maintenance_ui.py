@@ -350,12 +350,12 @@ class MaintenanceWindow(QMainWindow):
                     self.backup_id.text().strip(),
                     self,
                 )
-                dialog.copy_ready.connect(
-                    lambda journal, installation: (
-                        self.installation.setText(installation),
-                        self.journal.setText(journal),
-                    )
-                )
+
+                def copied(journal, installation):
+                    self.installation.setText(installation)
+                    self.journal.setText(journal)
+
+                dialog.copy_ready.connect(copied)
                 self.damaged_window = dialog
             self.damaged_window.show()
             self.damaged_window.raise_()

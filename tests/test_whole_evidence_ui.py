@@ -8,6 +8,7 @@ import tempfile
 import time
 import unittest
 from contextlib import closing
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -38,6 +39,11 @@ if QApplication is not None:
 
 @unittest.skipUnless(QApplication is not None, "requires Windows and pinned Qt")
 class WholeEvidenceUiTests(unittest.TestCase):
+    def test_missing_verified_text_snapshot_refuses_instead_of_empty_content(self):
+        source = replace(self._source("TEXT"), text_snapshot=None)
+        with self.assertRaisesRegex(ValueError, "verified snapshot"):
+            WholeEvidenceDialog(source)
+
     def setUp(self) -> None:
         self.app = QApplication.instance() or QApplication([])
         self.temp = tempfile.TemporaryDirectory()
