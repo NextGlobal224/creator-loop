@@ -64,7 +64,7 @@ def write_manifest(
             for name in ("PySide6", "PyInstaller")
         },
         "component_compatibility": {
-            "status": "Engine/model selection unresolved; no external engine required for smoke"
+            "status": "External engine/model compatibility unverified; components are not bundled; smoke does not run inference"
         },
         "migration_ids": list(MIGRATIONS),
         "migration_checksums": {
