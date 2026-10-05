@@ -55,6 +55,7 @@ from creator_loop.media_intake import intake_image_original, intake_video_origin
 from creator_loop.owned_thread import OwnedThreadExit
 from creator_loop.project_ui import ProjectDialog
 from creator_loop.publication_ui import PublicationDialog
+from creator_loop.qt_table_items import table_item
 from creator_loop.selection_ui import SelectionDialog
 from creator_loop.source_association import (
     SourceDetails,
@@ -560,6 +561,7 @@ class LibraryWindow(QMainWindow):
         super().__init__()
         self.root = root
         self.maintenance_requested = False
+        self.components_requested = False
         self._close_after_worker = False
         self._media_cancel_requested = False
         self._worker: QThread | None = None
@@ -625,6 +627,10 @@ class LibraryWindow(QMainWindow):
         self.maintenance_button.clicked.connect(self.choose_maintenance)
         self._buttons.append(self.maintenance_button)
         layout.addWidget(self.maintenance_button)
+        self.components_button = QPushButton("Đóng Library để chọn engine/model cục bộ")
+        self.components_button.clicked.connect(self.choose_components)
+        self._buttons.append(self.components_button)
+        layout.addWidget(self.components_button)
         self.cancel_media_button = QPushButton("Hủy giải mã media")
         self.cancel_media_button.setEnabled(False)
         self.cancel_media_button.clicked.connect(self._cancel_media_worker)
@@ -778,8 +784,12 @@ class LibraryWindow(QMainWindow):
                 self.table.setItem(
                     row_index, column_index, QTableWidgetItem(str(value))
                 )
-            self.table.item(row_index, 0).setData(Qt.ItemDataRole.UserRole, row[4])
-            self.table.item(row_index, 1).setData(Qt.ItemDataRole.UserRole, row[5])
+            table_item(self.table, row_index, 0).setData(
+                Qt.ItemDataRole.UserRole, row[4]
+            )
+            table_item(self.table, row_index, 1).setData(
+                Qt.ItemDataRole.UserRole, row[5]
+            )
         self.evidence_table.setRowCount(len(evidence_rows))
         for row_index, row in enumerate(evidence_rows):
             evidence_kind = {
@@ -803,7 +813,9 @@ class LibraryWindow(QMainWindow):
                 self.run_table.setItem(
                     row_index, column_index, QTableWidgetItem(str(value))
                 )
-            self.run_table.item(row_index, 3).setData(Qt.ItemDataRole.UserRole, row[4])
+            table_item(self.run_table, row_index, 3).setData(
+                Qt.ItemDataRole.UserRole, row[4]
+            )
         self.status.setText(f"{len(rows)} original(s), {len(run_rows)} run(s)")
 
     def choose_original(self, kind: str, filter_text: str) -> None:
@@ -874,10 +886,10 @@ class LibraryWindow(QMainWindow):
         if self._worker is not None:
             return
         row = self.table.currentRow()
-        if row < 0 or self.table.item(row, 0).text() != "TEXT":
+        if row < 0 or table_item(self.table, row, 0).text() != "TEXT":
             QMessageBox.information(self, "Chọn Text", "Chọn một original TEXT.")
             return
-        file_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        file_id = table_item(self.table, row, 0).data(Qt.ItemDataRole.UserRole)
         self._start_evidence_worker(
             TextEvidenceWorker("load", str(file_id), self.root),
             "Đang xác minh snapshot TEXT…",
@@ -893,19 +905,23 @@ class LibraryWindow(QMainWindow):
                     self, "Chọn nguồn", "Chọn một original trong Library."
                 )
                 return
-            identifier = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            identifier = table_item(self.table, row, 0).data(Qt.ItemDataRole.UserRole)
         elif action in ("reopen", "load-correction"):
             row = self.evidence_table.currentRow()
             if (
                 row < 0
-                or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+                or table_item(self.evidence_table, row, 1).data(
+                    Qt.ItemDataRole.UserRole
+                )
                 != "WHOLE_ASSET"
             ):
                 QMessageBox.information(
                     self, "Chọn Evidence", "Chọn một Evidence toàn nguồn."
                 )
                 return
-            identifier = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            identifier = table_item(self.evidence_table, row, 0).data(
+                Qt.ItemDataRole.UserRole
+            )
         else:
             raise ValueError("Unknown whole-source UI action")
         self._start_whole_worker(
@@ -994,7 +1010,9 @@ class LibraryWindow(QMainWindow):
         row = self.table.currentRow()
         asset_id = ""
         if row >= 0:
-            asset_id = str(self.table.item(row, 1).data(Qt.ItemDataRole.UserRole))
+            asset_id = str(
+                table_item(self.table, row, 1).data(Qt.ItemDataRole.UserRole)
+            )
         StorageDialog(self.root, asset_id).exec()
         self.reload()
 
@@ -1070,12 +1088,14 @@ class LibraryWindow(QMainWindow):
         self.reload()
         for row in range(self.evidence_table.rowCount()):
             if (
-                self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                table_item(self.evidence_table, row, 0).data(Qt.ItemDataRole.UserRole)
                 != version_id
             ):
                 continue
             self.evidence_table.setCurrentCell(row, 0)
-            locator = self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            locator = table_item(self.evidence_table, row, 1).data(
+                Qt.ItemDataRole.UserRole
+            )
             handlers = {
                 "TEXT_RANGE": self.reopen_selected_text_evidence,
                 "IMAGE_REGION": self.reopen_selected_image_evidence,
@@ -1100,7 +1120,7 @@ class LibraryWindow(QMainWindow):
                 self, "Chọn Asset", "Chọn một original trong Library."
             )
             return
-        item = self.table.item(row, 1)
+        item = table_item(self.table, row, 1)
         asset_id = str(item.data(Qt.ItemDataRole.UserRole))
         dialog = SourceDialog(self.root, asset_id, item.text())
         if dialog.exec() != SourceDialog.DialogCode.Accepted:
@@ -1133,10 +1153,10 @@ class LibraryWindow(QMainWindow):
         if self._worker is not None:
             return
         row = self.table.currentRow()
-        if row < 0 or self.table.item(row, 0).text() != "IMAGE":
+        if row < 0 or table_item(self.table, row, 0).text() != "IMAGE":
             QMessageBox.information(self, "Chọn Image", "Chọn một original IMAGE.")
             return
-        file_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        file_id = table_item(self.table, row, 0).data(Qt.ItemDataRole.UserRole)
         self._start_image_worker(
             ImageEvidenceWorker("load", str(file_id), self.root),
             "Đang xác minh ảnh gốc…",
@@ -1148,14 +1168,14 @@ class LibraryWindow(QMainWindow):
         row = self.run_table.currentRow()
         if (
             row < 0
-            or self.run_table.item(row, 1).text() != "IMAGE_THUMBNAIL"
-            or self.run_table.item(row, 2).text() != "SUCCEEDED"
+            or table_item(self.run_table, row, 1).text() != "IMAGE_THUMBNAIL"
+            or table_item(self.run_table, row, 2).text() != "SUCCEEDED"
         ):
             QMessageBox.information(
                 self, "Chọn thumbnail", "Chọn một task thumbnail đã thành công."
             )
             return
-        file_id = self.run_table.item(row, 3).data(Qt.ItemDataRole.UserRole)
+        file_id = table_item(self.run_table, row, 3).data(Qt.ItemDataRole.UserRole)
         if not file_id:
             QMessageBox.information(
                 self, "Chọn thumbnail", "Task chưa có file dẫn xuất."
@@ -1170,10 +1190,10 @@ class LibraryWindow(QMainWindow):
         if self._worker is not None:
             return
         row = self.table.currentRow()
-        if row < 0 or self.table.item(row, 0).text() != "IMAGE":
+        if row < 0 or table_item(self.table, row, 0).text() != "IMAGE":
             QMessageBox.information(self, "Chọn Image", "Chọn một original IMAGE.")
             return
-        file_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        file_id = table_item(self.table, row, 0).data(Qt.ItemDataRole.UserRole)
         worker = ThumbnailWorker(str(file_id), self.root)
         worker.completed.connect(self._on_thumbnail_completed)
         worker.failed.connect(self._on_thumbnail_failed)
@@ -1196,10 +1216,10 @@ class LibraryWindow(QMainWindow):
         if self._worker is not None:
             return
         row = self.table.currentRow()
-        if row < 0 or self.table.item(row, 0).text() != "VIDEO":
+        if row < 0 or table_item(self.table, row, 0).text() != "VIDEO":
             QMessageBox.information(self, "Chọn Video", "Chọn một original VIDEO.")
             return
-        file_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        file_id = table_item(self.table, row, 0).data(Qt.ItemDataRole.UserRole)
         self._start_video_worker(
             VideoEvidenceWorker("load", str(file_id), self.root),
             "Đang giải mã video gốc…",
@@ -1222,10 +1242,10 @@ class LibraryWindow(QMainWindow):
         if self._worker is not None:
             return
         row = self.table.currentRow()
-        if row < 0 or self.table.item(row, 0).text() != "VIDEO":
+        if row < 0 or table_item(self.table, row, 0).text() != "VIDEO":
             QMessageBox.information(self, "Chọn Video", "Chọn một original MP4.")
             return
-        file_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        file_id = table_item(self.table, row, 0).data(Qt.ItemDataRole.UserRole)
         self._start_audio_worker(
             AudioEvidenceWorker("load", str(file_id), self.root),
             "Đang xác minh audio track…",
@@ -1245,12 +1265,14 @@ class LibraryWindow(QMainWindow):
         row = self.evidence_table.currentRow()
         if (
             row < 0
-            or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            or table_item(self.evidence_table, row, 1).data(Qt.ItemDataRole.UserRole)
             != "TEXT_RANGE"
         ):
             QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Text.")
             return
-        version_id = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        version_id = table_item(self.evidence_table, row, 0).data(
+            Qt.ItemDataRole.UserRole
+        )
         self._start_evidence_worker(
             TextEvidenceWorker("reopen", str(version_id), self.root),
             "Đang xác minh Evidence…",
@@ -1262,12 +1284,14 @@ class LibraryWindow(QMainWindow):
         row = self.evidence_table.currentRow()
         if (
             row < 0
-            or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            or table_item(self.evidence_table, row, 1).data(Qt.ItemDataRole.UserRole)
             != "TEXT_RANGE"
         ):
             QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Text.")
             return
-        version_id = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        version_id = table_item(self.evidence_table, row, 0).data(
+            Qt.ItemDataRole.UserRole
+        )
         self._start_evidence_worker(
             TextEvidenceWorker("load-correction", str(version_id), self.root),
             "Đang xác minh Evidence để sửa…",
@@ -1279,12 +1303,14 @@ class LibraryWindow(QMainWindow):
         row = self.evidence_table.currentRow()
         if (
             row < 0
-            or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            or table_item(self.evidence_table, row, 1).data(Qt.ItemDataRole.UserRole)
             != "IMAGE_REGION"
         ):
             QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Image.")
             return
-        version_id = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        version_id = table_item(self.evidence_table, row, 0).data(
+            Qt.ItemDataRole.UserRole
+        )
         self._start_image_worker(
             ImageEvidenceWorker("reopen", str(version_id), self.root),
             "Đang xác minh vùng ảnh…",
@@ -1296,12 +1322,14 @@ class LibraryWindow(QMainWindow):
         row = self.evidence_table.currentRow()
         if (
             row < 0
-            or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            or table_item(self.evidence_table, row, 1).data(Qt.ItemDataRole.UserRole)
             != "IMAGE_REGION"
         ):
             QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Image.")
             return
-        version_id = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        version_id = table_item(self.evidence_table, row, 0).data(
+            Qt.ItemDataRole.UserRole
+        )
         self._start_image_worker(
             ImageEvidenceWorker("load-correction", str(version_id), self.root),
             "Đang xác minh Evidence ảnh để sửa…",
@@ -1313,12 +1341,14 @@ class LibraryWindow(QMainWindow):
         row = self.evidence_table.currentRow()
         if (
             row < 0
-            or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            or table_item(self.evidence_table, row, 1).data(Qt.ItemDataRole.UserRole)
             != "TIME_RANGE:video"
         ):
             QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Video.")
             return
-        version_id = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        version_id = table_item(self.evidence_table, row, 0).data(
+            Qt.ItemDataRole.UserRole
+        )
         self._start_video_worker(
             VideoEvidenceWorker("reopen", str(version_id), self.root),
             "Đang xác minh đoạn video…",
@@ -1330,12 +1360,14 @@ class LibraryWindow(QMainWindow):
         row = self.evidence_table.currentRow()
         if (
             row < 0
-            or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            or table_item(self.evidence_table, row, 1).data(Qt.ItemDataRole.UserRole)
             != "TIME_RANGE:audio"
         ):
             QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Audio.")
             return
-        version_id = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        version_id = table_item(self.evidence_table, row, 0).data(
+            Qt.ItemDataRole.UserRole
+        )
         self._start_audio_worker(
             AudioEvidenceWorker("reopen", str(version_id), self.root),
             "Đang xác minh đoạn audio…",
@@ -1353,7 +1385,7 @@ class LibraryWindow(QMainWindow):
         row = self.evidence_table.currentRow()
         if (
             row < 0
-            or self.evidence_table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            or table_item(self.evidence_table, row, 1).data(Qt.ItemDataRole.UserRole)
             != f"TIME_RANGE:{track}"
         ):
             QMessageBox.information(
@@ -1361,7 +1393,7 @@ class LibraryWindow(QMainWindow):
             )
             return
         version_id = str(
-            self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            table_item(self.evidence_table, row, 0).data(Qt.ItemDataRole.UserRole)
         )
         if track == "video":
             self._start_video_worker(
@@ -1381,9 +1413,11 @@ class LibraryWindow(QMainWindow):
         if row < 0:
             QMessageBox.information(self, "Chọn Evidence", "Chọn một Evidence Version.")
             return
-        version_id = self.evidence_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        content = self.evidence_table.item(row, 1).text()
-        state = self.evidence_table.item(row, 3).text()
+        version_id = table_item(self.evidence_table, row, 0).data(
+            Qt.ItemDataRole.UserRole
+        )
+        content = table_item(self.evidence_table, row, 1).text()
+        state = table_item(self.evidence_table, row, 3).text()
         dialog = EvidenceReviewDialog(content, state)
         if dialog.exec() != EvidenceReviewDialog.DialogCode.Accepted:
             return
@@ -1670,6 +1704,11 @@ class LibraryWindow(QMainWindow):
         self.maintenance_requested = True
         if not self.close():
             self.maintenance_requested = False
+
+    def choose_components(self) -> None:
+        self.components_requested = True
+        if not self.close():
+            self.components_requested = False
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._worker is not None:

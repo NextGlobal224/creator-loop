@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
+from creator_loop.windows_paths import file_io_path
+
 MIGRATIONS = (
     "0001_initial",
     "0002_claim_citation_seal",
@@ -34,7 +36,7 @@ def migration_path(migration_id: str = MIGRATIONS[0]) -> Path:
 
 
 def _migration_sql(migration_id: str) -> tuple[str, str]:
-    sql = migration_path(migration_id).read_text(encoding="utf-8")
+    sql = file_io_path(migration_path(migration_id)).read_text(encoding="utf-8")
     return sql, hashlib.sha256(sql.encode("utf-8")).hexdigest()
 
 

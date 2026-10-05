@@ -21,6 +21,7 @@ from creator_loop.installation_stage import (
 from creator_loop.update_backup import _digest, _inventory
 from creator_loop.update_health import run_health_check
 from creator_loop.update_preparation import _journal, manifest_identity
+from creator_loop.windows_paths import file_io_path
 
 
 def _read_record(path: Path) -> dict[str, Any]:
@@ -53,13 +54,14 @@ def verify_candidate(candidate: Path, installation: Path) -> dict[str, Any]:
         raise ValueError("Linked candidate manifest")
     manifest = load_release_manifest(manifest_path)
     actual: set[str] = set()
-    for index, path in enumerate(candidate.rglob("*")):
+    candidate_io = file_io_path(candidate)
+    for index, path in enumerate(candidate_io.rglob("*")):
         if index >= MAX_FILES * 2:
             raise ValueError("Candidate inventory exceeds entry budget")
         if path.is_symlink() or path.is_junction():
             raise ValueError("Linked candidate member")
         if path.is_file():
-            name = path.relative_to(candidate).as_posix()
+            name = path.relative_to(candidate_io).as_posix()
             if name == "release-manifest.json":
                 continue
             entry = manifest["files"].get(name)

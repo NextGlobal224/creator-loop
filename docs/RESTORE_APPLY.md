@@ -70,9 +70,11 @@ error types without private row contents. The apply work budget is 120s by
 default (maximum 600s); test/CI process deadlines also bound blocking OS calls.
 
 This slice requires an existing valid supported current DB and backup (schemas
-1–6). Corrupt, missing and future-schema current DB recovery, confirmation UI,
+1–6). Corrupt, missing and future-schema current DB recovery,
 physical removable-volume acceptance, real engine/model and final release
 acceptance remain open. CI fixture tests are not proof for those requirements.
+Damaged sources have a separate [readonly assessment](CORRUPT_RESTORE_ASSESSMENT.md);
+its format2 proof cannot authorize this ordinary apply operation.
 
 SQLite behavior used here is documented in [Backup API](https://www.sqlite.org/c3ref/backup_finish.html)
 and [exclusive locking mode](https://www.sqlite.org/pragma.html#pragma_locking_mode).

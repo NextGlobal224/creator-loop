@@ -110,7 +110,7 @@ def main() -> None:
     parser.add_argument("--source", action="store_true")
     args = parser.parse_args()
     args.work_root.mkdir()
-    root = args.work_root / "Synthetic user data Hue space"
+    root = args.work_root.resolve(strict=True) / "Synthetic user data Hue space"
     ensure_data_root(root)
     path = root / "creator_loop.sqlite3"
     initialize(path)

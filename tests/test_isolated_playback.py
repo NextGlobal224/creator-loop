@@ -198,6 +198,49 @@ class IsolatedPlaybackTests(unittest.TestCase):
         self.assertTrue(frames)
         self.assertTrue(all(701000 <= pts < 901000 for pts in frames), frames)
 
+    def test_native_tree_terminal_keeps_original_and_process_until_pipe_cancel_completes(
+        self,
+    ):
+        with self.fake("import time;time.sleep(30)"):
+            self.player.play()
+        process, pipe, held = self.player.process, self.player.pipe, self.player.held
+        self.assertIsNotNone(process)
+        self.assertIsNotNone(pipe)
+        self.assertIsNotNone(held)
+        finished = []
+        self.player.finished.connect(lambda: finished.append(True))
+        handle = self.monitor()
+        self.player.stop()
+        self.assertEqual(self.kernel.WaitForSingleObject(handle, 2000), 0)
+        self.assertTrue(process.tree_finished())
+        with patch.object(pipe, "try_close", return_value=False):
+            self.player._release_if_terminal()
+            self.assertIs(self.player.process, process)
+            self.assertIs(self.player.held, held)
+            self.player._tick()
+            self.assertIs(self.player.process, process)
+            self.assertEqual(finished, [])
+            with self.assertRaises(OSError):
+                self.path.write_bytes(b"early mutation")
+            with patch(
+                "creator_loop.isolated_playback.time.monotonic",
+                return_value=self.player._pipe_close_deadline + 1,
+            ):
+                self.player._tick()
+                self.player._tick()
+            self.assertEqual(len(self.errors), 1)
+            self.assertIn("pipe cancellation", self.errors[0])
+            self.assertIs(self.player.held, held)
+            self.assertIs(self.player.process, process)
+            self.assertEqual(finished, [])
+        self.until(lambda: self.player.process is None)
+        self.assertIsNone(self.player.held)
+        self.assertIsNone(self.player.pipe)
+        self.assertIsNone(self.player.workspace)
+        self.assertEqual(finished, [True])
+        self.assertEqual(len(self.errors), 1)
+        self.path.write_bytes(self.original)
+
     def test_no_heartbeat_real_8s_timeout_keeps_gui_dispatching(self):
         pulses = []
         timer = QTimer()

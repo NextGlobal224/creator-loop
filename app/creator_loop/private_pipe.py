@@ -181,19 +181,24 @@ class PrivatePipe:
         operation.event = self.event
         if not self.kernel.ResetEvent(self.event):
             raise ctypes.WinError(ctypes.get_last_error())
-        transferred = w.DWORD()
+        # FILE_FLAG_OVERLAPPED: ReadFile's synchronous byte-count pointer
+        # must be NULL. Both immediate and pending completions obtain the
+        # actual count through GetOverlappedResult with retained native memory.
+        # https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-readfile
+        self._pending = (buffer, operation)
         if self.kernel.ReadFile(
             self.read_handle,
             buffer,
             count,
-            ctypes.byref(transferred),
+            None,
             ctypes.byref(operation),
         ):
-            return buffer.raw[: transferred.value]
+            completed = self._poll_read()
+            return b"" if completed is None else completed
         code = ctypes.get_last_error()
         if code == 997:
-            self._pending = (buffer, operation)
             return b""
+        self._pending = None
         if code == 109:
             self.eof = True
             return b""

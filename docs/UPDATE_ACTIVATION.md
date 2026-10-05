@@ -29,6 +29,12 @@ sau JSON hợp lệ, candidate revalidation và storage inventory không đổi 
 ACTIVE và journal COMPLETED/activation_pending=false. Health stdout/stderr,
 ownership/result nằm dưới `logs/update-health-<id>-<run>/`. Không chạy model nặng.
 
+Health của Windows frozen còn kiểm import Qt và tải hai platform plugin đi kèm
+(`qwindows.dll`, `qoffscreen.dll`) bằng đường dẫn bundle cụ thể. Không tạo cửa sổ
+hoặc chạy engine/model; plugin thiếu, hỏng hoặc DLL không tải được phải từ chối
+health trước đọc DB. Kiểm load này không thay walkthrough UI hoặc nghiệm thu
+engine/model. Mọi exit khác0 (kể cả lỗi bootstrap trước JSON) đều chặn activation.
+
 Nếu health hoặc core pointer/journal write lỗi, journal ghi HEALTH_FAILED/error_type khi ghi
 được. Chỉ phục hồi pointer cũ khi inventory/digest và schema readable range của
 version cũ đã được xác minh; không restore DB. Nếu không có bản cũ tương thích,

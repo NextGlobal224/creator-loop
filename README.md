@@ -4,6 +4,10 @@ Local-first Windows desktop foundation. This is a bootstrap, not the full produc
 
 The [V1 acceptance matrix](docs/PRODUCT_ACCEPTANCE.md) tracks required product flows, their evidence, and remaining release conditions.
 
+The Vietnamese [user guide](docs/USER_GUIDE.md) walks through the current Library-to-Observation UI, reopening data, and backup/update/recovery. See [HANDOFF](docs/HANDOFF.md) for the exact local build and its verification limits; the guide does not certify a release.
+
+The packaging workflow adds `USER_GUIDE.html` beside `CreatorLoop.exe`, with offline product guides in `docs/` and source identity in `build-info.json`, before creating/testing the ZIP. Open the HTML file in a browser; basic use and recovery guidance needs no Python or background service. Personal HANDOFF/history, logs, models and user data are excluded. Check HANDOFF for whether a particular checkpoint artifact contains these guides; build identity does not certify its release gate.
+
 ## Source smoke and tests
 
 Requires Python 3.12 x64. From the repository root:
@@ -22,6 +26,8 @@ python -m creator_loop --smoke
 ```
 
 Desktop UI requires `pip install PySide6==6.10.2`. The app stores user data outside installation by default, under `%LOCALAPPDATA%\CreatorLoop` on Windows. `CREATOR_LOOP_DATA_ROOT` overrides this for test/portable use.
+
+For QA on new synthetic fixtures, see the [supplied-artifact Qt product flow probe](docs/PRODUCT_FLOW_PROBE.md). It runs real widgets/workers inside the selected CLI, independently checks the resulting DB and tests refusal/reopen; programmatic/offscreen PASS does not certify the real-machine release gate.
 
 To open the current Library UI, run `python -m creator_loop` with `PYTHONPATH=app`. The three import buttons accept TEXT, MP4 video, and PNG/JPEG images. The app copies bytes into the user-data originals store and lists the imported files. Format detection checks stored signatures, then IMAGE/VIDEO intake decodes real pixels or a video frame with audio samples when present before registration. This preflight passed required CI in PR #44; broad codec coverage and native decoder process isolation remain open.
 
@@ -65,6 +71,21 @@ The launcher holds `runtime/app-data.lock` for the complete app session, before 
 
 ## CI and release
 
+Tag publication now checks the [V1 release gate](docs/RELEASE_GATE.md) before
+uploading tested bytes. Development/unresolved manifests, unaccepted V1
+prerequisites, or mismatched commit/run/tag/ZIP/guide identity refuse publication.
+The current manifest writer produces development checkpoints; green CI alone
+does not make them V1 releases or replace real engine/model/8 GB acceptance.
+
+For explicitly selected local engine/model files, `--check-components MANIFEST`
+checks pinned metadata and physical digest/size without opening the user DB or
+executing the components. See [local component preflight](docs/LOCAL_COMPONENTS.md)
+for the manifest, timeout command and remaining runtime/8 GB acceptance work.
+Choose **Đóng Library để chọn engine/model cục bộ** or launch `--components` to
+review the declarations and explicitly confirm a fresh check before saving.
+`--inspect-components` shows saved history without claiming current availability
+or runtime compatibility. Component files remain externally owned.
+
 Interrupted updates can be inspected with `--inspect-update JOURNAL --installation-root DIR`
 and explicitly resumed with `--resume-update JOURNAL --installation-root DIR`. Resume
 validates actual SQLite state, backs up current data, retains previous snapshots,
@@ -81,6 +102,22 @@ as described in [confirmed restore](docs/RESTORE_APPLY.md). In Library, choose
 open maintenance. `CreatorLoop.exe --maintenance` opens the same window even
 when a restore guard blocks Library. See [maintenance UI](docs/MAINTENANCE_UI.md)
 for backup, explicit update/restore consent, recovery, cancel and retained logs.
+For an unreadable source, use the separate [damaged-source review](docs/CORRUPT_RESTORE_ASSESSMENT.md),
+[raw retention](docs/CORRUPT_SOURCE_PRESERVATION.md), then [confirmed staging](docs/CORRUPT_RESTORE_PREPARATION.md).
+The [initial damaged-source UI](docs/DAMAGED_RESTORE_UI.md) in Maintenance provides
+review/raw preservation/staging/guarded copy with fresh consent at each step.
+This stages a validated migrated backup separately. Use [guarded copy](docs/CORRUPT_RESTORE_COPY.md),
+[actual-state inspection](docs/CORRUPT_RESTORE_INSPECTION.md), then
+[explicit recovery and fresh health](docs/CORRUPT_COPY_RECOVERY.md) for a validated copy.
+Known interrupted-copy states have [consented continuation](docs/CORRUPT_COPY_RESUME.md)
+that preserves original/partial bytes and keeps the launch guard. Interrupted
+unknown/nonempty partial bundles need separate reviewed retention consent and
+complete original evidence. Changed completed copies have a distinct
+[fresh review/copy CLI and Maintenance dialog](docs/FRESH_COMPLETED_RESTORE.md),
+explicitly selecting the bound backup/candidate and retaining every current bundle.
+Maintenance provides [guarded copy review/resume/health-recovery controls](docs/MAINTENANCE_UI.md)
+with separate default-off consents. Full frozen product validation, complete
+failure recovery and release acceptance remain open.
 
 `--stage-update ZIP --release-manifest JSON --installation-root DIR` verifies a supplied Windows ZIP and its complete file inventory, then stages a separate version directory while retaining existing installations and user data. It does not activate the candidate or migrate the DB. See [staging instructions](docs/INSTALLATION_STAGING.md). CI tests staging and a bounded launcher/schema smoke from the exact ZIP; final updater orchestration and release acceptance remain open.
 
@@ -110,7 +147,7 @@ Migrations `0001_initial.sql` through `0005_publication_snapshot_guards.sql` rem
 
 ## Boundaries
 
-The Library UI imports and lists originals, links Sources, generates image thumbnails and opens TEXT, IMAGE_REGION and video-track TIME_RANGE Evidence. It supports Package review and manual Post records. It also records manual Post observations. It does not yet launch external media/model engines, collect metrics via API or expose installation updates through the desktop UI; it sends no posts to external platforms. The complete packaged workflow and release acceptance remain open.
+The Library UI imports and lists originals, links Sources, generates image thumbnails and opens TEXT, IMAGE_REGION and video-track TIME_RANGE Evidence. It supports Package review, manual Post records and observations. The maintenance window provides explicit backup/update/restore controls, and the Component window reviews local selections. External engine/model execution and API metric collection remain open; the app sends no posts to external platforms. The complete packaged workflow and release acceptance remain open.
 
 The public application read path is `open_readonly()`. Publication writes go through `PublicationRepository`; `_connect_write()` is an internal adapter reserved for repositories, migrations and tests. This is an application boundary, not a sandbox against someone opening the SQLite file directly. Direct SQL may create an unsealed staging row, which cannot be approved.
 

@@ -163,29 +163,15 @@ def assess_restore(
             db.rollback()
 
 
-def _assess_locked(
-    canonical: Path,
-    backup_id: str,
-    installation: Path,
-    candidate_directory: Path,
-    db: sqlite3.Connection,
-    deadline: float,
-    handles: ExitStack | None = None,
-) -> dict[str, Any]:
-    """Caller owns app and reserved DB writer locks; optional retained media handles."""
-    if not db.in_transaction:
-        raise RuntimeError("Assessment requires a reserved writer transaction")
-    version = db.execute("PRAGMA user_version").fetchone()[0]
-    if not 1 <= version <= SCHEMA_VERSION:
-        raise RuntimeError("Use recovery compatible with the actual current schema")
-    validate(db, expected_version=version)
-    if (
-        any(path.name != "app-data.lock" for path in (canonical / "runtime").iterdir())
-        or db.execute(
-            "SELECT 1 FROM processing_runs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
-        ).fetchone()
-    ):
-        raise RuntimeError("Owned workers require recovery before restore assessment")
+def _restore_inputs(
+    canonical: Path, backup_id: str, installation: Path, candidate_directory: Path
+) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+    """Validate the same explicit backup/candidate for ordinary/damaged sources."""
+    if re.fullmatch(r"[0-9a-f]{32}", backup_id) is None:
+        raise ValueError("Choose an explicit published backup ID")
+    folder = canonical / "backups"
+    if folder.is_symlink() or folder.is_junction() or not folder.is_dir():
+        raise ValueError("Real backup directory required")
     backup_folder = canonical / "backups" / backup_id
     if (
         backup_folder.is_symlink()
@@ -218,6 +204,37 @@ def _assess_locked(
         <= manifest["schema_read_max"]
     ):
         raise ValueError("Candidate cannot migrate/read the restored backup")
+    return snapshot, metadata, manifest
+
+
+def _assess_locked(
+    canonical: Path,
+    backup_id: str,
+    installation: Path,
+    candidate_directory: Path,
+    db: sqlite3.Connection,
+    deadline: float,
+    handles: ExitStack | None = None,
+) -> dict[str, Any]:
+    """Caller owns app and reserved DB writer locks; optional retained media handles."""
+    if not db.in_transaction:
+        raise RuntimeError("Assessment requires a reserved writer transaction")
+    version = db.execute("PRAGMA user_version").fetchone()[0]
+    if not 1 <= version <= SCHEMA_VERSION:
+        raise RuntimeError("Use recovery compatible with the actual current schema")
+    validate(db, expected_version=version)
+    if (
+        any(path.name != "app-data.lock" for path in (canonical / "runtime").iterdir())
+        or db.execute(
+            "SELECT 1 FROM processing_runs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
+        ).fetchone()
+    ):
+        raise RuntimeError("Owned workers require recovery before restore assessment")
+    snapshot, metadata, manifest = _restore_inputs(
+        canonical, backup_id, installation, candidate_directory
+    )
+    backup_version = metadata["schema_version"]
+    created_at = metadata["created_at"]
     registry_path = canonical / "manifests/storage-roots.json"
     registry = _load(registry_path) if registry_path.exists() else None
     current_identity, current_counts = _database_identity(db, deadline)

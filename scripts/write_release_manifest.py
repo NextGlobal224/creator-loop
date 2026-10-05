@@ -16,8 +16,16 @@ from creator_loop.installation_stage import load_release_manifest
 
 
 def write_manifest(
-    zip_path: Path, package: Path, output: Path, commit: str, run_url: str
+    zip_path: Path,
+    package: Path,
+    output: Path,
+    commit: str,
+    run_url: str,
+    *,
+    build_method: str = "github-actions",
 ) -> None:
+    if build_method not in ("github-actions", "local-checkpoint"):
+        raise ValueError("Unknown build provenance method")
     if (
         platform.system() != "Windows"
         or platform.machine().upper() not in ("AMD64", "X86_64")
@@ -66,10 +74,14 @@ def write_manifest(
         "provenance": {
             "repository": "NextGlobal224/creator-loop",
             "ci_run": run_url,
-            "method": "GitHub Actions Windows build; signatures/attestation not enabled",
+            "method": (
+                "GitHub Actions Windows build; signatures/attestation not enabled"
+                if build_method == "github-actions"
+                else "Local Windows development checkpoint; not CI/tag/release; signatures/attestation not enabled"
+            ),
         },
         "release_notes": "Development checkpoint; Library through manual Observation, DB-only backup and verified staging. V1 release gate remains incomplete.",
-        "recovery_notes": "Keep the prior installation and validated DB backup. Do not run an app outside its readable schema range. Confirm loss of changes after backup before any DB restore; media is not included. Activation/restore UI remains pending.",
+        "recovery_notes": "Keep the prior installation and validated DB backup. Do not run an app outside its readable schema range. Confirm loss of changes after backup before any DB restore; DB backup does not include media. Use Maintenance for compatible activation or confirmed restore; interrupted/guarded restore requires fresh review, explicit loss/media consent and separate candidate health before activation. Retain journals/raw evidence/current bytes; never copy a backup over an open DB. Final recovery/hardware/release validation remains required.",
     }
     output.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True),
@@ -85,5 +97,17 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--run-url", required=True)
+    parser.add_argument(
+        "--build-method",
+        choices=("github-actions", "local-checkpoint"),
+        default="github-actions",
+    )
     args = parser.parse_args()
-    write_manifest(args.zip, args.package, args.output, args.commit, args.run_url)
+    write_manifest(
+        args.zip,
+        args.package,
+        args.output,
+        args.commit,
+        args.run_url,
+        build_method=args.build_method,
+    )

@@ -34,7 +34,7 @@ class UpdatePreparationTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.base = Path(temporary.name)
+        self.base = Path(temporary.name).resolve(strict=True)
         self.root = self.base / "Dữ liệu cập nhật"
         ensure_data_root(self.root)
         self.path = self.root / "creator_loop.sqlite3"

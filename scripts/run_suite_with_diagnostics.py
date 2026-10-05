@@ -5,11 +5,15 @@ from __future__ import annotations
 import argparse
 import faulthandler
 import json
+import math
 import sys
+import threading
 import time
+import traceback
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TextIO
+from typing import Iterator, TextIO
 from uuid import uuid4
 
 
@@ -45,6 +49,52 @@ class TimedResult(unittest.TextTestResult):
         super().stopTest(test)
 
 
+@contextmanager
+def periodic_python_stacks(traces: TextIO, *, interval: float = 60) -> Iterator[None]:
+    """Retain Python frame/code references instead of walking raw frame pointers.
+
+    CPython's native faulthandler watchdog can race freed code metadata:
+    https://github.com/python/cpython/issues/158200
+    This reporter needs the GIL; process timeout/progress and fatal diagnostics
+    still cover a native stall. It never retries a test or changes its deadline.
+    """
+    if not math.isfinite(interval) or interval <= 0:
+        raise ValueError("Positive reporting interval required")
+    stopped = threading.Event()
+    failures: list[BaseException] = []
+
+    def report() -> None:
+        try:
+            while not stopped.wait(interval):
+                frames = sys._current_frames()  # strong references retain code metadata
+                frame = None
+                try:
+                    traces.write("Periodic Python stacks (requires GIL):\n")
+                    for ident, frame in frames.items():
+                        traces.write(f"Thread {ident}:\n")
+                        traceback.print_stack(frame, limit=100, file=traces)
+                    traces.flush()
+                finally:
+                    frames.clear()
+                    frame = None  # release the last frame too, between reports
+        except BaseException as exc:
+            failures.append(exc)
+
+    reporter = threading.Thread(target=report, name="suite-stack-reporter", daemon=True)
+    reporter.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        reporter.join(timeout=2)
+        if reporter.is_alive():
+            raise RuntimeError("Stack reporter has not stopped; preserve diagnostics")
+        if failures:
+            raise RuntimeError(
+                "Periodic stack reporting failed; preserve diagnostics"
+            ) from failures[0]
+
+
 def main() -> int:
     # Match `python -m unittest`: script execution otherwise puts scripts/
     # rather than the checkout root on sys.path. Tests also import app/scripts.
@@ -58,9 +108,9 @@ def main() -> int:
     with (
         (diagnostics / "progress.jsonl").open("x", encoding="utf-8") as progress,
         (diagnostics / "tracebacks.log").open("x", encoding="utf-8") as traces,
+        periodic_python_stacks(traces),
     ):
         faulthandler.enable(file=traces, all_threads=True)
-        faulthandler.dump_traceback_later(60, repeat=True, file=traces)
         try:
             suite = unittest.defaultTestLoader.discover("tests", pattern=args.pattern)
             runner = unittest.TextTestRunner(
@@ -70,7 +120,6 @@ def main() -> int:
             result = runner.run(suite)
             return 0 if result.wasSuccessful() else 1
         finally:
-            faulthandler.cancel_dump_traceback_later()
             faulthandler.disable()
 
 

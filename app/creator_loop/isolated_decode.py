@@ -244,7 +244,9 @@ def run_decode_worker(request: Path) -> int:
                 require_audio=body["require_audio"],
             )
             frame = request.parent / "frame.png"
-            if not decoded.image.save(str(frame), "PNG"):
+            # The .png suffix selects the codec without PySide6's inconsistent
+            # explicit-format runtime/stub overload.
+            if not decoded.image.save(str(frame)):
                 raise OSError("Cannot write private decoded frame")
             result.update(
                 duration_ms=decoded.duration_ms,

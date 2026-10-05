@@ -4,7 +4,7 @@ import ctypes
 import sys
 import time
 import unittest
-from ctypes import wintypes
+from unittest.mock import patch
 
 if sys.platform == "win32":
     from creator_loop.private_pipe import PrivatePipe, _Overlapped
@@ -16,9 +16,8 @@ class PrivatePipeAsyncTests(unittest.TestCase):
         buffer = ctypes.create_string_buffer(32)
         operation = _Overlapped()
         operation.event = pipe.event
-        count = wintypes.DWORD()
         result = pipe.kernel.ReadFile(
-            pipe.read_handle, buffer, 32, ctypes.byref(count), ctypes.byref(operation)
+            pipe.read_handle, buffer, 32, None, ctypes.byref(operation)
         )
         self.assertFalse(result)
         self.assertEqual(ctypes.get_last_error(), 997)
@@ -66,3 +65,34 @@ class PrivatePipeAsyncTests(unittest.TestCase):
         self.assertIsNone(pipe.event)
         self.assertTrue(pipe.reader.closed)
         self.assertTrue(pipe.writer.closed)
+
+    def test_async_read_uses_only_native_completion_byte_count(self):
+        payload = b"\x00\xff\r\ncompletion count only" * 3
+        with PrivatePipe() as pipe:
+            native_read = pipe.kernel.ReadFile
+            native_completed = pipe.kernel.GetOverlappedResult
+
+            def read(handle, buffer, size, synchronous_count, operation):
+                self.assertIsNone(synchronous_count)
+                self.assertIsNotNone(operation)
+                return native_read(handle, buffer, size, synchronous_count, operation)
+
+            with (
+                patch.object(pipe.kernel, "ReadFile", side_effect=read) as reads,
+                patch.object(
+                    pipe.kernel, "GetOverlappedResult", wraps=native_completed
+                ) as completions,
+            ):
+                pipe.writer.write(payload)
+                received = bytearray()
+                deadline = time.monotonic() + 5
+                while len(received) < len(payload) and time.monotonic() < deadline:
+                    part = pipe.read_available(7)
+                    self.assertLessEqual(len(part), 7)
+                    received.extend(part)
+                    time.sleep(0.001)
+                self.assertEqual(received, payload)
+                self.assertGreater(reads.call_count, 0)
+                self.assertGreaterEqual(completions.call_count, reads.call_count)
+                self.assertIsNone(pipe._pending)
+                self.assertFalse(pipe.read_pending)

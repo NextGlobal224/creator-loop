@@ -15,18 +15,24 @@ jobs:
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0 (Node 24)
         with:
           python-version: '3.12'
-      - name: Install pinned quality tools
-        run: python -m pip install ruff==0.16.9 mypy==2.3.1
+      - name: Install pinned quality tools and Qt test runtime
+        run: python -m pip install ruff==0.16.9 mypy==2.3.1 PySide6==6.10.2
+      - name: Install native Qt test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libegl1 libopengl0 libpulse0
+          python -c "from PySide6 import QtWidgets, QtMultimedia"
       - name: Lint, format, type check
         run: |
-          ruff check app tests scripts
-          ruff format --check app tests scripts
+          ruff check app tests scripts packaging
+          ruff format --check app tests scripts packaging
           mypy app/creator_loop
       - name: Compile and test
         env:
           PYTHONPATH: app
+          QT_QPA_PLATFORM: offscreen
         run: |
-          python -m compileall -q app tests
+          python -m compileall -q app tests packaging
           python -m unittest discover -s tests -v
       - name: Source smoke
         env:
@@ -73,10 +79,10 @@ jobs:
         env:
           PYTHONPATH: app
         shell: powershell
-        timeout-minutes: 8
+        timeout-minutes: 16
         run: |
           $ErrorActionPreference = 'Stop'
-          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 420 -CommandArgs @('-u','scripts/run_suite_with_diagnostics.py')
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 900 -CommandArgs @('-u','scripts/run_suite_with_diagnostics.py')
           $testExit = $LASTEXITCODE
           $run = Get-ChildItem .local-test-logs -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'result.json') } | Sort-Object Name -Descending | Select-Object -First 1
           if ($run) {
@@ -93,7 +99,9 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
       - name: Build one-directory application
-        run: python -m PyInstaller --noconfirm --clean --onedir --name CreatorLoop --paths app --add-data "migrations/0001_initial.sql;migrations" --add-data "migrations/0002_claim_citation_seal.sql;migrations" --add-data "migrations/0003_draft_snapshot_seal.sql;migrations" --add-data "migrations/0004_selection_snapshot_seal.sql;migrations" --add-data "migrations/0005_publication_snapshot_guards.sql;migrations" --add-data "migrations/0006_observation_metric_validation.sql;migrations" packaging/entrypoint.py
+        run: python -m PyInstaller --noconfirm --clean --onedir --name CreatorLoop --paths app --runtime-hook packaging/windows_long_paths.py --add-data "migrations/0001_initial.sql;migrations" --add-data "migrations/0002_claim_citation_seal.sql;migrations" --add-data "migrations/0003_draft_snapshot_seal.sql;migrations" --add-data "migrations/0004_selection_snapshot_seal.sql;migrations" --add-data "migrations/0005_publication_snapshot_guards.sql;migrations" --add-data "migrations/0006_observation_metric_validation.sql;migrations" packaging/entrypoint.py
+      - name: Add offline product guidance before packaging
+        run: python scripts/package_product_docs.py --package dist/CreatorLoop --commit '${{ github.sha }}'
       - name: Pack and smoke the exact ZIP
         shell: pwsh
         timeout-minutes: 48
@@ -113,6 +121,9 @@ jobs:
           $env:QT_QPA_PLATFORM = 'offscreen'
           & .\scripts\run_test_with_timeout.ps1 -Executable (Join-Path $target 'CreatorLoop/CreatorLoop.exe') -TimeoutSeconds 60 -CommandArgs @('--ui-smoke')
           if ($LASTEXITCODE -ne 0) { throw 'Extracted UI smoke failed' }
+          $productFlow = Join-Path $env:RUNNER_TEMP 'luồng sản phẩm Qt exact'
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 180 -CommandArgs @('scripts/check_product_flow.py','--executable',(Join-Path $target 'CreatorLoop/CreatorLoop.exe'),'--work-root',$productFlow)
+          if ($LASTEXITCODE -ne 0) { throw 'Exact packaged Qt product flow failed' }
           $after = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($before -ne $after) { throw 'Release ZIP changed after smoke' }
           python scripts/write_release_manifest.py --zip $zip --package (Join-Path $target 'CreatorLoop') --output release/release-manifest.json --commit '${{ github.sha }}' --run-url '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
@@ -151,6 +162,26 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged actual-state update recovery failed' }
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 300 -CommandArgs @('scripts/check_restore_assessment.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation)
           if ($LASTEXITCODE -ne 0) { throw 'Packaged restore/media assessment failed' }
+          $damagedAssessment = Join-Path $env:RUNNER_TEMP 'đánh giá nguồn hỏng riêng'
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 180 -CommandArgs @('scripts/check_corrupt_restore_assessment.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation,'--work-root',$damagedAssessment)
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged damaged-source readonly assessment failed' }
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 360 -CommandArgs @('scripts/check_corrupt_copy_recovery.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$damagedAssessment,'--installation-root',$installation,'--maintenance-ui')
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged corrupt-copy recovery and fresh native health failed' }
+          $initialDamagedUI = Join-Path $env:RUNNER_TEMP 'Creator Loop initial damaged source UI'
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 360 -CommandArgs @('scripts/check_damaged_restore_maintenance.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation,'--work-root',$initialDamagedUI)
+          if ($LASTEXITCODE -ne 0) { throw 'Initial source Qt to exact candidate damaged-source workflow failed' }
+          $completedCopyProbe = Join-Path $env:RUNNER_TEMP 'Creator Loop changed completed copy refusal'
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 360 -CommandArgs @('scripts/check_completed_copy_refusal.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation,'--work-root',$completedCopyProbe)
+          if ($LASTEXITCODE -ne 0) { throw 'Exact candidate completed-copy fresh-decision refusal failed' }
+          $freshCopyProbe = Join-Path $env:RUNNER_TEMP 'Creator Loop explicit fresh completed restore'
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 360 -CommandArgs @('scripts/check_fresh_restore.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation,'--work-root',$freshCopyProbe,'--maintenance-ui')
+          if ($LASTEXITCODE -ne 0) { throw 'Exact candidate distinct fresh restore/native retention/owned health failed' }
+          $copyResumeProbe = Join-Path $env:RUNNER_TEMP 'Creator Loop interrupted copy resume'
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 360 -CommandArgs @('scripts/check_corrupt_copy_resume.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation,'--work-root',$copyResumeProbe)
+          if ($LASTEXITCODE -ne 0) { throw 'Actual interrupted source-copy and exact candidate continuation failed' }
+          $unknownCopyProbe = Join-Path $env:RUNNER_TEMP 'Creator Loop unknown partial bundle'
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 360 -CommandArgs @('scripts/check_corrupt_copy_resume.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation,'--work-root',$unknownCopyProbe,'--unknown-partial')
+          if ($LASTEXITCODE -ne 0) { throw 'Exact candidate unknown partial bundle retention and guarded continuation failed' }
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 360 -CommandArgs @('scripts/check_restore_apply.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--data-root',$env:CREATOR_LOOP_DATA_ROOT,'--journal',$preparedJournal.FullName,'--installation-root',$installation)
           if ($LASTEXITCODE -ne 0) { throw 'Packaged confirmed restore and fresh health failed' }
           Copy-Item -LiteralPath $userManifestPath -Destination release/test-user-data-manifest.json
@@ -169,6 +200,9 @@ jobs:
           $playbackProbe = Join-Path $PWD '.local-test-logs/exact-playback-${{ github.sha }}'
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 90 -CommandArgs @('scripts/check_playback_lifecycle.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--work-root',$playbackProbe)
           if ($LASTEXITCODE -ne 0) { throw 'Exact candidate actual-frame/audio playback lifecycle failed' }
+          $componentProbe = Join-Path $PWD '.local-test-logs/exact-components-${{ github.sha }}'
+          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 90 -CommandArgs @('scripts/check_local_components.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--work-root',$componentProbe)
+          if ($LASTEXITCODE -ne 0) { throw 'Exact candidate local component artifact preflight failed' }
           $processingProbe = Join-Path $PWD '.local-test-logs/exact-processing-${{ github.sha }}'
           & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 120 -CommandArgs @('scripts/check_processing_recovery.py','--executable',(Join-Path $candidate.FullName 'CreatorLoop/CreatorLoop.exe'),'--work-root',$processingProbe,'--component-version','${{ github.sha }}')
           if ($LASTEXITCODE -ne 0) { throw 'Exact candidate processing/runtime startup recovery failed' }
@@ -209,6 +243,14 @@ jobs:
         run: |
           cd release
           sha256sum -c SHA256SUMS.txt
+      - name: Refuse incomplete V1 release gate
+        run: >-
+          python scripts/check_release_gate.py
+          --artifact "release/CreatorLoop-${GITHUB_SHA}-win-x64.zip"
+          --manifest release/release-manifest.json
+          --expected-commit "$GITHUB_SHA"
+          --expected-run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          --tag "$GITHUB_REF_NAME"
       - name: Publish tested bytes
         env:
           GH_TOKEN: ${{ github.token }}

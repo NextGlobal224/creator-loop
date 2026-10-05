@@ -25,6 +25,7 @@ from creator_loop.installation_stage import (
     stage_installation,
 )
 from creator_loop.update_backup import _backup_from_guard, _inventory
+from creator_loop.windows_paths import file_io_path
 
 
 def _journal(path: Path, record: dict[str, Any]) -> None:
@@ -64,7 +65,7 @@ def validate_candidate_migrations(
         if name not in manifest["files"]:
             raise ValueError("Candidate lacks packaged migration files")
         if candidate is not None:
-            sql = (candidate / name).read_text(encoding="utf-8")
+            sql = file_io_path(candidate / name).read_text(encoding="utf-8")
             if (
                 hashlib.sha256(sql.encode("utf-8")).hexdigest()
                 != _migration_sql(migration)[1]
