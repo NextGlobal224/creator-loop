@@ -178,7 +178,11 @@ def save_component_selection(
 
 
 def select_components_cli(
-    root: Path, manifest: Path, reviewed_fingerprint: str | None = None
+    root: Path,
+    manifest: Path,
+    reviewed_fingerprint: str | None = None,
+    *,
+    worker_memory_limit: int = DEFAULT_WORKER_MEMORY,
 ) -> int:
     """Explicit selection with the app closed; existing compatible DB only."""
     try:
@@ -191,7 +195,9 @@ def select_components_cli(
                 "Selection changed after review; check it again before saving"
             )
         with AppDataLock(root) as lock:
-            selection = save_component_selection(root, specs, lock=lock)
+            selection = save_component_selection(
+                root, specs, lock=lock, worker_memory_limit=worker_memory_limit
+            )
         print(
             json.dumps(
                 {
@@ -199,6 +205,7 @@ def select_components_cli(
                     "check": "LOCAL_ARTIFACTS_VERIFIED",
                     "checked_at": selection.checked_at,
                     "runtime_compatibility_verified": False,
+                    "worker_memory_limit": selection.worker_memory_limit,
                     "component_ids": [spec.component_id for spec in selection.specs],
                 }
             )

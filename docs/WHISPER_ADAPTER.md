@@ -1,6 +1,7 @@
 # Adapter Whisper — checkpoint phát triển
 
-`whisper_adapter.py` là adapter PCM WAV cục bộ, chưa nối Library/pipeline/UI.
+`whisper_adapter.py` là adapter PCM WAV cục bộ; service và source task UI gọi nó
+qua [pipeline Video](VIDEO_TRANSCRIPTION_PIPELINE.md).
 Không ghi DB, tạo Evidence, review hoặc tự chấp nhận nội dung AI. Caller phải
 chạy trong owned I/O worker có timeout cấp tiến trình; hashing/file I/O không
 được đặt trên GUI thread. Caller hiện giữ app lock của đúng data root.
@@ -18,6 +19,9 @@ hashes và native ownership/memory/timing. Offset không hợp lệ bị từ ch
 clipping; parse thành công không chứng minh speech/quality/locator/human review.
 Giữ workspace/log khi lỗi, cancel hoặc crash; chưa cleanup/DB recovery cho loại
 workspace này. Không xóa component/input ngoài quyền sở hữu.
+CLI có thể in transcript lên stdout/stderr, nên output native mặc định chuyển
+vào NUL. Log engine chỉ có ownership và outcome/exit/resource; RAW trong
+workspace là bản nội dung nguyên vẹn. Log cũ giữ nguyên đúng scope lịch sử.
 
 Fake native CLI trong tests kiểm normal/cancel/timeout/native failure/input
 digest/parent crash, không tải weights vào CI. Real tests và FAIL gốc tra HANDOFF:
@@ -26,8 +30,9 @@ digest/parent crash, không tải weights vào CI. Real tests và FAIL gốc tra
 còn hẹp, không lấy số này làm final resource budget. Silence sinh câu không
 có trong nguồn, nên chất lượng tiếng Việt và dữ liệu thực vẫn chưa xác minh.
 
-Còn thiếu: video→bounded PCM, durable RAW registration (`asset_files.role=OTHER`,
-MIME JSON, lineage/run đúng schema hiện hành), QUEUED/RUNNING/terminal states,
-recovery dưới fresh app lock, component selection budget, progress/cancel UI,
-Vietnamese quality, long input, RAM/disk pressure và exact final artifact.
+PCM/durable RAW (`asset_files.role=OTHER`, MIME JSON, lineage/run)/terminal states
+và known-executor recovery đã có trong service PR78. Budget/progress/cancel UI
+còn checkpoint source mới: full885/12SKIP và source265 hash đã xác minh;
+chưa CI/artifact mới. Còn Vietnamese
+quality, long input, RAM/disk pressure/prerequisites và exact final artifact.
 Không thêm enum/table chỉ để lưu transcript; SQLite vẫn là nguồn chuẩn metadata.

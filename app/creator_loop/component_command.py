@@ -6,6 +6,7 @@ import math
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
 
@@ -38,6 +39,27 @@ class ComponentCommand(QObject):
         return self.process is not None
 
     def start(self, arguments: list[str], *, timeout_seconds: float = 180) -> None:
+        environment = {**os.environ, "CREATOR_LOOP_DATA_ROOT": str(self.root)}
+        prefix = [] if getattr(sys, "frozen", False) else ["-m", "creator_loop"]
+        self._launch(
+            Path(sys.executable),
+            [*prefix, *arguments],
+            environment,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def _launch(
+        self,
+        executable: Path,
+        arguments: list[str],
+        environment: dict[str, str],
+        *,
+        timeout_seconds: float,
+        memory_limit_bytes: int = 256 * 1024**2,
+        before_resume: Callable[[dict[str, object]], None] | None = None,
+        component_version: str = __version__,
+        log_prefix: str = "component-check",
+    ) -> None:
         if self.busy:
             raise RuntimeError("Component command already running")
         if not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 600:
@@ -45,20 +67,19 @@ class ComponentCommand(QObject):
         logs = self.root / "logs"
         if not logs.is_dir() or logs.is_symlink() or logs.is_junction():
             raise ValueError("Real logs folder required")
-        environment = {**os.environ, "CREATOR_LOOP_DATA_ROOT": str(self.root)}
-        prefix = [] if getattr(sys, "frozen", False) else ["-m", "creator_loop"]
-        self.log_directory = logs / f"component-check-{uuid4().hex}"
+        self.log_directory = logs / f"{log_prefix}-{uuid4().hex}"
         self.process = OwnedWindowsProcess(
-            Path(sys.executable),
-            [*prefix, *arguments],
+            executable,
+            arguments,
             self.log_directory,
-            component_version=__version__,
+            component_version=component_version,
             environment=environment,
-            memory_limit_bytes=256 * 1024**2,
+            memory_limit_bytes=memory_limit_bytes,
+            before_resume=before_resume,
         )
         self.failure = None
         self.cleanup_deadline = None
-        self.deadline = time.monotonic() + timeout_seconds
+        self.deadline = time.perf_counter() + timeout_seconds
         self.timer.start()
 
     def cancel(self) -> None:
@@ -70,7 +91,7 @@ class ComponentCommand(QObject):
         if self.process is None or self.cleanup_deadline is not None:
             return
         self.failure = reason
-        self.cleanup_deadline = time.monotonic() + 8
+        self.cleanup_deadline = time.perf_counter() + 8
         try:
             self.process.request_stop(124 if reason else 0)
         except OSError:
@@ -103,7 +124,7 @@ class ComponentCommand(QObject):
                 )
                 return
             if self.cleanup_deadline is not None:
-                if time.monotonic() >= self.cleanup_deadline:
+                if time.perf_counter() >= self.cleanup_deadline:
                     self.cleanup_deadline = float(
                         "inf"
                     )  # keep retained ownership, warn only once
@@ -120,7 +141,7 @@ class ComponentCommand(QObject):
                 for path in (process.stdout_path, process.stderr_path)
             ):
                 self._terminate("Kết quả vượt giới hạn; kiểm lại file khai báo.")
-            elif time.monotonic() >= self.deadline:
+            elif time.perf_counter() >= self.deadline:
                 self._terminate(
                     "Hết thời gian kiểm; lựa chọn chưa xác nhận, đọc lại trạng thái trước khi thử lại."
                 )

@@ -12,6 +12,7 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -70,6 +71,15 @@ class ComponentWindow(QMainWindow):
         row.addWidget(self.browse)
         row.addWidget(self.check)
         layout.addLayout(row)
+        budget_row = QHBoxLayout()
+        budget_row.addWidget(QLabel("Giới hạn bộ nhớ worker khi xử lý:"))
+        self.worker_budget = QComboBox()
+        self.worker_budget.addItem("512 MiB (mặc định)", 512)
+        self.worker_budget.addItem("768 MiB (Whisper base CPU đã chọn)", 768)
+        self.worker_budget.currentIndexChanged.connect(self._invalidate)
+        budget_row.addWidget(self.worker_budget)
+        budget_row.addStretch()
+        layout.addLayout(budget_row)
         self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
             [
@@ -130,6 +140,7 @@ class ComponentWindow(QMainWindow):
     def _refresh(self, *_args: object) -> None:
         busy = self.command.busy
         self.manifest.setEnabled(not busy)
+        self.worker_budget.setEnabled(not busy)
         self.browse.setEnabled(not busy)
         self.check.setEnabled(not busy and bool(self.manifest.text().strip()))
         self.consent.setEnabled(not busy and self.fingerprint is not None)
@@ -141,6 +152,12 @@ class ComponentWindow(QMainWindow):
 
     def _start(self, operation: str, arguments: list[str]) -> None:
         self.operation = operation
+        if operation in ("check", "save"):
+            arguments = [
+                *arguments,
+                "--component-worker-memory-mib",
+                str(self.worker_budget.currentData()),
+            ]
         try:
             self.command.start(arguments)
         except (OSError, RuntimeError, ValueError) as exc:
@@ -211,6 +228,9 @@ class ComponentWindow(QMainWindow):
                     body["check"] != "LOCAL_ARTIFACTS_VERIFIED"
                     or body["runtime_compatibility_verified"] is not False
                     or body["review_fingerprint"] != fingerprint
+                    or type(body["worker_memory_limit"]) is not int
+                    or body["worker_memory_limit"]
+                    != self.worker_budget.currentData() * 1024**2
                     or self.review_path != self.manifest.text().strip()
                 ):
                     raise ValueError("Review changed or result mismatch")
@@ -245,6 +265,9 @@ class ComponentWindow(QMainWindow):
                 and body["selection"] == "SAVED"
                 and body["runtime_compatibility_verified"] is False
                 and body["component_ids"] == list(self.reviewed_ids)
+                and type(body["worker_memory_limit"]) is int
+                and body["worker_memory_limit"]
+                == self.worker_budget.currentData() * 1024**2
             ):
                 self.status.setText(
                     "Đã lưu lựa chọn tại "

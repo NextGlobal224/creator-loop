@@ -49,6 +49,8 @@ public class FixtureWhisper {
                 {"offsets",new D{{"from",0},{"to",500}}},{"text"," fixture RAW"}}}}
         };
         File.WriteAllText(output+".json",new JavaScriptSerializer().Serialize(body));
+        Console.WriteLine("PRIVATE_TRANSCRIPT_MUST_NOT_BE_LOGGED");
+        Console.Error.WriteLine("PRIVATE_TRANSCRIPT_MUST_NOT_BE_LOGGED");
         return 0;
     }
 }
@@ -194,6 +196,20 @@ class WhisperWorkerTests(unittest.TestCase):
         self.assertEqual(result.raw_json, (result.workspace / "raw.json").read_bytes())
         self.assertEqual(len(result.component_ids_and_hashes), 6)
         self.assert_preserved_and_dead()
+        logs = list((self.root / "logs").glob("whisper-*"))
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(
+            {path.name for path in logs[0].iterdir()},
+            {"ownership.json", "outcome.json"},
+        )
+        outcome = json.loads((logs[0] / "outcome.json").read_bytes())
+        self.assertEqual((outcome["exit_code"], outcome["status"]), (0, "EXITED"))
+        self.assertFalse(outcome["native_output_logged"])
+        self.assertEqual(outcome["memory_limit_bytes"], self.budget)
+        for path in logs[0].iterdir():
+            self.assertNotIn(
+                b"PRIVATE_TRANSCRIPT_MUST_NOT_BE_LOGGED", path.read_bytes()
+            )
 
     def test_cancel_stops_owned_tree_and_preserves_external_bytes(self):
         self.input.rename(self.case / "hang.wav")

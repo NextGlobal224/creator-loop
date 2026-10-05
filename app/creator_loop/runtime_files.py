@@ -42,17 +42,24 @@ class RuntimeHandle:
     _can_discard: bool
 
     def __init__(
-        self, path: Path, *, directory: bool = False, allow_child_writes: bool = False
+        self,
+        path: Path,
+        *,
+        directory: bool = False,
+        allow_child_writes: bool = False,
+        read_only: bool = False,
     ) -> None:
         if allow_child_writes and not directory:
             raise ValueError("Child writes are only meaningful for a directory handle")
+        if read_only and directory:
+            raise ValueError("Shared read-only mode is for regular files")
         if sys.platform != "win32":
             raise OSError("Owned runtime deletion requires Windows handles")
         self.kernel = _kernel32()
         self.path = path.absolute()
         self.handle: int | None = None
         self.info = _Information()
-        self._can_discard = not allow_child_writes
+        self._can_discard = not allow_child_writes and not read_only
         self.kernel.GetFileInformationByHandle.argtypes = (
             w.HANDLE,
             ctypes.POINTER(_Information),
@@ -76,6 +83,10 @@ class RuntimeHandle:
         # OPEN_REPARSE_POINT: inspect the actual entry, never follow a link.
         flags = 0x00200000 | (0x02000000 if directory else 0x80)
         access = 0x10000 | (0x81 if directory else 0x80000000)
+        if read_only:
+            # Multiple cooperating readers, including an owned child, can hold
+            # the same immutable request. No WRITE/DELETE access or sharing.
+            access = 0x80000000
         if allow_child_writes:
             # No DELETE access: the OS opens the rename destination parent with
             # sharing that excludes DELETE. Sharing WRITE allows adding children;
@@ -153,9 +164,7 @@ class RuntimeHandle:
 
     def discard(self) -> None:
         if not self._can_discard:
-            raise RuntimeError(
-                "Publication directory handle cannot delete its directory"
-            )
+            raise RuntimeError("Read-only runtime handle cannot delete its entry")
         if self.handle is None:
             raise RuntimeError("Runtime handle is already closed")
         _mark_for_deletion(self.kernel, self.handle)

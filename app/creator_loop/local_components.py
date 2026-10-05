@@ -339,16 +339,21 @@ def hold_verified_components(
         yield tuple(verified)
 
 
-def check_components_cli(path: Path) -> int:
+def check_components_cli(
+    path: Path, *, worker_memory_limit: int = DEFAULT_WORKER_MEMORY
+) -> int:
     """Artifact-only summary, without initializing a data root or executing files."""
     try:
         specs = load_component_manifest(path)
-        with hold_verified_components(specs) as verified:
+        with hold_verified_components(
+            specs, worker_memory_limit=worker_memory_limit
+        ) as verified:
             print(
                 json.dumps(
                     {
                         "check": "LOCAL_ARTIFACTS_VERIFIED",
                         "runtime_compatibility_verified": False,
+                        "worker_memory_limit": worker_memory_limit,
                         "review_fingerprint": component_review_fingerprint(specs),
                         "review_manifest": json.loads(component_manifest_bytes(specs)),
                         "components": [
