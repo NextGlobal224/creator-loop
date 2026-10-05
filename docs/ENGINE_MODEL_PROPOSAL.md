@@ -61,3 +61,10 @@ chứng thật; giữ fake engine trong PR CI và không đưa model vào releas
 Metadata nguồn đã lưu tại `.local-test-logs/whisper-v1.8.7-release-metadata.json`
 và `whisper-base-model-metadata.json`. Trạng thái tải/file/license/runtime và
 adapter thực tế tra HANDOFF; không coi expected source digest là verified bytes.
+
+Probe tiếng Việt sau foundation (LOCAL, chưa full pipeline acceptance): một
+FLEURS vi_vn/test CC-BY-4.0, pinned revision70bb2e8…, reference/attribution
+giữ ngoài Git. Runtime PASS, WER17.4%/CER7.0%, vẫn có lỗi từ; không tự ACCEPT.
+Qt chuyển float WAV sang PCM trong owned Job512MiB; selected Whisper cap768MiB
+peak khoảng750MiB. Bằng chứng, source/hash và phạm vi chưa kiểm tra ở HANDOFF.
+Không lấy một sample làm nghiệm thu chất lượng tiếng Việt hoặc đổi model tự động.
