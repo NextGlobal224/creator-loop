@@ -563,6 +563,7 @@ class LibraryWindow(QMainWindow):
         self.maintenance_requested = False
         self.components_requested = False
         self.transcription_selection: tuple[str, str] | None = None
+        self.transcript_review_selection: tuple[str, str] | None = None
         self._close_after_worker = False
         self._media_cancel_requested = False
         self._worker: QThread | None = None
@@ -739,11 +740,16 @@ class LibraryWindow(QMainWindow):
         self.evidence_table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.evidence_table)
         layout.addWidget(QLabel("Các task đã chạy"))
+        self.transcript_review_button = QPushButton("Chọn đoạn từ task chép lời máy")
+        self.transcript_review_button.clicked.connect(self.choose_transcript_review)
+        self._buttons.append(self.transcript_review_button)
+        layout.addWidget(self.transcript_review_button)
         self.run_table = QTableWidget(0, 4)
         self.run_table.setHorizontalHeaderLabels(
             ("Asset", "Task", "Trạng thái", "File dẫn xuất")
         )
         self.run_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.run_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.run_table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.run_table)
         self.status = QLabel()
@@ -781,7 +787,12 @@ class LibraryWindow(QMainWindow):
                                     ORDER BY f.created_at,f.file_id LIMIT 1),''),
                           (SELECT f.file_id FROM asset_files f
                            WHERE f.processing_run_id=r.run_id
-                           ORDER BY f.created_at,f.file_id LIMIT 1)
+                           ORDER BY f.created_at,f.file_id LIMIT 1),
+                          (SELECT CASE WHEN COUNT(*)=1 THEN MIN(f.file_id) ELSE NULL END
+                           FROM asset_files f
+                           WHERE f.processing_run_id=r.run_id AND f.asset_id=r.asset_id
+                             AND f.parent_file_id=r.input_file_id
+                             AND f.role='OTHER' AND f.mime_type='application/json')
                    FROM processing_runs r JOIN assets a ON a.asset_id=r.asset_id
                    ORDER BY r.created_at DESC,r.run_id DESC"""
             ).fetchall()
@@ -822,6 +833,9 @@ class LibraryWindow(QMainWindow):
                 )
             table_item(self.run_table, row_index, 3).setData(
                 Qt.ItemDataRole.UserRole, row[4]
+            )
+            table_item(self.run_table, row_index, 1).setData(
+                Qt.ItemDataRole.UserRole, (row[5], row[0])
             )
         self.status.setText(f"{len(rows)} original(s), {len(run_rows)} run(s)")
 
@@ -1732,6 +1746,35 @@ class LibraryWindow(QMainWindow):
         )
         if not self.close():
             self.transcription_selection = None
+
+    def choose_transcript_review(self) -> None:
+        if self._worker is not None:
+            return
+        row = self.run_table.currentRow()
+        if (
+            row < 0
+            or table_item(self.run_table, row, 1).text() != "AUDIO_TRANSCRIPTION"
+            or table_item(self.run_table, row, 2).text() != "SUCCEEDED"
+        ):
+            QMessageBox.information(
+                self,
+                "Chọn task",
+                "Chọn task chép lời AUDIO_TRANSCRIPTION đã thành công.",
+            )
+            return
+        raw_id, display_name = table_item(self.run_table, row, 1).data(
+            Qt.ItemDataRole.UserRole
+        )
+        if not raw_id:
+            QMessageBox.information(
+                self,
+                "RAW chưa xác nhận",
+                "Task cần đúng một RAW cùng Asset/run và parent PCM; chưa mở lựa chọn.",
+            )
+            return
+        self.transcript_review_selection = (str(raw_id), str(display_name))
+        if not self.close():
+            self.transcript_review_selection = None
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._worker is not None:

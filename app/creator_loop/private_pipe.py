@@ -45,11 +45,12 @@ def _stream(kernel: Any, handle: int, flags: int, mode: str) -> BinaryIO:
 
 class PrivatePipe:
     kernel: Any
+    eof: bool
     reader: BinaryIO
     writer: BinaryIO
     _ready: bytes
 
-    def __init__(self) -> None:
+    def __init__(self, *, eager_reads: bool = False) -> None:
         if sys.platform != "win32":
             raise OSError("Private worker pipes require Windows")
         import msvcrt
@@ -86,6 +87,7 @@ class PrivatePipe:
         for name, (arguments, result) in signatures.items():
             method = getattr(kernel, name)
             method.argtypes, method.restype = arguments, result
+        self.eager_reads = eager_reads
         self.eof = False
         self._pending: tuple[Any, _Overlapped] | None = None
         self._ready = b""
@@ -164,18 +166,26 @@ class PrivatePipe:
         if self._ready:
             data, self._ready = self._ready[:limit], self._ready[limit:]
             return data
-        available = w.DWORD()
-        if not self.kernel.PeekNamedPipe(
-            self.read_handle, None, 0, None, ctypes.byref(available), None
-        ):
-            code = ctypes.get_last_error()
-            if code == 109:
-                self.eof = True
-                return b""
-            raise ctypes.WinError(code)
-        if not available.value:
+        if self.eof:
             return b""
-        count = min(limit, available.value)
+        if self.eager_reads:
+            # No PeekNamedPipe on this path: one retained overlapped read may
+            # remain pending while the worker is idle. The caller must close
+            # BOTH parent writers after launch, so owned child exit proves EOF.
+            count = min(limit, 32768)
+        else:
+            available = w.DWORD()
+            if not self.kernel.PeekNamedPipe(
+                self.read_handle, None, 0, None, ctypes.byref(available), None
+            ):
+                code = ctypes.get_last_error()
+                if code == 109:
+                    self.eof = True
+                    return b""
+                raise ctypes.WinError(code)
+            if not available.value:
+                return b""
+            count = min(limit, available.value)
         buffer = ctypes.create_string_buffer(count)
         operation = _Overlapped()
         operation.event = self.event

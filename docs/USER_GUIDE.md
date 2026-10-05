@@ -155,9 +155,16 @@ Chọn original VIDEO → **Chép lời Video bằng engine/model đã chọn**.
 **Tạo PCM và chép lời máy**. Mỗi lần chạy tạo file/run mới; PCM thành công vẫn
 giữ nếu chép lời lỗi. **Hủy tác vụ** hoặc đóng cửa sổ chờ worker thoát, giữ RAW
 và lịch sử đã tạo. **Mở lại Library** xem từng task, không một completed toàn Asset.
-Chép lời máy chưa được ACCEPT và chưa tự tạo Evidence; dùng nguồn/âm thanh để
-kiểm, rồi tạo/review Evidence theo luồng trên. Task UI hiện là source checkpoint,
-chưa có trong ZIP CI78; xem [pipeline/phạm vi](VIDEO_TRANSCRIPTION_PIPELINE.md).
+Task chép lời có trong build CI79; nó không tự tạo Evidence hoặc ACCEPT.
+Chọn task **AUDIO_TRANSCRIPTION / SUCCEEDED** → **Chọn đoạn từ task chép lời máy**.
+Library nhả lock trước khi mở cửa sổ lựa chọn. Bấm **Đọc lại RAW**, chọn rõ một
+đoạn để xem toàn bộ text máy, rồi **Đối chiếu âm thanh gốc** và bấm nghe đoạn.
+**Tạo Evidence MODEL chờ duyệt** tạo bản mới neo ORIGINAL VIDEO/range audio,
+giữ RAW và text máy; chưa tạo review. **Mở lại Library** để mở Evidence Audio,
+sửa thành phiên bản HUMAN khi cần và review riêng. Nếu hủy/crash hoặc kết quả
+chưa xác nhận, kiểm lịch sử trước khi tạo lại; không suy rằng giao dịch đã rollback.
+Luồng chọn RAW này là source checkpoint, chưa có trong build CI79; xem
+[RAW → Evidence](TRANSCRIPT_EVIDENCE.md) và [pipeline](VIDEO_TRANSCRIPTION_PIPELINE.md).
 Chất lượng tiếng Việt, long input và tài nguyên trên máy8GB còn chờ nghiệm thu.
 
 ## Sao lưu, cập nhật và khôi phục
