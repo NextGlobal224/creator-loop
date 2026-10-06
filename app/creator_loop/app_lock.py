@@ -9,6 +9,7 @@ from types import TracebackType
 from typing import BinaryIO
 
 from creator_loop.windows_owned_file import _INVALID_HANDLE_VALUE, _kernel32
+from creator_loop.windows_paths import file_io_path
 
 
 class DataRootBusy(RuntimeError):
@@ -39,7 +40,13 @@ class AppDataLock:
         if sys.platform == "win32":
             kernel = _kernel32()
             handle = kernel.CreateFileW(
-                str(self.path), 0x80000000 | 0x40000000, 0, None, 4, 0x80, None
+                str(file_io_path(self.path)),
+                0x80000000 | 0x40000000,
+                0,
+                None,
+                4,
+                0x80,
+                None,
             )
             if handle == _INVALID_HANDLE_VALUE:
                 error = ctypes.get_last_error()

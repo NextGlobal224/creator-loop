@@ -3,6 +3,8 @@
 import os
 from pathlib import Path
 
+from creator_loop.windows_paths import file_io_path
+
 
 def data_root() -> Path:
     override = os.environ.get("CREATOR_LOOP_DATA_ROOT")
@@ -19,7 +21,7 @@ def data_root() -> Path:
 
 
 def ensure_data_root(root: Path) -> None:
-    root.mkdir(parents=True, exist_ok=True)
+    file_io_path(root).mkdir(parents=True, exist_ok=True)
     for name in (
         "storage/originals",
         "storage/derived",
@@ -30,4 +32,4 @@ def ensure_data_root(root: Path) -> None:
         "logs",
         "runtime",
     ):
-        (root / name).mkdir(parents=True, exist_ok=True)
+        file_io_path(root / name).mkdir(parents=True, exist_ok=True)

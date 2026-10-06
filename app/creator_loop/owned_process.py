@@ -317,6 +317,7 @@ class OwnedWindowsProcess:
         capture_output: bool = True,
         stdin_source: BinaryIO | None = None,
         stdout_sink: BinaryIO | None = None,
+        stderr_sink: BinaryIO | None = None,
         memory_limit_bytes: int | None = None,
         before_resume: Callable[[dict[str, object]], None] | None = None,
     ) -> None:
@@ -372,7 +373,9 @@ class OwnedWindowsProcess:
                 else open(os.devnull, "wb")
             )
             self.streams.append(
-                file_io_path(self.stderr_path).open("xb")
+                _duplicate_write_output(self.kernel, stderr_sink)
+                if stderr_sink is not None
+                else file_io_path(self.stderr_path).open("xb")
                 if capture_output
                 else open(os.devnull, "wb")
             )

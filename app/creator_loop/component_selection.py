@@ -13,7 +13,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from creator_loop.app_lock import AppDataLock, DataRootBusy
-from creator_loop.database import SCHEMA_VERSION, validate
+from creator_loop.database import SCHEMA_VERSION, _sqlite_uri, validate
 from creator_loop.local_components import (
     DEFAULT_WORKER_MEMORY,
     ComponentPreflightError,
@@ -29,6 +29,7 @@ from creator_loop.storage_roots import (
     _manifest_path,
     _write_manifest,
 )
+from creator_loop.windows_paths import file_io_path
 
 
 @dataclass(frozen=True)
@@ -75,7 +76,8 @@ def _selection_path(root: Path) -> Path:
     path = _manifest_path(root)
     if path.parent.is_symlink() or path.parent.is_junction():
         raise ComponentPreflightError("Real coordination folder required")
-    if path.exists() and (path.is_junction() or path.stat().st_nlink != 1):
+    io = file_io_path(path)
+    if io.is_symlink() or io.is_junction() or (io.exists() and io.stat().st_nlink != 1):
         raise ComponentPreflightError("Unaliased coordination file required")
     return path
 
@@ -83,7 +85,7 @@ def _selection_path(root: Path) -> Path:
 def load_component_selection(root: Path) -> ComponentSelection | None:
     """Historical declarations only; never treat this read as fresh preflight."""
     path = _selection_path(root)
-    return _selection(_load(path)) if path.exists() else None
+    return _selection(_load(path)) if file_io_path(path).exists() else None
 
 
 def save_component_selection(
@@ -104,18 +106,19 @@ def save_component_selection(
     if not lock.held or lock.root != canonical:
         raise RuntimeError("Selection requires this data root's held app lock")
     source = canonical / "creator_loop.sqlite3"
+    source_io = file_io_path(source)
     if (
-        source.is_symlink()
-        or source.is_junction()
-        or not source.is_file()
-        or source.stat().st_nlink != 1
+        source_io.is_symlink()
+        or source_io.is_junction()
+        or not source_io.is_file()
+        or source_io.stat().st_nlink != 1
     ):
         raise ComponentPreflightError("Existing unaliased user database required")
     with hold_verified_components(
         specs, worker_memory_limit=worker_memory_limit, cancelled=cancelled
     ) as verified:
         with closing(
-            sqlite3.connect(source.as_uri() + "?mode=rw", uri=True, timeout=5)
+            sqlite3.connect(_sqlite_uri(source) + "?mode=rw", uri=True, timeout=5)
         ) as db:
             db.execute("PRAGMA foreign_keys=ON")
             db.execute("BEGIN IMMEDIATE")
@@ -124,7 +127,7 @@ def save_component_selection(
                 path = _selection_path(canonical)
                 payload = (
                     _load(path)
-                    if path.exists()
+                    if file_io_path(path).exists()
                     else {
                         "manifest_version": 1,
                         "data_root_id": uuid4().hex,

@@ -15,6 +15,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from creator_loop import __version__
 from creator_loop.owned_process import OwnedWindowsProcess
+from creator_loop.windows_paths import file_io_path
 
 MAX_OUTPUT = 128 * 1024
 
@@ -120,9 +121,12 @@ class ComponentCommand(QObject):
                 if self.failure is not None:
                     self.failed.emit(self.failure)
                     return
-                with stdout.open("rb") as stream:
+                with file_io_path(stdout).open("rb") as stream:
                     raw = stream.read(MAX_OUTPUT + 1)
-                if len(raw) > MAX_OUTPUT or stderr.stat().st_size > MAX_OUTPUT:
+                if (
+                    len(raw) > MAX_OUTPUT
+                    or file_io_path(stderr).stat().st_size > MAX_OUTPUT
+                ):
                     raise ValueError("Component output budget exceeded")
                 self.finished.emit(
                     outcome.exit_code, raw.decode("utf-8", errors="strict")
@@ -142,7 +146,7 @@ class ComponentCommand(QObject):
                     None
                 )  # root ended; retire any remaining owned descendants
             elif any(
-                path.stat().st_size > MAX_OUTPUT
+                file_io_path(path).stat().st_size > MAX_OUTPUT
                 for path in (process.stdout_path, process.stderr_path)
             ):
                 self._terminate("Kết quả vượt giới hạn; kiểm lại file khai báo.")

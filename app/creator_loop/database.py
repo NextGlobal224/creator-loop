@@ -4,6 +4,7 @@ import hashlib
 import sqlite3
 import sys
 from pathlib import Path
+from urllib.parse import quote
 from uuid import uuid4
 
 from creator_loop.windows_paths import file_io_path
@@ -20,7 +21,7 @@ SCHEMA_VERSION = len(MIGRATIONS)
 
 
 def _connect_write(path: Path) -> sqlite3.Connection:
-    db = sqlite3.connect(path, timeout=10)
+    db = sqlite3.connect(file_io_path(path), timeout=10)
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA busy_timeout=10000")
     db.execute("PRAGMA journal_mode=WAL")
@@ -53,7 +54,7 @@ def _execute_migration(db: sqlite3.Connection, sql: str) -> None:
 
 
 def initialize(path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    file_io_path(path.parent).mkdir(parents=True, exist_ok=True)
     db = _connect_write(path)
     try:
         version = db.execute("PRAGMA user_version").fetchone()[0]
@@ -134,10 +135,10 @@ def validate(db: sqlite3.Connection, *, expected_version: int = SCHEMA_VERSION) 
 def backup(
     source: Path, destination: Path, *, expected_version: int = SCHEMA_VERSION
 ) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    file_io_path(destination.parent).mkdir(parents=True, exist_ok=True)
 
     src = _connect_write(source)
-    dst = sqlite3.connect(destination)
+    dst = sqlite3.connect(file_io_path(destination))
     try:
         dst.execute("PRAGMA foreign_keys=ON")
         validate(src, expected_version=expected_version)
@@ -148,7 +149,18 @@ def backup(
         src.close()
 
 
+def _sqlite_uri(path: Path) -> str:
+    """File URI spelling only; each caller retains its explicit open mode."""
+    uri = path.as_uri()
+    if sys.platform == "win32" and len(str(path).encode("utf-16-le")) // 2 >= 248:
+        # URI authority must stay empty: Path(\\?\...).as_uri() treats '?' as
+        # a server. Encode the I/O spelling as a filename without changing VFS.
+        uri = "file:" + quote(str(file_io_path(path)), safe="/:")
+    return uri
+
+
 def open_readonly(path: Path) -> sqlite3.Connection:
-    db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+    uri = _sqlite_uri(path)
+    db = sqlite3.connect(uri + "?mode=ro", uri=True)
     db.execute("PRAGMA foreign_keys=ON")
     return db
