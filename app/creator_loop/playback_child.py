@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -38,6 +39,37 @@ def _read_control(path: Path) -> dict[str, Any]:
     ):
         raise ValueError("Invalid playback request")
     return body
+
+
+class _PlaybackControlReader:
+    """Poll mutable commands without turning a Windows rename race into a crash."""
+
+    def __init__(self) -> None:
+        self.deadline: float | None = None
+
+    def poll(self, path: Path) -> dict[str, Any] | None:
+        now = time.monotonic()
+        try:
+            command = _read_control(path)
+        except FileNotFoundError:
+            # No command yet, or publication is replacing the previous entry.
+            pass
+        except PermissionError as exc:
+            winerror = getattr(exc, "winerror", None)
+            if winerror not in (5, 32, 33) and not (
+                winerror is None and exc.errno == errno.EACCES
+            ):
+                raise
+            # CRT rb opens report EACCES without winerror during rename sharing.
+            # Keep the original deadline; retries must not extend it.
+            if self.deadline is None:
+                self.deadline = now + 8
+        else:
+            self.deadline = None
+            return command
+        if self.deadline is not None and now >= self.deadline:
+            raise TimeoutError("Playback control stayed unreadable for 8 seconds")
+        return None
 
 
 def run_playback_worker(request: Path) -> int:
@@ -84,6 +116,8 @@ def run_playback_worker(request: Path) -> int:
         "position": -1,
         "range_done": False,
     }
+
+    control_reader = _PlaybackControlReader()
 
     def send(metadata: dict[str, Any], payload: bytes = b"") -> None:
         # A stalled consumer can block only this owned child, never the GUI.
@@ -203,9 +237,8 @@ def run_playback_worker(request: Path) -> int:
 
     def tick() -> None:
         try:
-            control = request.parent / "control.json"
-            if control.exists():
-                command = _read_control(control)
+            command = control_reader.poll(request.parent / "control.json")
+            if command is not None:
                 seq = command.get("seq")
                 if type(seq) is not int or seq < 1:
                     raise ValueError("Invalid playback command sequence")
