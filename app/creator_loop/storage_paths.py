@@ -10,6 +10,7 @@ from creator_loop.storage_roots import (
     default_storage_root_id,
     resolve_registered_root,
 )
+from creator_loop.windows_paths import resolve_file_path
 
 PathFailure = Literal["unsafe_path", "unavailable_file"]
 
@@ -43,7 +44,7 @@ def resolve_storage_path(data_root: Path, role: str, storage_key: str) -> Path:
         raise StoragePathError("unsafe_path")
     if parts[:2] == ["storage", expected_folder]:
         try:
-            canonical_root = Path(data_root).resolve()
+            canonical_root = resolve_file_path(Path(data_root))
         except OSError as exc:
             raise StoragePathError("unavailable_file") from exc
         relative_parts = parts
@@ -58,8 +59,8 @@ def resolve_storage_path(data_root: Path, role: str, storage_key: str) -> Path:
     else:
         raise StoragePathError("unsafe_path")
     try:
-        folder = canonical_root.joinpath(*folder_parts).resolve()
-        candidate = canonical_root.joinpath(*relative_parts).resolve()
+        folder = resolve_file_path(canonical_root.joinpath(*folder_parts))
+        candidate = resolve_file_path(canonical_root.joinpath(*relative_parts))
     except OSError as exc:
         raise StoragePathError("unavailable_file") from exc
     if not folder.is_relative_to(canonical_root) or not candidate.is_relative_to(

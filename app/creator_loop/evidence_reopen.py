@@ -13,6 +13,7 @@ from typing import Literal
 from creator_loop.locator import validate_locator
 from creator_loop.originals import READ_CHUNK_SIZE
 from creator_loop.storage_paths import StoragePathError, resolve_storage_path
+from creator_loop.windows_paths import file_io_path
 
 FailureReason = Literal[
     "missing_version",
@@ -99,7 +100,7 @@ def reopen_evidence_version(
     size = 0
     text_chunks: list[bytes] | None = [] if locator_type == "TEXT_RANGE" else None
     try:
-        with candidate.open("rb") as source:
+        with file_io_path(candidate).open("rb") as source:
             for chunk in iter(lambda: source.read(READ_CHUNK_SIZE), b""):
                 digest.update(chunk)
                 size += len(chunk)

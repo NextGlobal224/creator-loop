@@ -7,16 +7,22 @@ import os
 import re
 import sqlite3
 import subprocess
+import sys
 from contextlib import closing
 from pathlib import Path
 
 from PySide6.QtGui import QImage
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
+from creator_loop.windows_paths import file_io_path
+
 
 def snapshot(root: Path) -> dict[str, str]:
     return {
-        p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-        for p in root.rglob("*")
+        p.relative_to(file_io_path(root)).as_posix(): hashlib.sha256(
+            p.read_bytes()
+        ).hexdigest()
+        for p in file_io_path(root).rglob("*")
         if p.is_file()
     }
 
@@ -174,7 +180,10 @@ def main() -> None:
         ).fetchall() != [("views", 0.0, "0")]:
             raise RuntimeError("Observation zero/missing provenance changed")
         for key, digest in db.execute("SELECT storage_key,sha256 FROM asset_files"):
-            if hashlib.sha256((data / key).read_bytes()).hexdigest() != digest:
+            if (
+                hashlib.sha256(file_io_path(data / key).read_bytes()).hexdigest()
+                != digest
+            ):
                 raise RuntimeError("Original bytes changed")
     protected = {
         name: snapshot(path)
