@@ -9,6 +9,7 @@ import os
 import shutil
 import sqlite3
 import time
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ from uuid import uuid4
 
 from creator_loop import __version__
 from creator_loop.app_lock import AppDataLock
+from creator_loop.backup_runtime import hold_terminal_audio_runtime
 from creator_loop.database import SCHEMA_VERSION, open_readonly, validate
 from creator_loop.storage_paths import resolve_storage_path
 from creator_loop.storage_roots import list_storage_roots
@@ -78,8 +80,7 @@ def _create_locked(root: Path, timeout_seconds: float) -> Path:
         or folder.is_junction()
     ):
         raise OSError("A real database and backup directory are required")
-    if any(path.name != "app-data.lock" for path in (root / "runtime").iterdir()):
-        raise RuntimeError("Worker runtime records require recovery before backup")
+
     # mode=rw prevents accidentally creating a missing database. Do not change
     # journal mode, schema, migration history or any domain rows on this path.
     with closing(
@@ -114,8 +115,7 @@ def _backup_from_guard(
         or folder.is_junction()
     ):
         raise OSError("A real database and backup directory are required")
-    if any(path.name != "app-data.lock" for path in (root / "runtime").iterdir()):
-        raise RuntimeError("Worker runtime records require recovery before backup")
+
     version = guard.execute("PRAGMA user_version").fetchone()[0]
     if not 1 <= version <= SCHEMA_VERSION:
         raise RuntimeError("Unsupported source schema")
@@ -130,14 +130,16 @@ def _backup_from_guard(
     )
     if shutil.disk_usage(folder).free < required * 2 + 1024 * 1024:
         raise OSError("Insufficient space for validated DB backup")
-    return _snapshot(
-        root,
-        source,
-        folder,
-        version,
-        timeout_seconds,
-        validate_storage=validate_storage,
-    )
+    with hold_terminal_audio_runtime(root, guard) as recheck_runtime:
+        return _snapshot(
+            root,
+            source,
+            folder,
+            version,
+            timeout_seconds,
+            validate_storage=validate_storage,
+            recheck_runtime=recheck_runtime,
+        )
 
 
 def _snapshot(
@@ -148,6 +150,7 @@ def _snapshot(
     timeout_seconds: float,
     *,
     validate_storage: bool = True,
+    recheck_runtime: Callable[[], None] | None = None,
 ) -> Path:
     backup_id = uuid4().hex
     stage = folder / f".{backup_id}.staging"
@@ -228,6 +231,8 @@ def _snapshot(
             )
             manifest_stream.flush()
             os.fsync(manifest_stream.fileno())
+        if recheck_runtime is not None:
+            recheck_runtime()
         stage.rename(completed)
         return completed
     except BaseException:
