@@ -184,12 +184,10 @@ def run_playback_worker(request: Path) -> int:
             fail(str(exc))
 
     def audio_ready(buffer: QAudioBuffer) -> None:
-        if (
-            not buffer.isValid()
-            or state["ended"]
-            or state["range_done"]
-            or not state["started"]
-        ):
+        # Qt may deliver already queued PCM after the boundary timer pauses the
+        # player. Keep those samples only within the verified range below; a
+        # range_done flag must not discard the beginning of a short selection.
+        if not buffer.isValid() or state["ended"] or not state["started"]:
             return
         try:
             if buffer.byteCount() > MAX_AUDIO:

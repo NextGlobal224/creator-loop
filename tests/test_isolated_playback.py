@@ -179,9 +179,16 @@ class IsolatedPlaybackTests(unittest.TestCase):
             )
         )
         self.player.play()
+        # Boundary pause may precede Qt's queued PCM callback; require both
+        # outputs within the existing deadline, without delaying the pause.
         self.until(
             lambda: (
-                self.player.playbackState() == QMediaPlayer.PlaybackState.PausedState
+                bool(frames)
+                and bool(buffers)
+                and (
+                    self.player.playbackState()
+                    == QMediaPlayer.PlaybackState.PausedState
+                )
             )
         )
         self.assertFalse(self.errors)
@@ -190,6 +197,32 @@ class IsolatedPlaybackTests(unittest.TestCase):
         self.assertTrue(all(203000 <= pts < 607000 for pts in frames), frames)
         self.assertTrue(
             all(203000 <= begin < end <= 607000 for begin, end in buffers), buffers
+        )
+        self.assertEqual(self.path.read_bytes(), self.original)
+
+    def test_short_range_keeps_queued_pcm_after_boundary_pause(self):
+        self.player.set_range(0, 90)
+        buffers = []
+        output = QAudioBufferOutput(self.player)
+        self.player.setAudioBufferOutput(output)
+        output.audioBufferReceived.connect(
+            lambda b: (
+                buffers.append((b.startTime(), b.startTime() + b.duration()))
+                if b.isValid()
+                else None
+            )
+        )
+        self.player.play()
+        self.until(
+            lambda: (
+                bool(buffers)
+                and self.player.playbackState()
+                == QMediaPlayer.PlaybackState.PausedState
+            )
+        )
+        self.assertFalse(self.errors)
+        self.assertTrue(
+            all(0 <= start < end <= 90000 for start, end in buffers), buffers
         )
         self.assertEqual(self.path.read_bytes(), self.original)
 
