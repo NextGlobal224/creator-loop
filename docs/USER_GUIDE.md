@@ -155,14 +155,14 @@ Trong cửa sổ Engine/model, **Kiểm phiên bản engine đã lưu** kiểm l
 và khởi động CLI của bộ Whisper1.8.7 đã chọn trong tác vụ riêng. Kết quả đúng
 version chưa chạy model, chưa xác nhận tương thích/chất lượng/resource8GB;
 lựa chọn đã lưu không tự được nâng trạng thái nghiệm thu. Hủy hoặc đóng cửa sổ
-chờ worker đã sở hữu thoát. Entry point này cần bản source/build mới có nó;
-tra checkpoint trước khi dùng bản41c8d43 cũ. Chi tiết lỗi/CLI ở hướng dẫn component.
+chờ worker của tác vụ thoát. Nếu bản đang dùng không có nút này, đối chiếu
+thông tin bản chạy trước khi chọn bản khác. Chi tiết lỗi/CLI ở hướng dẫn component.
 Chọn original VIDEO → **Chép lời Video bằng engine/model đã chọn**. Library
 đóng để nhả lock; cửa sổ tác vụ cho chọn ngôn ngữ/budget khớp selection rồi
 **Tạo PCM và chép lời máy**. Mỗi lần chạy tạo file/run mới; PCM thành công vẫn
 giữ nếu chép lời lỗi. **Hủy tác vụ** hoặc đóng cửa sổ chờ worker thoát, giữ RAW
 và lịch sử đã tạo. **Mở lại Library** xem từng task, không một completed toàn Asset.
-Task chép lời có trong build CI79; nó không tự tạo Evidence hoặc ACCEPT.
+Task chép lời không tự tạo Evidence hoặc ACCEPT.
 Chọn task **AUDIO_TRANSCRIPTION / SUCCEEDED** → **Chọn đoạn từ task chép lời máy**.
 Library nhả lock trước khi mở cửa sổ lựa chọn. Bấm **Đọc lại RAW**, chọn rõ một
 đoạn để xem toàn bộ text máy, rồi **Đối chiếu âm thanh gốc** và bấm nghe đoạn.
@@ -170,8 +170,8 @@ Library nhả lock trước khi mở cửa sổ lựa chọn. Bấm **Đọc l�
 giữ RAW và text máy; chưa tạo review. **Mở lại Library** để mở Evidence Audio,
 sửa thành phiên bản HUMAN khi cần và review riêng. Nếu hủy/crash hoặc kết quả
 chưa xác nhận, kiểm lịch sử trước khi tạo lại; không suy rằng giao dịch đã rollback.
-Luồng chọn RAW này là source checkpoint, chưa có trong build CI79; xem
-[RAW → Evidence](TRANSCRIPT_EVIDENCE.md) và [pipeline](VIDEO_TRANSCRIPTION_PIPELINE.md).
+Xem [RAW → Evidence](TRANSCRIPT_EVIDENCE.md) và
+[pipeline](VIDEO_TRANSCRIPTION_PIPELINE.md) để đối chiếu thao tác và dữ liệu lưu.
 Chất lượng tiếng Việt, long input và tài nguyên trên máy8GB còn chờ nghiệm thu.
 
 ## Sao lưu, cập nhật và khôi phục
