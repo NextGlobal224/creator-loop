@@ -14,6 +14,7 @@ from creator_loop.database import SCHEMA_VERSION
 from creator_loop.managed_launcher import launch_managed
 from creator_loop.owned_process import ProcessOutcome
 from creator_loop.update_activation import activate_prepared_update
+from creator_loop.windows_paths import resolve_file_path
 
 
 class ManagedLauncherTests(unittest.TestCase):
@@ -69,7 +70,8 @@ class ManagedLauncherTests(unittest.TestCase):
         class SourceProcessFixture:
             def __init__(self, executable, arguments, directory, **kwargs):
                 test.assertEqual(
-                    executable, test.candidate / "CreatorLoop/CreatorLoop.exe"
+                    resolve_file_path(executable, strict=True),
+                    test.candidate / "CreatorLoop/CreatorLoop.exe",
                 )
                 test.assertEqual(arguments, ["--compatible-only", "--smoke"])
                 test.assertFalse(kwargs["capture_output"])

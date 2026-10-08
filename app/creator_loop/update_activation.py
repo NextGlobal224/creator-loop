@@ -41,9 +41,9 @@ def _read_record(path: Path) -> dict[str, Any]:
 def verify_candidate(candidate: Path, installation: Path) -> dict[str, Any]:
     """Recheck a complete staged inventory, rejecting changed or linked files."""
     if (
-        candidate.is_symlink()
-        or candidate.is_junction()
-        or candidate.resolve(strict=True).parent != installation
+        file_io_path(candidate).is_symlink()
+        or file_io_path(candidate).is_junction()
+        or resolve_file_path(candidate, strict=True).parent != installation
         or re.fullmatch(
             r"[0-9]+\.[0-9]+\.[0-9]+-[0-9a-f]{12}-[0-9a-f]{32}", candidate.name
         )
@@ -51,7 +51,10 @@ def verify_candidate(candidate: Path, installation: Path) -> dict[str, Any]:
     ):
         raise ValueError("Candidate must be a real staged version directory")
     manifest_path = candidate / "release-manifest.json"
-    if manifest_path.is_symlink() or manifest_path.is_junction():
+    if (
+        file_io_path(manifest_path).is_symlink()
+        or file_io_path(manifest_path).is_junction()
+    ):
         raise ValueError("Linked candidate manifest")
     manifest = load_release_manifest(manifest_path)
     actual: set[str] = set()
@@ -168,9 +171,9 @@ def activate_prepared_update(
         if folder.is_symlink() or folder.is_junction() or not folder.is_dir():
             raise ValueError("Real user-data coordination directories required")
     if (
-        journal_path.is_symlink()
-        or journal_path.is_junction()
-        or journal_path.resolve(strict=True).parent != manifests
+        file_io_path(journal_path).is_symlink()
+        or file_io_path(journal_path).is_junction()
+        or resolve_file_path(journal_path, strict=True).parent != manifests
     ):
         raise ValueError("Update journal must belong to this data root")
     source = canonical / "creator_loop.sqlite3"

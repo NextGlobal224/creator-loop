@@ -24,10 +24,11 @@ from PySide6.QtMultimedia import (
 )
 
 from creator_loop.playback_protocol import MAX_AUDIO, MAX_PIXELS, encode_packet
+from creator_loop.windows_paths import file_io_path
 
 
 def _read_control(path: Path) -> dict[str, Any]:
-    with path.open("rb") as stream:
+    with file_io_path(path).open("rb") as stream:
         data = stream.read(4097)
     if not 0 < len(data) <= 4096:
         raise ValueError("Playback request exceeds budget")

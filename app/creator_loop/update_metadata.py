@@ -23,6 +23,7 @@ from creator_loop.update_activation import (
 from creator_loop.update_backup import _inventory
 from creator_loop.update_health import run_health_check
 from creator_loop.update_preparation import _journal
+from creator_loop.windows_paths import file_io_path, resolve_file_path
 
 
 def record_successful_update(
@@ -98,9 +99,10 @@ def repair_update_metadata(
         if folder.is_symlink() or folder.is_junction() or not folder.is_dir():
             raise ValueError("Real coordination directories required")
     if (
-        journal_path.is_symlink()
-        or journal_path.is_junction()
-        or journal_path.resolve(strict=True).parent != canonical / "manifests"
+        file_io_path(journal_path).is_symlink()
+        or file_io_path(journal_path).is_junction()
+        or resolve_file_path(journal_path, strict=True).parent
+        != canonical / "manifests"
     ):
         raise ValueError("Update journal must belong to this data root")
     source = canonical / "creator_loop.sqlite3"
