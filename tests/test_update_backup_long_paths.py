@@ -22,7 +22,7 @@ class LongBackupPathTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self._cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve(strict=True)
         while len(str(self.root)) < 310:
             self.root /= "owned backup unicode segment"
         ensure_data_root(self.root)

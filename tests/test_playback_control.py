@@ -14,7 +14,7 @@ class PlaybackControlReaderTests(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.path = Path(folder.name) / "control.json"
+        self.path = Path(folder.name).resolve(strict=True) / "control.json"
         self.command = {"format": 1, "seq": 1, "action": "play", "position_ms": 0}
         self.path.write_text(json.dumps(self.command), encoding="utf-8")
 
