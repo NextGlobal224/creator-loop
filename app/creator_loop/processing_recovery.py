@@ -15,6 +15,7 @@ from creator_loop.restore_guard import require_no_pending_restore
 from creator_loop.runtime_files import RuntimeHandle
 from creator_loop.runtime_recovery import _identity_dead
 from creator_loop.transactions import atomic_transaction
+from creator_loop.windows_paths import file_io_path
 
 
 def _interrupted_owned_audio(db: sqlite3.Connection, root: Path) -> tuple[str, ...]:
@@ -82,7 +83,7 @@ def _interrupted_owned_audio(db: sqlite3.Connection, root: Path) -> tuple[str, .
                 RuntimeHandle(directory / "ownership.json") as marker_handle,
                 RuntimeHandle(directory / "task.json") as task_handle,
             ):
-                if {entry.name for entry in directory.iterdir()} != {
+                if {entry.name for entry in file_io_path(directory).iterdir()} != {
                     "ownership.json",
                     "task.json",
                 }:

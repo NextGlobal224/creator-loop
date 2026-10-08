@@ -20,6 +20,11 @@ Nó không gọi adapter inference, không nâng saved compatibility, không ch�
 minh model/quality/resource8GB hoặc clean-target prerequisite. Bằng chứng source
 version-only và build tương ứng tra HANDOFF; không gán cho artifact cũ.
 
+Windows file I/O dùng alias extended cho PCM/request/progress, processing witness,
+workspace/RAW/outcome và filenames truyền tới CLI. Metadata/ownership vẫn giữ
+canonical identity; containment, verified leases, link/hash và dead-owner guards
+không đổi. Compatibility với component thật cần kiểm trên exact artifact;
+regression CLI giả không thay nghiệm thu chất lượng hoặc release.
 RAW JSON giữ nguyên bytes/text/hash trong workspace có parent/child creation
 identity ghi trước resume. Adapter trả RAW, suggested segments, input/component
 hashes và native ownership/memory/timing. Offset không hợp lệ bị từ chối, không

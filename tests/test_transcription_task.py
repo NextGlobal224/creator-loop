@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -28,6 +29,7 @@ if sys.platform == "win32":
         run_transcription_task,
     )
     from creator_loop.windows_owned_file import OwnedWindowsFile
+    from creator_loop.windows_paths import file_io_path
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
 
@@ -105,6 +107,106 @@ class TranscriptionTaskTests(unittest.TestCase):
     def engine_started(self):
         return bool(
             list((self.root / "runtime").glob("whisper-*/child-ownership.json"))
+        )
+
+    def _deep_root(self):
+        base = self.root
+        prefix = "Deep transcription tiếng Việt "
+        deep = base / (prefix + "x" * (209 - len(str(base)) - 1 - len(prefix)))
+        self.assertEqual(len(str(deep)), 209)
+        deep.mkdir()
+        self.addCleanup(shutil.rmtree, file_io_path(deep))
+        self.addCleanup(self.command.shutdown)
+        self.root = deep
+        self.db_path = deep / "creator_loop.sqlite3"
+        initialize(self.db_path)
+        self.original = intake_video_original(
+            Path(__file__).parent / "fixtures/video-with-tone.mp4", root=deep
+        )
+        self.path = resolve_storage_path(deep, "ORIGINAL", self.original.storage_key)
+        before = hashlib.sha256(file_io_path(self.path).read_bytes()).hexdigest()
+        self.command.root = deep
+        return before
+
+    def test_deep_request_progress_and_native_task_keep_original_and_lineage(self):
+        before = self._deep_root()
+        self.select()
+        self.command.start_task(self.original.file_id)
+        request = self.command.workspace / "request.json"
+        self.assertGreater(len(str(request)), 260)
+        self.until(lambda: not self.command.busy)
+        code, body = self.report()
+        self.assertEqual(
+            (code, body["status"]),
+            (0, "SUCCEEDED"),
+            (
+                body,
+                self.query(
+                    "SELECT task_type,status,error_code,error_message FROM processing_runs"
+                ),
+            ),
+        )
+        self.assertIn("decode", self.phases)
+        self.assertIn("transcribe", self.phases)
+        self.assertGreater(len(self.pulses), 10)
+        self.assertEqual(
+            self.query(
+                "SELECT task_type,status FROM processing_runs ORDER BY created_at"
+            ),
+            [("VIDEO_AUDIO_DECODE", "SUCCEEDED"), ("AUDIO_TRANSCRIPTION", "SUCCEEDED")],
+        )
+        self.assertEqual(
+            self.query(
+                "SELECT parent_file_id FROM asset_files WHERE file_id='"
+                + body["raw_file_id"]
+                + "'"
+            ),
+            [(body["audio_file_id"],)],
+        )
+        self.assertEqual(self.query("SELECT COUNT(*) FROM evidence_versions"), [(0,)])
+        self.assertEqual(self.query("SELECT COUNT(*) FROM review_events"), [(0,)])
+        self.assertEqual(
+            hashlib.sha256(file_io_path(self.path).read_bytes()).hexdigest(), before
+        )
+
+    def test_deep_task_cancel_preserves_original_pcm_and_prior_raw(self):
+        before = self._deep_root()
+        prior = self.root / "storage/derived/retained-raw.json"
+        file_io_path(prior.parent).mkdir(exist_ok=True)
+        file_io_path(prior).write_bytes(b"unchanged previous RAW")
+        self.select(hang=True)
+        self.command.start_task(self.original.file_id)
+        self.until(
+            lambda: bool(
+                list(
+                    file_io_path(self.root / "runtime").glob(
+                        "whisper-*/child-ownership.json"
+                    )
+                )
+            )
+        )
+        self.assertEqual(
+            self.query(
+                "SELECT status FROM processing_runs WHERE task_type='AUDIO_TRANSCRIPTION'"
+            ),
+            [("RUNNING",)],
+        )
+        self.command.cancel()
+        self.until(lambda: not self.command.busy)
+        code, body = self.report()
+        self.assertEqual((code, body["status"]), (2, "CANCELLED"))
+        self.assertEqual(
+            self.query(
+                "SELECT task_type,status FROM processing_runs ORDER BY created_at"
+            ),
+            [("VIDEO_AUDIO_DECODE", "SUCCEEDED"), ("AUDIO_TRANSCRIPTION", "CANCELLED")],
+        )
+        self.assertEqual(
+            self.query("SELECT COUNT(*) FROM asset_files WHERE role='RAW'"), [(0,)]
+        )
+        self.assertEqual(file_io_path(prior).read_bytes(), b"unchanged previous RAW")
+        self.assertEqual(
+            hashlib.sha256(file_io_path(self.path).read_bytes()).hexdigest(), before
         )
 
     def test_actual_pipeline_registers_lineage_without_text_in_task_log(self):

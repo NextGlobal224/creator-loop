@@ -8,6 +8,7 @@ from pathlib import Path
 
 from creator_loop.runtime_files import RuntimeHandle
 from creator_loop.runtime_ownership import create_workspace_marker
+from creator_loop.windows_paths import file_io_path
 
 
 def record_processing_executor(
@@ -22,7 +23,7 @@ def record_processing_executor(
         raise ValueError("Invalid processing run identity")
     directory = root / "runtime" / ("processing-" + run_id)
     with RuntimeHandle(root / "runtime", directory=True, allow_child_writes=True):
-        directory.mkdir()
+        file_io_path(directory).mkdir()
         with RuntimeHandle(directory, directory=True, allow_child_writes=True):
             create_workspace_marker(
                 root, directory, component_version, kind="PROCESSING_EXECUTOR_WITNESS"
@@ -35,7 +36,9 @@ def record_processing_executor(
                 "task_type": task_type,
                 "component_version": component_version,
             }
-            with (directory / "task.json").open("x", encoding="utf-8") as stream:
+            with file_io_path(directory / "task.json").open(
+                "x", encoding="utf-8"
+            ) as stream:
                 json.dump(payload, stream, sort_keys=True)
                 stream.flush()
                 os.fsync(stream.fileno())

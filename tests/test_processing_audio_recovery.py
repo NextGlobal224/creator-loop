@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -17,6 +18,7 @@ from creator_loop.owned_process import OwnedWindowsProcess
 from creator_loop.paths import ensure_data_root
 from creator_loop.processing_recovery import recover_processing_startup
 from creator_loop.processing_witness import record_processing_executor
+from creator_loop.windows_paths import file_io_path
 
 
 @unittest.skipUnless(sys.platform == "win32", "Windows native owner witness")
@@ -119,6 +121,30 @@ with AppDataLock(root):
                 "SELECT status,finished_at,error_code,error_message FROM processing_runs WHERE run_id=?",
                 (run,),
             ).fetchone()
+
+    def test_deep_witness_real_dead_owner_recovery_keeps_raw(self):
+        base = self.root
+        prefix = "Deep processing witness tiếng Việt "
+        deep = base / (prefix + "x" * (209 - len(str(base)) - 1 - len(prefix)))
+        self.assertEqual(len(str(deep)), 209)
+        self.assertTrue(deep.is_relative_to(base))
+        ensure_data_root(deep)
+        self.addCleanup(shutil.rmtree, file_io_path(deep))
+        old_path, old_raw = self.path, self.raw
+        self.root = deep
+        self.path = deep / "creator_loop.sqlite3"
+        shutil.copyfile(old_path, self.path)
+        self.raw = deep / "storage/derived/retained-raw.json"
+        self.raw.write_bytes(old_raw.read_bytes())
+        run = self._crashed_executor()
+        witness = deep / "runtime" / ("processing-" + run) / "task.json"
+        self.assertGreater(len(str(witness)), 260)
+        report = self._recover()
+        self.assertEqual(report.interrupted_run_ids, (run,))
+        self.assertEqual(self._status(run)[0], "FAILED")
+        self.assertEqual(self._status(run)[2], "INTERRUPTED_AT_STARTUP")
+        self.assertEqual(self.raw.read_bytes(), b"original immutable RAW")
+        self.assertEqual(self._recover().interrupted_run_ids, ())
 
     def test_real_pcm_owner_crash_reconciles_run_without_deleting_raw(self):
         run = self._crashed_executor()

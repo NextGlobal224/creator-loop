@@ -25,6 +25,7 @@ from creator_loop.transcription_task import (
     TASK_TIMEOUT,
 )
 from creator_loop.windows_owned_file import OwnedWindowsFile
+from creator_loop.windows_paths import file_io_path
 
 
 class TranscriptionCommand(ComponentCommand):
@@ -65,7 +66,7 @@ class TranscriptionCommand(ComponentCommand):
                 self.leases.enter_context(
                     RuntimeHandle(path, directory=True, allow_child_writes=True)
                 )
-            self.workspace.mkdir()
+            file_io_path(self.workspace).mkdir()
             self.leases.enter_context(
                 RuntimeHandle(self.workspace, directory=True, allow_child_writes=True)
             )
@@ -76,7 +77,7 @@ class TranscriptionCommand(ComponentCommand):
                 kind="VIDEO_TRANSCRIPTION_TASK",
             )
             request = self.workspace / "request.json"
-            with request.open("x", encoding="utf-8") as stream:
+            with file_io_path(request).open("x", encoding="utf-8") as stream:
                 json.dump(
                     {
                         "format": 1,
@@ -166,7 +167,7 @@ class TranscriptionCommand(ComponentCommand):
                     ):
                         raise ctypes.WinError(ctypes.get_last_error())
                     self.peak_job_commit_bytes = metrics.peak_job
-                with process.stdout_path.open("rb") as stream:
+                with file_io_path(process.stdout_path).open("rb") as stream:
                     raw = stream.read(MAX_OUTPUT + 1)
                 if len(raw) <= MAX_OUTPUT:
                     latest_phase = self.last_phase
