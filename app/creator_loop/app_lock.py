@@ -9,7 +9,7 @@ from types import TracebackType
 from typing import BinaryIO
 
 from creator_loop.windows_owned_file import _INVALID_HANDLE_VALUE, _kernel32
-from creator_loop.windows_paths import file_io_path
+from creator_loop.windows_paths import file_io_path, resolve_file_path
 
 
 class DataRootBusy(RuntimeError):
@@ -24,7 +24,7 @@ class AppDataLock:
     """
 
     def __init__(self, root: Path) -> None:
-        self.root = root.resolve(strict=True)
+        self.root = resolve_file_path(root, strict=True)
         self.path = self.root / "runtime" / "app-data.lock"
         self._handle: int | None = None
         self._file: BinaryIO | None = None
@@ -33,9 +33,16 @@ class AppDataLock:
         if self._handle is not None or self._file is not None:
             raise RuntimeError("Lock object is already held")
         runtime = self.path.parent
-        if not runtime.is_dir() or runtime.is_symlink() or runtime.is_junction():
+        if (
+            not file_io_path(runtime).is_dir()
+            or file_io_path(runtime).is_symlink()
+            or file_io_path(runtime).is_junction()
+        ):
             raise OSError("A real data-root runtime directory is required")
-        if self.path.is_symlink() or self.path.is_junction():
+        if (
+            file_io_path(self.path).is_symlink()
+            or file_io_path(self.path).is_junction()
+        ):
             raise OSError("App lock must not be a linked file")
         if sys.platform == "win32":
             kernel = _kernel32()

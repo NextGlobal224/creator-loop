@@ -24,3 +24,19 @@ def file_io_path(path: Path) -> Path:
     if value.startswith("\\\\"):
         return Path("\\\\?\\UNC\\" + value[2:])
     return Path("\\\\?\\" + value)
+
+
+def resolve_file_path(path: Path, *, strict: bool = False) -> Path:
+    """Resolve through extended I/O, returning the normal canonical identity.
+
+    Resolution still follows links; callers retain their containment and
+    ownership checks. The extended prefix is never persisted in metadata.
+    """
+    resolved = file_io_path(path).resolve(strict=strict)
+    value = str(resolved)
+    if sys.platform == "win32":
+        if value.startswith("\\\\?\\UNC\\"):
+            value = "\\\\" + value[8:]
+        elif value.startswith("\\\\?\\"):
+            value = value[4:]
+    return Path(value)

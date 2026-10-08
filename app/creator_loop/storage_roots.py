@@ -13,7 +13,7 @@ from uuid import uuid4
 from creator_loop.database import _connect_write
 from creator_loop.storage_volumes import volume_identity
 from creator_loop.transactions import atomic_transaction
-from creator_loop.windows_paths import file_io_path
+from creator_loop.windows_paths import file_io_path, resolve_file_path
 
 
 class StorageRootError(ValueError):
@@ -28,12 +28,12 @@ class StorageRoot:
 
 
 def _manifest_path(data_root: Path) -> Path:
-    canonical = Path(data_root).resolve(strict=True)
+    canonical = resolve_file_path(Path(data_root), strict=True)
     manifests = canonical / "manifests"
-    if not manifests.resolve().is_relative_to(canonical):
+    if not resolve_file_path(manifests).is_relative_to(canonical):
         raise StorageRootError("Unsafe storage manifest folder")
     path = manifests / "storage-roots.json"
-    if path.is_symlink():
+    if file_io_path(path).is_symlink():
         raise StorageRootError("Unsafe storage manifest file")
     return path
 
@@ -90,7 +90,7 @@ def _roots(payload: dict[str, object]) -> list[StorageRoot]:
 def list_storage_roots(data_root: Path) -> list[StorageRoot]:
     """List registration history even while a media volume is unavailable."""
     path = _manifest_path(data_root)
-    if not path.exists():
+    if not file_io_path(path).exists():
         return []
     return _roots(_load(path))
 
@@ -98,7 +98,7 @@ def list_storage_roots(data_root: Path) -> list[StorageRoot]:
 def default_storage_root_id(data_root: Path) -> str | None:
     """Read the preference without silently resolving an unavailable root."""
     path = _manifest_path(data_root)
-    if not path.exists():
+    if not file_io_path(path).exists():
         return None
     default = _load(path).get("default_storage_root_id")
     return default if isinstance(default, str) else None

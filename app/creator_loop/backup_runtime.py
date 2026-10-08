@@ -11,6 +11,7 @@ from typing import Any, Callable, Iterator
 
 from creator_loop.runtime_files import RuntimeHandle
 from creator_loop.runtime_recovery import _identity_dead
+from creator_loop.windows_paths import file_io_path
 
 _ID = re.compile(r"[0-9a-f]{32}")
 _TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
@@ -54,17 +55,21 @@ def hold_terminal_audio_runtime(
     Neither runtime evidence nor registered files/rows are modified.
     """
     runtime = root / "runtime"
-    entries = list(runtime.iterdir())
+    entries = [runtime / entry.name for entry in file_io_path(runtime).iterdir()]
     extra = [p for p in entries if p.name != "app-data.lock"]
 
     def recheck_namespace() -> None:
-        if {p.name for p in runtime.iterdir()} != {p.name for p in entries}:
+        if {p.name for p in file_io_path(runtime).iterdir()} != {
+            p.name for p in entries
+        }:
             raise RuntimeError("Runtime namespace changed during validation")
 
     if not extra:
         if sys.platform == "win32":
             with RuntimeHandle(runtime, directory=True):
-                if {p.name for p in runtime.iterdir()} != {p.name for p in entries}:
+                if {p.name for p in file_io_path(runtime).iterdir()} != {
+                    p.name for p in entries
+                }:
                     raise RuntimeError("Runtime namespace changed during validation")
                 yield recheck_namespace
         else:
@@ -85,7 +90,7 @@ def hold_terminal_audio_runtime(
                     "Worker runtime records require recovery before backup"
                 )
             held.enter_context(RuntimeHandle(directory, directory=True))
-            names = {p.name for p in directory.iterdir()}
+            names = {p.name for p in file_io_path(directory).iterdir()}
             if directory.name.startswith("processing-"):
                 required = allowed = {"ownership.json", "task.json"}
             elif directory.name.startswith("transcribe-"):
@@ -275,7 +280,9 @@ def hold_terminal_audio_runtime(
         def recheck_all() -> None:
             recheck_namespace()
             for name, (_, _, expected_names) in records.items():
-                if {p.name for p in (runtime / name).iterdir()} != expected_names:
+                if {
+                    p.name for p in file_io_path(runtime / name).iterdir()
+                } != expected_names:
                     raise RuntimeError(
                         "Retained workspace namespace changed during backup"
                     )
