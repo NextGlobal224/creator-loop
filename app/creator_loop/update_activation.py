@@ -21,13 +21,14 @@ from creator_loop.installation_stage import (
 from creator_loop.update_backup import _digest, _inventory
 from creator_loop.update_health import run_health_check
 from creator_loop.update_preparation import _journal, manifest_identity
-from creator_loop.windows_paths import file_io_path
+from creator_loop.windows_paths import file_io_path, resolve_file_path
 
 
 def _read_record(path: Path) -> dict[str, Any]:
-    if path.is_symlink() or path.is_junction() or not path.is_file():
+    path_io = file_io_path(path)
+    if path_io.is_symlink() or path_io.is_junction() or not path_io.is_file():
         raise ValueError("A real coordination record is required")
-    with path.open("rb") as stream:
+    with path_io.open("rb") as stream:
         raw = stream.read(1024**2 + 1)
     if len(raw) > 1024**2:
         raise ValueError("Coordination record exceeds metadata budget")
@@ -117,9 +118,9 @@ def verify_prepared_backup(canonical: Path, record: dict[str, Any]) -> Path:
         raise ValueError("Prepared backup identity missing")
     backup = canonical / "backups" / backup_id
     if (
-        backup.is_symlink()
-        or backup.is_junction()
-        or backup.resolve(strict=True).parent != canonical / "backups"
+        file_io_path(backup).is_symlink()
+        or file_io_path(backup).is_junction()
+        or resolve_file_path(backup, strict=True).parent != canonical / "backups"
     ):
         raise ValueError("Unsafe prepared backup directory")
     metadata = _read_record(backup / "backup-manifest.json")
@@ -133,14 +134,14 @@ def verify_prepared_backup(canonical: Path, record: dict[str, Any]) -> Path:
         raise ValueError("Prepared backup schema identity changed")
     snapshot = backup / "creator_loop.sqlite3"
     if (
-        snapshot.is_symlink()
-        or snapshot.is_junction()
+        file_io_path(snapshot).is_symlink()
+        or file_io_path(snapshot).is_junction()
         or _digest(snapshot) != metadata.get("database_sha256")
         or metadata.get("backup_id") != backup_id
-        or snapshot.stat().st_size != metadata.get("database_size")
+        or file_io_path(snapshot).stat().st_size != metadata.get("database_size")
     ):
         raise ValueError("Prepared backup digest or identity changed")
-    with closing(open_readonly(snapshot.resolve(strict=True))) as copy:
+    with closing(open_readonly(resolve_file_path(snapshot, strict=True))) as copy:
         validate(copy, expected_version=backup_version)
     return snapshot
 
