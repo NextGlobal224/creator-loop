@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from creator_loop.storage_paths import StoragePathError, resolve_storage_path
+from creator_loop.windows_paths import file_io_path
 
 READ_CHUNK_SIZE = 1024 * 1024
 
@@ -61,7 +62,7 @@ def verify_original_file(db: sqlite3.Connection, file_id: str, data_root: Path) 
     size = 0
     digest = hashlib.sha256()
     try:
-        with candidate.open("rb") as source:
+        with file_io_path(candidate).open("rb") as source:
             for chunk in iter(lambda: source.read(READ_CHUNK_SIZE), b""):
                 size += len(chunk)
                 digest.update(chunk)

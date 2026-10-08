@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from creator_loop.evidence import Evidence, EvidenceRepository, EvidenceVersion
 from creator_loop.evidence_reopen import EvidenceReopenError, _anchor_path
+from creator_loop.windows_paths import file_io_path
 
 
 def read_verified_text_snapshot(
@@ -32,7 +33,7 @@ def read_verified_text_snapshot(
         raise ValueError("Evidence requires a TEXT original")
     path = _anchor_path(Path(data_root), role, key)
     try:
-        raw = path.read_bytes()
+        raw = file_io_path(path).read_bytes()
     except FileNotFoundError as exc:
         raise EvidenceReopenError("missing_file") from exc
     except OSError as exc:

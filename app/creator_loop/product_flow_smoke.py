@@ -40,6 +40,7 @@ from creator_loop.source_ui import SourceDialog
 from creator_loop.text_evidence_ui import TextEvidenceDialog
 from creator_loop.video_evidence_ui import VideoEvidenceDialog, VideoRangeView
 from creator_loop.whole_evidence_ui import WholeEvidenceDialog, WholeEvidenceView
+from creator_loop.windows_paths import file_io_path
 
 
 def _require(condition: Any, message: str) -> None:
@@ -213,6 +214,8 @@ class _Scenario:
                     else player.playbackState()
                     == QMediaPlayer.PlaybackState.PausedState
                 )
+                and (audio_only or bool(frames))
+                and (not (whole or audio_only) or bool(buffers))
             ),
             "actual selected playback",
         )
@@ -708,7 +711,7 @@ class _Scenario:
             )
             with closing(open_readonly(self.path)) as db:
                 retained = {
-                    key: (self.root / key).read_bytes()
+                    key: file_io_path(self.root / key).read_bytes()
                     for (key,) in db.execute("SELECT storage_key FROM asset_files")
                 }
                 snapshot = package_snapshot(db, package_id)
@@ -816,7 +819,7 @@ class _Scenario:
             )
             for key, content in retained.items():
                 _require(
-                    hashlib.sha256((self.root / key).read_bytes()).digest()
+                    hashlib.sha256(file_io_path(self.root / key).read_bytes()).digest()
                     == hashlib.sha256(content).digest(),
                     "Product workflow check failed at scenario line 317",
                 )

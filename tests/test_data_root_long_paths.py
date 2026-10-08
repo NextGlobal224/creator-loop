@@ -256,3 +256,75 @@ class LongDataRootTests(unittest.TestCase):
         self.assertEqual(
             [p.name for p in self.io_path(manifest.parent).iterdir()], [manifest.name]
         )
+
+    def test_long_original_image_and_text_intake_evidence_reopen_preserve_bytes(self):
+        from creator_loop.evidence_reopen import (
+            EvidenceReopenError,
+            reopen_evidence_version,
+        )
+        from creator_loop.image_evidence import (
+            create_image_evidence,
+            reopen_image_region,
+        )
+        from creator_loop.image_thumbnail import create_image_thumbnail
+        from creator_loop.media_intake import intake_image_original
+        from creator_loop.originals import verify_original_file
+        from creator_loop.text_evidence import create_text_evidence
+        from creator_loop.text_intake import intake_text_original
+        from PySide6.QtGui import QImage
+
+        # The directories fit MAX_PATH, but UUID-prefixed ORIGINAL filenames do not.
+        self.root = self.base / ("root-" + "x" * (202 - len(str(self.base)) - 1 - 5))
+        self.database = self.root / "creator_loop.sqlite3"
+        ensure_data_root(self.root)
+        initialize(self.database)
+        png = self.base / "long-original-image.png"
+        image = QImage(12, 8, QImage.Format.Format_RGB32)
+        image.fill(0xFFFFFFFF)
+        self.assertTrue(image.save(str(png)))
+        text = self.base / "long-original-text.txt"
+        text.write_bytes(b"Retained source text")
+        imported_image = intake_image_original(png, root=self.root)
+        imported_text = intake_text_original(text, root=self.root)
+        thumb = create_image_thumbnail(imported_image.file_id, data_root=self.root)
+        with closing(open_readonly(self.database)) as db:
+            for item, source in ((imported_image, png), (imported_text, text)):
+                stored = self.root / item.storage_key
+                self.assertGreater(len(str(stored)), 260)
+                self.assertEqual(self.io_path(stored).read_bytes(), source.read_bytes())
+                verify_original_file(db, item.file_id, self.root)
+        with closing(_connect_write(self.database)) as db:
+            image_version = create_image_evidence(
+                db,
+                file_id=thumb.file_id,
+                data_root=self.root,
+                region={"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+                content="White fixture",
+                actor="fixture",
+            )
+            text_version = create_text_evidence(
+                db,
+                file_id=imported_text.file_id,
+                data_root=self.root,
+                start=0,
+                end=8,
+                actor="fixture",
+            )
+        with closing(open_readonly(self.database)) as db:
+            body, cropped = reopen_image_region(
+                db, image_version.evidence_version_id, self.root
+            )
+            self.assertEqual(body, "White fixture")
+            self.assertEqual((cropped.width(), cropped.height()), (12, 8))
+            reopened = reopen_evidence_version(
+                db, text_version.evidence_version_id, self.root
+            )
+            self.assertEqual(reopened.text_excerpt, "Retained")
+            self.assertEqual(
+                reopened.anchor_path, self.root / imported_text.storage_key
+            )
+            stored = self.root / imported_text.storage_key
+            self.io_path(stored).write_bytes(b"Retained wrong bytes")
+            with self.assertRaises(EvidenceReopenError) as failure:
+                reopen_evidence_version(db, text_version.evidence_version_id, self.root)
+            self.assertEqual(failure.exception.reason, "digest_mismatch")

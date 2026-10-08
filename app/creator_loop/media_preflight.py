@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -20,7 +21,7 @@ def preflight_image(stream: BinaryIO, path: Path) -> MediaInfo:
 
     from creator_loop.image_evidence import MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS
 
-    if not 0 < path.stat().st_size <= MAX_IMAGE_BYTES:
+    if not 0 < os.fstat(stream.fileno()).st_size <= MAX_IMAGE_BYTES:
         raise ValueError("Image exceeds local decode budget")
     stream.seek(0)
     raw = stream.read(MAX_IMAGE_BYTES + 1)

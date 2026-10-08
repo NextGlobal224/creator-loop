@@ -21,6 +21,7 @@ from creator_loop.evidence_reopen import (
     reopen_evidence_version,
 )
 from creator_loop.locator import validate_locator
+from creator_loop.windows_paths import file_io_path
 
 MAX_IMAGE_BYTES = 40 * 1024 * 1024
 MAX_IMAGE_PIXELS = 80_000_000
@@ -77,7 +78,7 @@ def read_verified_image(
         raise ValueError("Image exceeds local decode budget")
     path = _anchor_path(Path(data_root), role, key)
     try:
-        raw = path.read_bytes()
+        raw = file_io_path(path).read_bytes()
     except FileNotFoundError as exc:
         raise EvidenceReopenError("missing_file") from exc
     except OSError as exc:
