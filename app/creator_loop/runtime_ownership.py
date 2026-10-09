@@ -25,7 +25,7 @@ def process_identity(kernel: Any, handle: int) -> dict[str, object]:
     if not kernel.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
         raise ctypes.WinError(ctypes.get_last_error())
     return {
-        "executable": str(Path(buffer.value).resolve()),
+        "executable": str(resolve_file_path(Path(buffer.value))),
         "creation_identity": str(
             (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
         ),

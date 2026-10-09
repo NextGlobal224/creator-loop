@@ -91,7 +91,7 @@ def run_health_check(
     environment["CREATOR_LOOP_DATA_ROOT"] = str(root.resolve(strict=True))
     environment["PYTHONIOENCODING"] = "utf-8"
     with OwnedWindowsProcess(
-        file_io_path(executable),
+        executable,
         [*(arguments_prefix or []), "--health-check"],
         log_directory,
         component_version=component_version,

@@ -17,7 +17,6 @@ from creator_loop.owned_process import OwnedWindowsProcess
 from creator_loop.restore_guard import require_no_pending_restore
 from creator_loop.update_activation import active_candidate
 from creator_loop.update_preparation import _journal
-from creator_loop.windows_paths import file_io_path
 
 
 def launch_managed(
@@ -64,7 +63,7 @@ def launch_managed(
     environment["CREATOR_LOOP_DATA_ROOT"] = str(canonical)
     log_directory = logs / f"managed-launch-{uuid4().hex}"
     with OwnedWindowsProcess(
-        file_io_path(candidate / "CreatorLoop/CreatorLoop.exe"),
+        candidate / "CreatorLoop/CreatorLoop.exe",
         arguments,
         log_directory,
         component_version=manifest["app_version"],
