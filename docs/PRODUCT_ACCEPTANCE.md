@@ -95,3 +95,16 @@ Timeout cấp tiến trình và log đã có [runner Windows](../scripts/run_tes
 ## Quy tắc báo hoàn tất
 
 Chỉ báo **product hoàn tất** khi cả 24 dòng bắt buộc có phần triển khai, kiểm tra luồng sử dụng thực tế, CI required trên đúng commit, bản chạy/build cùng hướng dẫn, và toàn bộ release gate V1 đã được xác minh. Nếu thiếu, ghi **đang triển khai**, **bị chặn** hoặc **chờ nghiệm thu** với bằng chứng và bước tiếp theo. Một PR xanh hoặc một Gate đạt không thay thế điều kiện cuối.
+
+## Phân mốc beta và V1 ổn định
+
+Phạm vi beta theo [CI/CD contract mục4.1](Creator_Loop_CICD_Release_Contract_V1.md#41-gate-beta-riêng-v1-ổn-định-giữ-nguyên) chỉ áp dụng sau duyệt scope/channel và gate triển khai tương ứng. Tất cả24 ID ở trên vẫn là điều kiện **V1 ổn định**; bảng dưới không thay trạng thái/FAIL/SKIP/bằng chứng lịch sử và không tự ghi beta ACCEPT. Goal V1 chưa hoàn tất chỉ vì bàn giao launcher cá nhân hoặc public pre-release.
+
+| ID đã có | Điều kiện beta | Phần giữ cho V1 ổn định |
+|---|---|---|
+| 01/20/23 | Công bố host/measurement thực đã kiểm; component identity/source/license/preflight/native runtime đúng scope; giữ budget và lifecycle guards. | Chứng nhận8GB và thiếu RAM/đĩa thực, input dài/clean target/compatibility toàn phạm vi. |
+| 20/23 | ASR quality chưa ACCEPT; giữ RAW/MODEL lineage, HUMAN correction/review độc lập và công bố lỗi/giới hạn. | Chất lượng tiếng Việt đại diện và quyết định human quality. |
+| 16/17/18 | Approval/revoke/race, sealed Package, Post/Observation nội bộ và reopen phải kiểm trên artifact cuối. Chưa nghiệm thu vận hành ngoài app. | PUBLISHED/Observation thật có quyền, không giả external ID/time/metric hoặc human approval. |
+| 02–19/21/22/24 (ngoài đúng các phạm vi hoãn trên) | Invariants/permissions/storage, supported migrations, full basic flow, backup/restore, owned lifecycle, exact final artifact/guide/provenance và required CI/review không được bỏ. | Các tiêu chí cuối còn lại ở24 dòng vẫn phải đóng để công bố V1 ổn định. |
+
+Ledger beta phải ghim exact commit/main/tag/manifest/ZIP/run và ghi evidence còn thiếu; kiểm lại bytes đổi. Gate beta chưa được nghiệm thu ở checkpoint đề xuất. Không sửa status24 trước khi release thật tồn tại; không gán green CI của PR hoặc artifact dùng cá nhân cho tag/final bytes khác.
