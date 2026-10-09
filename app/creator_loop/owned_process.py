@@ -22,7 +22,7 @@ from typing import Any, BinaryIO
 from uuid import uuid4
 
 from creator_loop.windows_owned_file import _kernel32
-from creator_loop.windows_paths import file_io_path
+from creator_loop.windows_paths import file_io_path, resolve_file_path
 
 
 class _BasicLimits(ctypes.Structure):
@@ -337,7 +337,7 @@ class OwnedWindowsProcess:
             or not 64 * 1024 * 1024 <= memory_limit_bytes <= 4 * 1024**3
         ):
             raise ValueError("Owned Job memory limit must be between 64 MiB and 4 GiB")
-        self.executable = executable.resolve(strict=True)
+        self.executable = resolve_file_path(executable, strict=True)
         self.job: int | None = None
         self.process: int | None = None
         self.thread: int | None = None
@@ -433,6 +433,12 @@ class OwnedWindowsProcess:
             )
             startup.attributes = attributes
             info = _ProcessInfo()
+            # Keep argv[0] canonical. Extended application names are needed
+            # only beyond MAX_PATH; using them for short .NET executables can
+            # break CLR configuration loading (including Windows PowerShell).
+            executable_io = str(self.executable)
+            if len(executable_io) >= 260:
+                executable_io = str(file_io_path(self.executable))
             command = ctypes.create_unicode_buffer(
                 subprocess.list2cmdline([str(self.executable), *arguments])
             )
@@ -453,14 +459,14 @@ class OwnedWindowsProcess:
                     + "\x00\x00"
                 )
             if not self.kernel.CreateProcessW(
-                str(self.executable),
+                executable_io,
                 command,
                 None,
                 None,
                 True,
                 0x4 | 0x400 | 0x80000 | 0x08000000,
                 env_buffer,
-                str(cwd.resolve(strict=True)) if cwd else None,
+                str(resolve_file_path(cwd, strict=True)) if cwd else None,
                 ctypes.byref(startup.startup),
                 ctypes.byref(info),
             ):

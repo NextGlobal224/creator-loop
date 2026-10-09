@@ -32,6 +32,9 @@ using System.Web.Script.Serialization;
 using D = System.Collections.Generic.Dictionary<string, object>;
 public class FixtureWhisper {
     public static int Main(string[] args) {
+        // Honor extended Win32 filenames passed to the native component.
+        AppContext.SetSwitch("Switch.System.IO.UseLegacyPathHandling", false);
+        AppContext.SetSwitch("Switch.System.IO.BlockLongPaths", false);
         string input="", output="", model="", language="";
         for(int i=0;i<args.Length-1;i++) {
             if(args[i]=="-f") input=args[i+1];

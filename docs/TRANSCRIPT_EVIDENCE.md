@@ -1,4 +1,20 @@
-# RAW → Evidence MODEL — source đang phát triển
+# RAW → Evidence MODEL
+
+## Đối chiếu và tạo Evidence
+
+1. Trong Library, chọn task **AUDIO_TRANSCRIPTION / SUCCEEDED** rồi mở
+   **Chọn đoạn từ task chép lời máy**. Bấm **Đọc lại RAW** và chọn rõ một đoạn;
+   app không chạy lại engine khi đọc bản chép lời đã lưu.
+2. Đọc toàn bộ text máy, bấm **Đối chiếu âm thanh gốc** rồi nghe đoạn đã chọn.
+   Chỉ dùng kết quả sau khi đã đối chiếu; text máy có thể sai hoặc bịa nội dung.
+3. **Tạo Evidence MODEL chờ duyệt** tạo Version mới ở PENDING, không ghi ACCEPT.
+   **Mở lại Library** để mở Evidence Audio, sửa thành Version HUMAN nếu cần
+   và review riêng. RAW và các Version trước vẫn được giữ.
+
+Nếu thao tác bị hủy hoặc kết quả chưa rõ, kiểm lịch sử trước khi tạo lại.
+Không coi task SUCCEEDED hoặc tạo Evidence thành nghiệm thu chất lượng.
+
+## Ràng buộc dữ liệu và tác vụ
 
 `transcript_evidence.py` đọc bản chép lời lịch sử đã đăng ký, không chạy lại
 engine hoặc yêu cầu component selection hiện tại. Caller phải là owned I/O
@@ -36,11 +52,8 @@ hiện có; cửa sổ preview/Library handoff phải chờ native tree và pipe
 được xác nhận. Pending cancellation giữ buffer/lease; unknown outcome giữ
 workspace/lịch sử và yêu cầu kiểm SQL trước khi tạo lại, không tự retry.
 
-Source WIP có scoped service/worker/GUI/privacy/native cancellation/budget,
-actual range PCM và Library reopen tests; probe service trên bản sao RAW thực
-English giữ phạm vi riêng. Full source919/907PASS/12localSKIP đạt; actual source
-launcher/copied real English RAW/private worker/source PCM/MODEL PENDING/Library
-reopen và parent-crash worker-dead-before-outer-cleanup đạt phạm vi riêng, log
-và source hash tại HANDOFF. Chưa public payload/CI, build mới hoặc nghiệm thu
-chất lượng tiếng Việt/resource/release. CI883/build CI79 xác
-minh task UI trước RAW review, không xác minh WIP này.
+## Phạm vi nghiệm thu
+
+Thao tác trên bản cụ thể cần đối chiếu checksum, manifest và thông tin build.
+Hướng dẫn này không chứng nhận chất lượng tiếng Việt, tài nguyên máy8GB hoặc
+release. Tạo MODEL, sửa HUMAN và quyết định review là các bước riêng.

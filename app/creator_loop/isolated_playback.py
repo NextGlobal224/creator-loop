@@ -33,6 +33,7 @@ from creator_loop.private_pipe import PrivatePipe
 from creator_loop.publication_media import _open_read_lock
 from creator_loop.runtime_ownership import bind_workspace_child, create_workspace_marker
 from creator_loop.runtime_recovery import discard_known_playback_workspace
+from creator_loop.windows_paths import file_io_path, resolve_file_path
 
 _active: set[IsolatedMediaPlayer] = set()
 
@@ -151,7 +152,7 @@ class IsolatedMediaPlayer(QObject):
         self._seq += 1
         folder = self.workspace
         temporary = folder / "control.pending"
-        with temporary.open("w", encoding="utf-8") as stream:
+        with file_io_path(temporary).open("w", encoding="utf-8") as stream:
             json.dump(
                 {
                     "format": 1,
@@ -171,7 +172,8 @@ class IsolatedMediaPlayer(QObject):
             return
         try:
             os.replace(
-                self.workspace / "control.pending", self.workspace / "control.json"
+                file_io_path(self.workspace / "control.pending"),
+                file_io_path(self.workspace / "control.json"),
             )
         except PermissionError as exc:
             # A child may briefly hold the previous command open. Retry from
@@ -222,8 +224,11 @@ class IsolatedMediaPlayer(QObject):
                 raise OSError("Playback requires real runtime/log directories")
             directory.mkdir(exist_ok=True)
         self.held = _open_read_lock(self.path)
-        self.workspace = Path(
-            tempfile.mkdtemp(prefix="playback-", dir=root / "runtime")
+        self.workspace = resolve_file_path(
+            Path(
+                tempfile.mkdtemp(prefix="playback-", dir=file_io_path(root / "runtime"))
+            ),
+            strict=True,
         )
         folder = self.workspace
         component = f"qt-playback/{__version__}/Qt-{qVersion()}"
@@ -238,7 +243,7 @@ class IsolatedMediaPlayer(QObject):
             self._child = child.copy()
 
         request = folder / "request.json"
-        request.write_text(
+        file_io_path(request).write_text(
             json.dumps(
                 {
                     "format": 1,

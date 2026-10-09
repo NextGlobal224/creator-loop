@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from creator_loop.owned_process import _api
+from creator_loop.windows_paths import file_io_path, resolve_file_path
 
 
 def process_identity(kernel: Any, handle: int) -> dict[str, object]:
@@ -24,7 +25,7 @@ def process_identity(kernel: Any, handle: int) -> dict[str, object]:
     if not kernel.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
         raise ctypes.WinError(ctypes.get_last_error())
     return {
-        "executable": str(Path(buffer.value).resolve()),
+        "executable": str(resolve_file_path(Path(buffer.value))),
         "creation_identity": str(
             (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
         ),
@@ -40,11 +41,11 @@ def create_workspace_marker(
     kind: str = "QT_DECODER_WORKSPACE",
 ) -> dict[str, object]:
     canonical = root.resolve(strict=True)
-    directory = workspace.resolve(strict=True)
+    directory = resolve_file_path(workspace, strict=True)
     if (
         directory.parent != canonical / "runtime"
-        or workspace.is_symlink()
-        or workspace.is_junction()
+        or file_io_path(workspace).is_symlink()
+        or file_io_path(workspace).is_junction()
     ):
         raise OSError("Workspace marker requires a real direct runtime child")
     kernel = _api()
@@ -58,7 +59,9 @@ def create_workspace_marker(
         "component_version": component_version,
         "parent": parent,
     }
-    with (directory / "ownership.json").open("x", encoding="utf-8") as stream:
+    with file_io_path(directory / "ownership.json").open(
+        "x", encoding="utf-8"
+    ) as stream:
         json.dump(marker, stream, sort_keys=True)
         stream.flush()
         os.fsync(stream.fileno())
@@ -69,14 +72,16 @@ def bind_workspace_child(
     workspace: Path, marker: dict[str, object], child: dict[str, object]
 ) -> None:
     """A separate fsynced file prevents partial rewrite of the parent marker."""
-    if workspace.resolve(strict=True).name != marker.get("workspace"):
+    if resolve_file_path(workspace, strict=True).name != marker.get("workspace"):
         raise ValueError("Workspace binding changed before child resume")
     parent = marker.get("parent")
     if not isinstance(parent, dict) or child.get("parent_pid") != parent.get("pid"):
         raise ValueError("Workspace child has a different parent identity")
     if child.get("component_version") != marker.get("component_version"):
         raise ValueError("Workspace child component does not match marker")
-    with (workspace / "child-ownership.json").open("x", encoding="utf-8") as stream:
+    with file_io_path(workspace / "child-ownership.json").open(
+        "x", encoding="utf-8"
+    ) as stream:
         json.dump(child, stream, sort_keys=True)
         stream.flush()
         os.fsync(stream.fileno())

@@ -35,6 +35,7 @@ from creator_loop.owned_process import (
 from creator_loop.publication_media import _open_read_lock
 from creator_loop.runtime_files import RuntimeHandle
 from creator_loop.runtime_ownership import bind_workspace_child, create_workspace_marker
+from creator_loop.windows_paths import file_io_path, resolve_file_path
 
 RUNTIME_FILES = {
     "whisper-cli.exe",
@@ -102,7 +103,7 @@ def _record_outcome(
         worker.job, 9, ctypes.byref(metrics), ctypes.sizeof(metrics), None
     ):
         raise ctypes.WinError(ctypes.get_last_error())
-    with (logs / "outcome.json").open("x", encoding="utf-8") as stream:
+    with file_io_path(logs / "outcome.json").open("x", encoding="utf-8") as stream:
         json.dump(
             {
                 "format": 1,
@@ -267,13 +268,18 @@ def transcribe_whisper_wav(
                 )
             )
             held.enter_context(RuntimeHandle(runtime, directory=True))
-            if {entry.name for entry in runtime.iterdir()} != RUNTIME_FILES:
+            if {
+                entry.name for entry in file_io_path(runtime).iterdir()
+            } != RUNTIME_FILES:
                 raise ValueError("Unverified file in the selected Whisper runtime")
             for folder in (canonical / "runtime", canonical / "logs"):
                 held.enter_context(
                     RuntimeHandle(folder, directory=True, allow_child_writes=True)
                 )
-            if wav_path.resolve(strict=True) != wav_path or wav_path.is_symlink():
+            if (
+                resolve_file_path(wav_path, strict=True) != wav_path
+                or file_io_path(wav_path).is_symlink()
+            ):
                 raise ValueError("A canonical regular PCM input is required")
             held.enter_context(RuntimeHandle(wav_path.parent, directory=True))
             audio = held.enter_context(_open_read_lock(wav_path))
@@ -313,8 +319,12 @@ def transcribe_whisper_wav(
             duration_ms = (frames * 1000 + 15999) // 16000
             if cancelled():
                 raise InterruptedError("Whisper cancelled before native launch")
-            workspace = Path(
-                tempfile.mkdtemp(prefix="whisper-", dir=canonical / "runtime")
+            workspace = resolve_file_path(
+                Path(
+                    tempfile.mkdtemp(
+                        prefix="whisper-", dir=file_io_path(canonical / "runtime")
+                    )
+                )
             )
             held.enter_context(
                 RuntimeHandle(workspace, directory=True, allow_child_writes=True)
@@ -338,7 +348,7 @@ def transcribe_whisper_wav(
                     "-m",
                     str(model.path),
                     "-f",
-                    str(wav_path),
+                    str(file_io_path(wav_path)),
                     "-l",
                     settings.language,
                     "-t",
@@ -349,7 +359,7 @@ def transcribe_whisper_wav(
                     "1",
                     "-oj",
                     "-of",
-                    str(workspace / "raw"),
+                    str(file_io_path(workspace / "raw")),
                 ],
                 logs,
                 component_version=component,
@@ -395,13 +405,20 @@ def transcribe_whisper_wav(
                     )
             if cancelled():
                 raise InterruptedError("Whisper cancelled before returning RAW")
-            if {entry.name for entry in runtime.iterdir()} != RUNTIME_FILES:
+            if {
+                entry.name for entry in file_io_path(runtime).iterdir()
+            } != RUNTIME_FILES:
                 raise ValueError("Whisper runtime inventory changed")
             expected_entries = {"ownership.json", "child-ownership.json", "raw.json"}
-            if {entry.name for entry in workspace.iterdir()} != expected_entries:
+            if {
+                entry.name for entry in file_io_path(workspace).iterdir()
+            } != expected_entries:
                 raise ValueError("Unknown entry in the retained Whisper workspace")
             raw_path = workspace / "raw.json"
-            if raw_path.resolve(strict=True) != raw_path or raw_path.is_symlink():
+            if (
+                resolve_file_path(raw_path, strict=True) != raw_path
+                or file_io_path(raw_path).is_symlink()
+            ):
                 raise ValueError("RAW output must be a regular owned workspace file")
             with _open_read_lock(raw_path) as output:
                 info = os.fstat(output.fileno())

@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,7 @@ if sys.platform == "win32":
     from creator_loop.playback_protocol import HEADER, MAX_VIDEO
     from creator_loop.runtime_files import RuntimeHandle
     from creator_loop.runtime_recovery import recover_runtime_startup
+    from creator_loop.windows_paths import file_io_path
     from PySide6.QtCore import QCoreApplication, QEvent, QTimer
     from PySide6.QtMultimedia import QAudioBufferOutput, QAudioOutput, QMediaPlayer
     from PySide6.QtMultimediaWidgets import QVideoWidget
@@ -31,7 +33,7 @@ class IsolatedPlaybackTests(unittest.TestCase):
     def setUp(self):
         self.app = QApplication.instance() or QApplication([])
         temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
+        self.addCleanup(self._cleanup_temporary, temporary)
         self.root = (Path(temporary.name) / "Playback Hue space").resolve()
         ensure_data_root(self.root)
         self.path = self.root / "storage/originals/locked.mp4"
@@ -62,6 +64,64 @@ class IsolatedPlaybackTests(unittest.TestCase):
         )
         self.addCleanup(self.cleanup_player)
         self.kernel = _api()
+
+    def test_deep_runtime_command_child_binding_and_cleanup_keep_original(self):
+        prefix = "Deep playback runtime "
+        base = self.root.parent
+        self.root = base / (prefix + "x" * (225 - len(str(base)) - 1 - len(prefix)))
+        ensure_data_root(self.root)
+        self.path = self.root / "storage/originals/locked.mp4"
+        self.path.write_bytes(self.original)
+        self.player = IsolatedMediaPlayer(
+            self.owner,
+            path=self.path,
+            root=self.root,
+            duration_ms=self.duration,
+            size=len(self.original),
+            sha256=hashlib.sha256(self.original).hexdigest(),
+        )
+        self.player.setVideoOutput(self.video)
+        self.player.setAudioOutput(QAudioOutput(self.owner))
+        self.player.errorOccurred.connect(
+            lambda code, message: self.errors.append(message)
+        )
+        buffers = []
+        output = QAudioBufferOutput(self.player)
+        self.player.setAudioBufferOutput(output)
+        output.audioBufferReceived.connect(
+            lambda buffer: (
+                buffers.append(buffer.startTime()) if buffer.isValid() else None
+            )
+        )
+        self.player.set_range(203, 607)
+        self.player.play()
+        self.until(lambda: self.player.process is not None or bool(self.errors))
+        self.assertFalse(self.errors)
+        workspace = self.player.workspace
+        self.assertIsNotNone(workspace)
+        self.assertGreater(len(str(workspace / "child-ownership.json")), 260)
+        self.until(
+            lambda: (
+                bool(self.errors)
+                or (
+                    bool(buffers)
+                    and self.player.playbackState()
+                    == QMediaPlayer.PlaybackState.PausedState
+                )
+            )
+        )
+        self.assertFalse(self.errors)
+        self.assertTrue(buffers)
+        self.cleanup_player()
+        self.assertEqual(list((self.root / "runtime").iterdir()), [])
+        self.assertEqual(self.path.read_bytes(), self.original)
+
+    def _cleanup_temporary(self, temporary):
+        owned = Path(temporary.name).resolve(strict=True)
+        self.assertFalse(owned.is_symlink() or owned.is_junction())
+        self.assertTrue(self.root.is_relative_to(owned))
+        shutil.rmtree(file_io_path(owned))
+        temporary.cleanup()
 
     def until(self, predicate, timeout=12):
         deadline = time.monotonic() + timeout

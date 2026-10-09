@@ -11,8 +11,9 @@ from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
-from creator_loop.database import _sqlite_uri, initialize
+from creator_loop.database import SCHEMA_VERSION, _sqlite_uri, initialize
 from creator_loop.paths import ensure_data_root
+from creator_loop.update_activation import verify_prepared_backup
 from creator_loop.update_backup import create_update_backup
 from creator_loop.windows_paths import file_io_path
 
@@ -98,3 +99,27 @@ class LongBackupPathTests(unittest.TestCase):
             [p.name for p in file_io_path(self.root / "backups").iterdir()],
             [prior.name],
         )
+
+    def test_activation_reads_same_deep_backup_and_rejects_changed_snapshot(self):
+        target = create_update_backup(self.root)
+        record = {"backup_id": target.name, "schema_from": SCHEMA_VERSION}
+        snapshot = target / "creator_loop.sqlite3"
+        before = file_io_path(self.root / "creator_loop.sqlite3").read_bytes()
+        original = file_io_path(snapshot).read_bytes()
+        self.assertEqual(verify_prepared_backup(self.root, record), snapshot)
+        self.assertFalse(str(snapshot).startswith("\\\\?\\"))
+        metadata_path = target / "backup-manifest.json"
+        metadata = json.loads(file_io_path(metadata_path).read_text(encoding="utf-8"))
+        metadata["backup_id"] = "b" * 32
+        file_io_path(metadata_path).write_text(json.dumps(metadata), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "digest or identity"):
+            verify_prepared_backup(self.root, record)
+        metadata["backup_id"] = target.name
+        file_io_path(metadata_path).write_text(json.dumps(metadata), encoding="utf-8")
+        file_io_path(snapshot).write_bytes(original[:-1] + bytes([original[-1] ^ 1]))
+        with self.assertRaisesRegex(ValueError, "digest or identity"):
+            verify_prepared_backup(self.root, record)
+        self.assertEqual(
+            file_io_path(self.root / "creator_loop.sqlite3").read_bytes(), before
+        )
+        self.assertEqual(file_io_path(self.media).read_bytes(), b"original bytes")

@@ -69,7 +69,8 @@ class ManagedLauncherTests(unittest.TestCase):
         class SourceProcessFixture:
             def __init__(self, executable, arguments, directory, **kwargs):
                 test.assertEqual(
-                    executable, test.candidate / "CreatorLoop/CreatorLoop.exe"
+                    executable,
+                    test.candidate / "CreatorLoop/CreatorLoop.exe",
                 )
                 test.assertEqual(arguments, ["--compatible-only", "--smoke"])
                 test.assertFalse(kwargs["capture_output"])

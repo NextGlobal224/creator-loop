@@ -1,7 +1,9 @@
 """Activation pointer/health locks and failure compatibility, with no DB restore."""
 
 import json
+import shutil
 import sqlite3
+import sys
 import unittest
 from contextlib import closing
 from pathlib import Path
@@ -10,9 +12,15 @@ from unittest.mock import patch
 import test_update_preparation as preparation_fixture
 from creator_loop.app_lock import AppDataLock, DataRootBusy
 from creator_loop.database import SCHEMA_VERSION
-from creator_loop.update_activation import activate_prepared_update, active_candidate
+from creator_loop.update_activation import (
+    activate_prepared_update,
+    active_candidate,
+    verify_candidate,
+)
 from creator_loop.update_backup import _digest
 from creator_loop.update_health import readonly_health
+from creator_loop.update_metadata import repair_update_metadata
+from creator_loop.windows_paths import file_io_path
 
 
 class UpdateActivationTests(unittest.TestCase):
@@ -76,6 +84,86 @@ class UpdateActivationTests(unittest.TestCase):
         self.pointer.write_text(json.dumps(pointer))
         self.before = self.fixture.path.read_bytes()
         return previous, pointer
+
+    @unittest.skipUnless(sys.platform == "win32", "native long update journal")
+    def test_long_journal_activation_and_metadata_repair_preserve_db_and_backup(self):
+        old_root = self.root
+        prefix = "Long activation data "
+        base = self.fixture.base
+        self.root = base / (prefix + "x" * (225 - len(str(base)) - 1 - len(prefix)))
+        shutil.copytree(old_root, file_io_path(self.root))
+
+        def cleanup_deep_fixture():
+            self.assertEqual(self.root.parent, base)
+            self.assertFalse(self.root.is_symlink() or self.root.is_junction())
+            shutil.rmtree(file_io_path(self.root))
+
+        self.addCleanup(cleanup_deep_fixture)
+        self.journal = self.root / "manifests" / self.journal.name
+        self.assertGreater(len(str(self.journal)), 260)
+        source = self.root / "creator_loop.sqlite3"
+        before = file_io_path(source).read_bytes()
+        backup = (
+            self.root / "backups" / self.record["backup_id"] / "creator_loop.sqlite3"
+        )
+        backup_before = file_io_path(backup).read_bytes()
+
+        def health(executable, root, log_directory, **kwargs):
+            self.assertEqual(executable, self.candidate / "CreatorLoop/CreatorLoop.exe")
+            file_io_path(log_directory).mkdir()
+            return readonly_health(root)
+
+        with patch(
+            "creator_loop.update_activation.run_health_check", side_effect=health
+        ):
+            self.assertEqual(self._activate(), self.candidate)
+        with patch("creator_loop.update_metadata.run_health_check", side_effect=health):
+            self.assertEqual(
+                repair_update_metadata(self.root, self.journal, self.installation),
+                self.candidate,
+            )
+        self.assertEqual(
+            json.loads(file_io_path(self.journal).read_text())["phase"], "COMPLETED"
+        )
+        self.assertEqual(json.loads(self.pointer.read_text())["status"], "ACTIVE")
+        self.assertEqual(file_io_path(source).read_bytes(), before)
+        self.assertEqual(file_io_path(backup).read_bytes(), backup_before)
+        self.assertEqual(
+            file_io_path(self.root / "storage/originals/text.txt").read_bytes(),
+            b"original bytes",
+        )
+        self.assertEqual((old_root / "creator_loop.sqlite3").read_bytes(), self.before)
+
+    @unittest.skipUnless(sys.platform == "win32", "native long staged candidate")
+    def test_long_candidate_activates_then_changed_inventory_is_rejected(self):
+        base = self.fixture.base
+        prefix = "Deep installation "
+        installation = base / (prefix + "x" * (210 - len(str(base)) - 1 - len(prefix)))
+        candidate = installation / self.candidate.name
+        shutil.copytree(self.candidate, file_io_path(candidate))
+        self.assertGreater(len(str(candidate)), 260)
+
+        def cleanup_candidate_fixture():
+            self.assertEqual(installation.parent, base)
+            self.assertFalse(installation.is_symlink() or installation.is_junction())
+            shutil.rmtree(file_io_path(installation))
+
+        self.addCleanup(cleanup_candidate_fixture)
+        self.installation, self.candidate = installation, candidate
+        self.pointer = installation / "active-installation.json"
+        self.record["candidate_directory"] = str(candidate)
+        self.journal.write_text(json.dumps(self.record))
+        with patch(
+            "creator_loop.update_activation.run_health_check", side_effect=self._health
+        ):
+            self.assertEqual(self._activate(), candidate)
+        self.assertEqual(active_candidate(installation, SCHEMA_VERSION)[0], candidate)
+        self.assertEqual(self.fixture.path.read_bytes(), self.before)
+        executable = candidate / "CreatorLoop/CreatorLoop.exe"
+        file_io_path(executable).write_bytes(b"changed candidate bytes")
+        with self.assertRaisesRegex(ValueError, "inventory or digest"):
+            verify_candidate(candidate, installation)
+        self.assertEqual(self.fixture.path.read_bytes(), self.before)
 
     def test_activate_pointer_then_readonly_health_under_continuous_locks(self):
         with patch(

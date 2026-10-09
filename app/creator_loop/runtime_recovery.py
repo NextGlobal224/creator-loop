@@ -15,6 +15,7 @@ from creator_loop.app_lock import AppDataLock
 from creator_loop.owned_process import _api
 from creator_loop.runtime_files import RuntimeHandle
 from creator_loop.runtime_ownership import process_identity
+from creator_loop.windows_paths import file_io_path
 
 _FILES = {
     "ownership.json",
@@ -82,7 +83,7 @@ def _clean_one(root: Path, workspace: Path) -> None:
     ):
         raise ValueError("Unsupported workspace name/location")
     with RuntimeHandle(workspace, directory=True) as directory, ExitStack() as stack:
-        entries = {entry.name for entry in workspace.iterdir()}
+        entries = {entry.name for entry in file_io_path(workspace).iterdir()}
         playback = workspace.name.startswith("playback-")
         allowed = _PLAYBACK_FILES if playback else _FILES
         if "ownership.json" not in entries or not entries <= allowed:
@@ -127,7 +128,7 @@ def _clean_one(root: Path, workspace: Path) -> None:
                 raise RuntimeError("Workspace child is still live")
         elif not entries <= {"ownership.json", "request.json"}:
             raise ValueError("Workspace has results without child ownership binding")
-        if {entry.name for entry in workspace.iterdir()} != entries:
+        if {entry.name for entry in file_io_path(workspace).iterdir()} != entries:
             raise RuntimeError("Workspace inventory changed during inspection")
         # Retained file handles deny replacement and target deletion by handle.
         # Keep binding markers until all payload files have been discarded.
@@ -194,7 +195,7 @@ def discard_known_playback_workspace(
             RuntimeHandle(workspace, directory=True) as directory,
             ExitStack() as stack,
         ):
-            entries = {entry.name for entry in workspace.iterdir()}
+            entries = {entry.name for entry in file_io_path(workspace).iterdir()}
             if "ownership.json" not in entries or not entries <= _PLAYBACK_FILES:
                 return False
             held = {
@@ -212,7 +213,7 @@ def discard_known_playback_workspace(
                     return False
             elif child is not None or not entries <= {"ownership.json", "request.json"}:
                 return False
-            if {entry.name for entry in workspace.iterdir()} != entries:
+            if {entry.name for entry in file_io_path(workspace).iterdir()} != entries:
                 return False
             ordered = sorted(entries - {"ownership.json", "child-ownership.json"})
             ordered += sorted(entries & {"child-ownership.json", "ownership.json"})

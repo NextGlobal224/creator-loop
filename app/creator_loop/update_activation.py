@@ -21,13 +21,14 @@ from creator_loop.installation_stage import (
 from creator_loop.update_backup import _digest, _inventory
 from creator_loop.update_health import run_health_check
 from creator_loop.update_preparation import _journal, manifest_identity
-from creator_loop.windows_paths import file_io_path
+from creator_loop.windows_paths import file_io_path, resolve_file_path
 
 
 def _read_record(path: Path) -> dict[str, Any]:
-    if path.is_symlink() or path.is_junction() or not path.is_file():
+    path_io = file_io_path(path)
+    if path_io.is_symlink() or path_io.is_junction() or not path_io.is_file():
         raise ValueError("A real coordination record is required")
-    with path.open("rb") as stream:
+    with path_io.open("rb") as stream:
         raw = stream.read(1024**2 + 1)
     if len(raw) > 1024**2:
         raise ValueError("Coordination record exceeds metadata budget")
@@ -40,9 +41,9 @@ def _read_record(path: Path) -> dict[str, Any]:
 def verify_candidate(candidate: Path, installation: Path) -> dict[str, Any]:
     """Recheck a complete staged inventory, rejecting changed or linked files."""
     if (
-        candidate.is_symlink()
-        or candidate.is_junction()
-        or candidate.resolve(strict=True).parent != installation
+        file_io_path(candidate).is_symlink()
+        or file_io_path(candidate).is_junction()
+        or resolve_file_path(candidate, strict=True).parent != installation
         or re.fullmatch(
             r"[0-9]+\.[0-9]+\.[0-9]+-[0-9a-f]{12}-[0-9a-f]{32}", candidate.name
         )
@@ -50,7 +51,10 @@ def verify_candidate(candidate: Path, installation: Path) -> dict[str, Any]:
     ):
         raise ValueError("Candidate must be a real staged version directory")
     manifest_path = candidate / "release-manifest.json"
-    if manifest_path.is_symlink() or manifest_path.is_junction():
+    if (
+        file_io_path(manifest_path).is_symlink()
+        or file_io_path(manifest_path).is_junction()
+    ):
         raise ValueError("Linked candidate manifest")
     manifest = load_release_manifest(manifest_path)
     actual: set[str] = set()
@@ -117,9 +121,9 @@ def verify_prepared_backup(canonical: Path, record: dict[str, Any]) -> Path:
         raise ValueError("Prepared backup identity missing")
     backup = canonical / "backups" / backup_id
     if (
-        backup.is_symlink()
-        or backup.is_junction()
-        or backup.resolve(strict=True).parent != canonical / "backups"
+        file_io_path(backup).is_symlink()
+        or file_io_path(backup).is_junction()
+        or resolve_file_path(backup, strict=True).parent != canonical / "backups"
     ):
         raise ValueError("Unsafe prepared backup directory")
     metadata = _read_record(backup / "backup-manifest.json")
@@ -133,14 +137,14 @@ def verify_prepared_backup(canonical: Path, record: dict[str, Any]) -> Path:
         raise ValueError("Prepared backup schema identity changed")
     snapshot = backup / "creator_loop.sqlite3"
     if (
-        snapshot.is_symlink()
-        or snapshot.is_junction()
+        file_io_path(snapshot).is_symlink()
+        or file_io_path(snapshot).is_junction()
         or _digest(snapshot) != metadata.get("database_sha256")
         or metadata.get("backup_id") != backup_id
-        or snapshot.stat().st_size != metadata.get("database_size")
+        or file_io_path(snapshot).stat().st_size != metadata.get("database_size")
     ):
         raise ValueError("Prepared backup digest or identity changed")
-    with closing(open_readonly(snapshot.resolve(strict=True))) as copy:
+    with closing(open_readonly(resolve_file_path(snapshot, strict=True))) as copy:
         validate(copy, expected_version=backup_version)
     return snapshot
 
@@ -167,9 +171,9 @@ def activate_prepared_update(
         if folder.is_symlink() or folder.is_junction() or not folder.is_dir():
             raise ValueError("Real user-data coordination directories required")
     if (
-        journal_path.is_symlink()
-        or journal_path.is_junction()
-        or journal_path.resolve(strict=True).parent != manifests
+        file_io_path(journal_path).is_symlink()
+        or file_io_path(journal_path).is_junction()
+        or resolve_file_path(journal_path, strict=True).parent != manifests
     ):
         raise ValueError("Update journal must belong to this data root")
     source = canonical / "creator_loop.sqlite3"
