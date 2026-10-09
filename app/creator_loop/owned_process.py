@@ -433,12 +433,14 @@ class OwnedWindowsProcess:
             )
             startup.attributes = attributes
             info = _ProcessInfo()
-            # Identity/ownership stay canonical; only the native launch uses
-            # the extended spelling, including argv[0]. Current-directory handling
-            # follows the separate CreateProcessW directory contract.
-            executable_io = str(file_io_path(self.executable))
+            # Keep argv[0] canonical. Extended application names are needed
+            # only beyond MAX_PATH; using them for short .NET executables can
+            # break CLR configuration loading (including Windows PowerShell).
+            executable_io = str(self.executable)
+            if len(executable_io) >= 260:
+                executable_io = str(file_io_path(self.executable))
             command = ctypes.create_unicode_buffer(
-                subprocess.list2cmdline([executable_io, *arguments])
+                subprocess.list2cmdline([str(self.executable), *arguments])
             )
             env_buffer = None
             if environment is not None:

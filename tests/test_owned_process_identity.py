@@ -128,10 +128,10 @@ class OwnedProcessIdentityTests(unittest.TestCase):
                             file_io_path(self.executables[1].parent),
                         )
                     )
-                    # argv[0] retains the launch alias, independent of saved identity.
+                    # argv[0] keeps identity even when lpApplicationName needs an alias.
                     self.assertTrue(
-                        child["command"].startswith('"' + str(file_io_path(exe)) + '"')
-                        or child["command"].startswith(str(file_io_path(exe)) + " ")
+                        child["command"].startswith('"' + str(exe) + '"')
+                        or child["command"].startswith(str(exe) + " ")
                     )
                     self.assertEqual(len(callbacks), 1)
                     self.assertEqual(
@@ -190,3 +190,39 @@ class OwnedProcessIdentityTests(unittest.TestCase):
                 self.assertEqual(receipt["exit_code"], 0)
                 self.assertFalse(receipt["timed_out"])
                 self.assertEqual((root / "creator_loop.sqlite3").read_bytes(), original)
+
+    def test_short_windows_powershell_initializes_clr_with_canonical_launch_name(self):
+        exe = (
+            Path(os.environ["SystemRoot"])
+            / "System32/WindowsPowerShell/v1.0/powershell.exe"
+        )
+        exe = exe.resolve(strict=True)
+        directory = self.base / "powershell"
+        records = []
+
+        def before_resume(record):
+            self._assert_live_record(exe, directory, record)
+            records.append(record)
+
+        with OwnedWindowsProcess(
+            file_io_path(exe),
+            [
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "[Console]::WriteLine('CLR initialized')",
+            ],
+            directory,
+            component_version="identity-clr-regression",
+            before_resume=before_resume,
+        ) as process:
+            outcome = process.wait(15)
+            self.assertEqual(
+                outcome.exit_code, 0, process.stderr_path.read_text(errors="replace")
+            )
+            self.assertFalse(outcome.timed_out)
+            self.assertTrue(process.tree_finished())
+        self.assertIn(b"CLR initialized", process.stdout_path.read_bytes())
+        self.assertEqual(
+            json.loads((directory / "ownership.json").read_text()), records[0]
+        )
