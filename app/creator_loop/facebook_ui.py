@@ -316,9 +316,10 @@ class FacebookDialog(QDialog):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table)
-        self.open = QPushButton("Mở nguồn")
-        self.open.clicked.connect(lambda: self.start("open"))
-        layout.addWidget(self.open)
+        self.open_source = QPushButton("Mở nguồn")
+        self.open_source.setObjectName("facebookOpen")
+        self.open_source.clicked.connect(lambda: self.start("open"))
+        layout.addWidget(self.open_source)
         close = QPushButton("Đóng")
         close.clicked.connect(self.close)
         layout.addWidget(close)
@@ -360,7 +361,7 @@ class FacebookDialog(QDialog):
         worker.started.connect(self.guard.capture, Qt.ConnectionType.DirectConnection)
         worker.progress.connect(self.status.setText)
         worker.completed.connect(self.status.setText)
-        for b in (self.scan, self.login, self.open):
+        for b in (self.scan, self.login, self.open_source):
             b.setEnabled(False)
         self.stop.setEnabled(True)
         self.ready.setEnabled(mode == "login")
@@ -395,7 +396,7 @@ class FacebookDialog(QDialog):
         self.timer.stop()
         self.ready.setEnabled(False)
         self.stop.setEnabled(False)
-        for b in (self.scan, self.login, self.open):
+        for b in (self.scan, self.login, self.open_source):
             b.setEnabled(True)
         self.reload()
         if self.close_after:

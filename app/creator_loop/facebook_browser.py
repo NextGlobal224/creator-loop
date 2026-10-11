@@ -284,7 +284,9 @@ def _run_browser_task(path: Path, held: ExitStack) -> int:
                         if mode == "login"
                         else request.get("url")
                     )
-                    if mode == "open" and post_link(url) is None:
+                    if not isinstance(url, str) or (
+                        mode == "open" and post_link(url) is None
+                    ):
                         raise ValueError("Invalid saved post URL")
                     page.goto(url, wait_until="domcontentloaded", timeout=20000)
                     if mode == "open" and (problem := session_problem(page)):
