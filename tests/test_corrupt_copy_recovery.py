@@ -16,6 +16,7 @@ import test_corrupt_restore_copy as copy_fixture
 from creator_loop.app_lock import AppDataLock, DataRootBusy
 from creator_loop.corrupt_copy_recovery import recover_corrupt_copy
 from creator_loop.corrupt_restore_inspection import inspect_corrupt_copy
+from creator_loop.database import SCHEMA_VERSION
 from creator_loop.restore_guard import PendingRestore, require_no_pending_restore
 from creator_loop.update_activation import active_candidate
 from creator_loop.update_backup import _digest
@@ -88,7 +89,9 @@ class CorruptCopyRecoveryTests(unittest.TestCase):
         ):
             self.assertEqual(self.recover(), self.candidate)
         require_no_pending_restore(self.root)
-        self.assertEqual(active_candidate(self.installation, 6)[0], self.candidate)
+        self.assertEqual(
+            active_candidate(self.installation, SCHEMA_VERSION)[0], self.candidate
+        )
         record = json.loads(self.recovery.read_text())
         self.assertEqual(record["phase"], "RESTORE_COMPLETED")
         self.assertEqual(record["restore_format"], 2)
