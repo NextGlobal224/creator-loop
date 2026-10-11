@@ -8,7 +8,7 @@ if(-not (Test-Path -LiteralPath (Join-Path $DataRoot 'manifests\facebook-browser
  $install.WaitForExit()
  if($install.ExitCode -ne 0){throw 'Browser component installation failed; no user data was discarded.'}
 }
-$child=Start-Process -FilePath $exe -WindowStyle Hidden -PassThru
+$child=Start-Process -FilePath $exe -WindowStyle Normal -PassThru
 $retainedChildHandle=$child.Handle
 $child.WaitForExit()
 exit $child.ExitCode
