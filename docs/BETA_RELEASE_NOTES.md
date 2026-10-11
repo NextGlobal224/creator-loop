@@ -24,3 +24,10 @@ Giải nén nguyên onedir (EXE + `_internal` + offline guide); giữ installati
 ## Nguồn và điều kiện phát hành
 
 Nguồn cuối trên `main`, tag khớp manifest/app version; checksum/provenance/compatibility và release notes phải sinh trung thực cho chính artifact cuối đã kiểm. Stable và beta đều giữ required checks/valid GitHub review/invariants/ownership/backup. Beta chỉ publish bằng gate beta fail-closed và GitHub pre-release; không upload bản PR đã kiểm như thể là build tag/main. Không sửa một manifest cũ để vượt checker.
+
+
+## Facebook local beta
+
+Keyword search/default20, progress/Stop/Open source, real post/video/reel URL filtering, Source/TEXT capture and cross-run dedup use a separate local Playwright browser session. Browser component is installed directly from its pinned official source, outside public app ZIP; no Meta API/scraping service/cloud. No downloaded media is inferred from a URL. Authentication expiry/CAPTCHA stops. Schema7 keeps existing data and requires a consistent pre-migration backup. Native final-artifact acceptance and valid required CI/review still gate publication.
+
+Stable scopes **NOT ACCEPTED**: actual8GB RAM/disk pressure, representative Vietnamese quality, real external PUBLISHED→Observation. Beta publication does not accept V1 stable.

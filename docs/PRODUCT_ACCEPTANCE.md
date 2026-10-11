@@ -108,3 +108,7 @@ Phạm vi beta theo [CI/CD contract mục4.1](Creator_Loop_CICD_Release_Contract
 | 02–19/21/22/24 (ngoài đúng các phạm vi hoãn trên) | Invariants/permissions/storage, supported migrations, full basic flow, backup/restore, owned lifecycle, exact final artifact/guide/provenance và required CI/review không được bỏ. | Các tiêu chí cuối còn lại ở24 dòng vẫn phải đóng để công bố V1 ổn định. |
 
 Ledger beta phải ghim exact commit/main/tag/manifest/ZIP/run và ghi evidence còn thiếu; kiểm lại bytes đổi. Gate beta chưa được nghiệm thu ở checkpoint đề xuất. Không sửa status24 trước khi release thật tồn tại; không gán green CI của PR hoặc artifact dùng cá nhân cho tag/final bytes khác.
+
+### Beta Facebook local (user scope 11/10/2026)
+
+Required beta flow: keyword/default20 → real post/video/reel URL → Source and optional physical TEXT snapshot → reopen → rescan dedup → cancel owned browser → normal close, on the exact final packaged artifact. URL-only creates no media file. Responsive progress/Stop/Open source, separate local profile, no credentials in Git/log/artifact, auth expiry/CAPTCHA stop and bounded retries are mandatory. Playwright1.63.0 fallback follows inspected AutoCLI pinned source; no Meta API, scraping service or cloud. Status: IN PROGRESS / NOT ACCEPTED until native exact artifact evidence exists. Schema7 consistent pre-migration backup and retention are required. Three earlier stable deferrals were explicitly approved11/10; do not use them as beta blockers or mark them PASS. Required CI/review/main/tag/provenance remain.

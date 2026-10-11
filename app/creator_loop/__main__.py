@@ -25,6 +25,18 @@ TRANSCRIPT_REVIEW_REQUESTED = 24
 
 
 def main() -> int:
+    if len(sys.argv) == 2 and sys.argv[1] == "--install-facebook-browser":
+        from .facebook_install import install_browser
+
+        ensure_data_root(data_root())
+        with AppDataLock(data_root()):
+            install_browser(data_root())
+        print("Pinned local Facebook browser installed; no session credentials read")
+        return 0
+    if len(sys.argv) == 3 and sys.argv[1] == "--facebook-browser-task":
+        from .facebook_browser import run_browser_task
+
+        return run_browser_task(Path(sys.argv[2]))
     if len(sys.argv) == 3 and sys.argv[1] == "--transcript-review-task":
         from .transcript_review_task import run_transcript_review_task
 

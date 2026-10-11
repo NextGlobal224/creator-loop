@@ -47,6 +47,7 @@ def write_manifest(
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
     manifest = {
         "manifest_version": 1,
+        "release_channel": "development",
         "app_version": __version__,
         "git_commit": commit,
         "schema_from": 0,
@@ -71,6 +72,9 @@ def write_manifest(
             migration: _migration_sql(migration)[1] for migration in MIGRATIONS
         },
         "files": files,
+        "source_hashes": json.loads(
+            (package / "build-info.json").read_text(encoding="utf-8")
+        ).get("source_hashes", {}),
         "provenance": {
             "repository": "NextGlobal224/creator-loop",
             "ci_run": run_url,

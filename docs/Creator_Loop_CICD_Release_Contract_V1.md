@@ -74,3 +74,7 @@ Mỗi release công bố schema range app có thể đọc. Có thể quay lại
 ## 7. Gates trước commit đầu tiên
 
 Repository skeleton, `.gitignore`, docs baseline, workflow có kiểm tra thực, fixture DB, migration 0001, launcher Windows tối thiểu và một smoke test artifact. Không cần triển khai toàn bộ domain trước commit đầu, nhưng CI phải chạy và chặn vi phạm đang có. Mọi thay đổi luật dữ liệu đi qua PR cập nhật **baseline + migration + test** trong cùng thay đổi.
+
+### Beta publication sequencing
+
+Beta tags use `v<actual numeric app version>-beta.<positive sequence>`; this does not change the binary's numeric app_version. Tag from reviewed main triggers the unchanged required CI build; stable auto-publication skips beta tags. Agent downloads that immutable tagged ZIP, completes native eligibility and writes a sanitized structured receipt binding commit/build-run/original manifest/ZIP/EXE. Only then dispatch `publish_beta.yml`: validate exact tag/main/build jobs, finalize metadata without rebuilding ZIP, check every file and all beta scopes, publish identical bytes with `--prerelease`. Missing/stale/source-only/mock QA is refused. Default manifest writer remains development. Stable checker/24 criteria are retained; exactly three user-approved stable deferrals are enumerated, never entire requirement-row exclusions. No new scope or review/branch-protection bypass is authorized by the receipt.

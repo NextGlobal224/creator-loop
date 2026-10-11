@@ -197,3 +197,7 @@ lỗi; không tự xóa guard hoặc mở app không tương thích để vượ
 Release notes và manifest của release thật phải công bố compatibility,
 checksum và cách khôi phục. Checkpoint local trong HANDOFF chưa phải release
 từ `main` sau required CI/tag gate.
+
+## Facebook beta
+
+Dùng **Tư liệu Facebook** để quét từ khóa và lưu permalink qua browser local riêng. Giới hạn20, Dừng, Mở nguồn và dedup không tải media hay tự duyệt Evidence. Xem [hướng dẫn Facebook](FACEBOOK_LOCAL_GUIDE.md). Browser component được cài riêng trước khi dùng; đăng nhập trực tiếp một lần nếu cần.

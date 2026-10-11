@@ -16,6 +16,7 @@ MIGRATIONS = (
     "0004_selection_snapshot_seal",
     "0005_publication_snapshot_guards",
     "0006_observation_metric_validation",
+    "0007_source_captures",
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 

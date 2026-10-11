@@ -121,6 +121,12 @@ class ReleaseGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "prerequisites are not accepted"):
             self._check()
 
+    def test_explicit_development_channel_cannot_publish(self):
+        self.manifest["release_channel"] = "development"
+        self._save()
+        with self.assertRaisesRegex(ValueError, "channel"):
+            self._check()
+
     def test_development_notes_and_unresolved_model_cannot_publish(self):
         for field, value in (
             ("release_notes", "Development checkpoint"),

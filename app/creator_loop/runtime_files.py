@@ -60,8 +60,6 @@ class RuntimeHandle:
     ) -> None:
         if allow_child_writes and not directory:
             raise ValueError("Child writes are only meaningful for a directory handle")
-        if read_only and directory:
-            raise ValueError("Shared read-only mode is for regular files")
         if sys.platform != "win32":
             raise OSError("Owned runtime deletion requires Windows handles")
         self.kernel = _kernel32()
@@ -95,7 +93,9 @@ class RuntimeHandle:
         if read_only:
             # Multiple cooperating readers, including an owned child, can hold
             # the same immutable request. No WRITE/DELETE access or sharing.
-            access = 0x80000000
+            # Directory readers (including the native image loader) need not
+            # share DELETE: immutable leases never request deletion access.
+            access = 0x81 if directory else 0x80000000
         if allow_child_writes:
             # No DELETE access: the OS opens the rename destination parent with
             # sharing that excludes DELETE. Sharing WRITE allows adding children;
