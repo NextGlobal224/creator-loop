@@ -48,9 +48,22 @@ def post_link(value: object) -> PostLink | None:
     match = re.fullmatch(r"/([A-Za-z0-9._-]+)/(posts|videos)/(" + ID + r")", path)
     if match:
         return PostLink("https://www.facebook.com" + path, match[3])
-    match = re.fullmatch(r"/groups/([0-9]+)/posts/(" + ID + r")", path)
+    match = re.fullmatch(r"/groups/([0-9]+)/(?:posts|permalink)/(" + ID + r")", path)
     if match:
-        return PostLink("https://www.facebook.com" + path, match[2])
+        return PostLink(
+            "https://www.facebook.com/groups/" + match[1] + "/posts/" + match[2],
+            match[2],
+        )
+    match = re.fullmatch(r"/groups/([0-9]+)", path)
+    if (
+        match
+        and len(group_posts := parse_qs(u.query).get("multi_permalinks", [])) == 1
+        and re.fullmatch(ID, group_posts[0])
+    ):
+        return PostLink(
+            "https://www.facebook.com/groups/" + match[1] + "/posts/" + group_posts[0],
+            group_posts[0],
+        )
     match = re.fullmatch(r"/reel/(" + ID + r")", path)
     if match:
         return PostLink("https://www.facebook.com" + path, match[1])

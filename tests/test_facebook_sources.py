@@ -43,6 +43,8 @@ class FacebookSourcesTests(unittest.TestCase):
         valid = {
             "https://m.facebook.com/creator/posts/pfbidAbC123/?ref=tracking": "pfbidAbC123",
             "https://www.facebook.com/groups/23/posts/45/": "45",
+            "https://www.facebook.com/groups/23/permalink/45/?ref=tracking": "45",
+            "https://www.facebook.com/groups/23/?multi_permalinks=45&hoisted_section_header_type=recently_seen": "45",
             "https://www.facebook.com/reel/67": "67",
             "https://www.facebook.com/creator/videos/89": "89",
             "https://facebook.com/watch/?v=90&ref=tracking": "90",
@@ -65,6 +67,8 @@ class FacebookSourcesTests(unittest.TestCase):
             "https://www.facebook.com/watch/?v=1&v=2",
             "https://facebook.com/%2f..%2f/posts/1",
             "https://facebook.com/share/p/1",
+            "https://www.facebook.com/groups/23/?multi_permalinks=45,67",
+            "https://www.facebook.com/groups/23/?multi_permalinks=45&multi_permalinks=67",
         ):
             self.assertIsNone(post_link(value), value)
 

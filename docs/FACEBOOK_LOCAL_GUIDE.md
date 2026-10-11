@@ -10,6 +10,8 @@ Nếu muốn dùng browser riêng của app, đổi sang **Trình duyệt riêng
 
 Bảng lưu URL bài/video/reel thật, nguồn và trích đoạn nếu liên kết với bài được nhận diện chắc chắn, từ khóa và thời điểm UTC. Chọn hàng rồi **Mở nguồn**. Quét lại cùng post ID bỏ qua trùng, không sửa Source/Original cũ. Chỉ có URL thì không tạo Asset/file; trích đoạn nhìn thấy được lưu dưới TEXT/ORIGINAL, không phải file video/ảnh hoặc Evidence đã duyệt. Quyền sử dụng vẫn UNKNOWN.
 
+Nếu Facebook hiển thị timestamp bằng link placeholder, worker mở timestamp để lấy URL bài rồi trở lại trang kết quả trong cùng tab. Dạng group `multi_permalinks`/`permalink` được chuẩn hóa về link `groups/.../posts/...`; trường hợp này chỉ lưu URL nếu không có trích đoạn gắn chắc chắn với bài. Worker không click like/chia sẻ/đăng bài, và không tái sử dụng vị trí DOM cũ sau khi trang chuyển. Dừng ngắt worker ngay cả khi đang mở timestamp; Chrome và trang đang mở được giữ lại.
+
 **Dừng/Hủy/đóng app** ngắt kết nối và dừng riêng worker/driver của app. Với **Chrome đang mở**, Chrome, tab và phiên đăng nhập của bạn vẫn mở; app không gọi đóng browser/context/tab hoặc tạo context/profile mới. Với **Trình duyệt riêng**, app đóng Chromium do nó sở hữu. Bản ghi đã commit được giữ. **Mở nguồn** dùng tab Facebook đã kết nối và giữ Chrome mở sau khi mở bài.
 
 SDK Playwright1.63.0 nằm trong package. Chrome của người dùng là browser bên ngoài, không thuộc quyền dọn/terminate của app. Chế độ **Trình duyệt riêng** dùng component Chrome for Testing153.0.8010.12 tải trực tiếp từ upstream khi cài local, giữ ngoài ZIP public và kiểm308file theo pin. Phiên đăng nhập tách component. Source/license/hash trong `FACEBOOK_DEPENDENCIES.md` và `licenses/facebook`.

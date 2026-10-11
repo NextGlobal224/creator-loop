@@ -7,6 +7,7 @@ The caller owns this worker and every driver/browser descendant in a private Job
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import importlib.metadata
 import json
 import os
@@ -18,7 +19,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote, urlparse
 
-from creator_loop.facebook_cdp import ConnectionRequired
+from creator_loop.facebook_cdp import ConnectionRequired, is_facebook_url
 from creator_loop.facebook_runtime import verified_browser, verify_browser_namespace
 from creator_loop.facebook_sources import post_link
 from creator_loop.owned_process import _api
@@ -57,6 +58,77 @@ EXTRACT = r"""() => {
  return out.slice(0,2000);
 }"""
 
+# Facebook search timestamps can be obfuscated links pointing back to the
+# search page. Their real permalink is supplied only when opened normally.
+LAZY_TIMESTAMPS = r"""() => {
+ if (location.protocol !== 'https:' || !['facebook.com','www.facebook.com','m.facebook.com','web.facebook.com'].includes(location.hostname) || !['/search/posts/','/search/videos/'].includes(location.pathname)) return [];
+ const main=document.querySelector('[role="main"]');
+ if (!main) return [];
+ return [...document.querySelectorAll('a[href]')].map((a,index)=>({a,index})).filter(({a})=>{
+   if (!main.contains(a)||!a.getClientRects().length||!a.getBoundingClientRect().width) return false;
+   try {const u=new URL(a.href);return u.origin===location.origin&&u.pathname===location.pathname&&u.searchParams.has('__cft__[0]');}catch{return false;}
+ }).slice(0,40).map(({a,index})=>({index,href:a.href}));
+}"""
+
+
+def resolve_search_timestamps(
+    page: Any,
+    found: dict[str, dict[str, Any]],
+    seen: set[str],
+    limit: int,
+    cancelled: Callable[[], bool],
+    deadline: float,
+    scope_check: Callable[[], bool] | None,
+) -> None:
+    for candidate in page.evaluate(LAZY_TIMESTAMPS):
+        if cancelled():
+            raise InterruptedError()
+        if time.monotonic() >= deadline:
+            raise TimeoutError()
+        if scope_check is not None and not scope_check():
+            raise SessionRequired("FACEBOOK_TAB_REQUIRED")
+        if (
+            not isinstance(candidate, dict)
+            or type(candidate.get("index")) is not int
+            or not 0 <= candidate["index"] <= 10000
+            or not isinstance(candidate.get("href"), str)
+            or len(candidate["href"]) > 4096
+        ):
+            raise ValueError("Invalid timestamp candidate")
+        key = hashlib.sha256(candidate["href"].encode("utf-8")).hexdigest()
+        if key in seen:
+            continue
+        element = page.locator("a[href]").nth(candidate["index"])
+        # Re-observe the same element after every SPA transition. Never use a
+        # stale index for input or click a profile/like/share control.
+        if element.evaluate("a=>a.href") != candidate["href"]:
+            break
+        previous = page.url
+        seen.add(key)
+        element.click(timeout=5000)
+        page.wait_for_timeout(700)
+        if cancelled():
+            raise InterruptedError()
+        if not is_facebook_url(page.url) or (
+            scope_check is not None and not scope_check()
+        ):
+            raise SessionRequired("FACEBOOK_TAB_REQUIRED")
+        if problem := session_problem(page):
+            raise SessionRequired(problem)
+        link = post_link(page.url)
+        if link is not None:
+            found.setdefault(
+                link.external_id, {"url": link.url, "excerpt": None, "publisher": None}
+            )
+        if page.url != previous:
+            page.go_back(wait_until="domcontentloaded", timeout=15000)
+            page.wait_for_timeout(400)
+        if len(found) >= limit:
+            return
+        # History can rebuild/virtualize the card DOM; take fresh candidates
+        # on the next collection round rather than reusing old element indexes.
+        break
+
 
 def session_problem(page: Any) -> str | None:
     path = urlparse(page.url).path.lower()
@@ -84,6 +156,7 @@ def collect(
     scope_check: Callable[[], bool] | None = None,
 ) -> list[dict[str, Any]]:
     found: dict[str, dict[str, Any]] = {}
+    seen_timestamps: set[str] = set()
     for section in ("posts", "videos"):
         if cancelled():
             raise InterruptedError()
@@ -125,6 +198,16 @@ def collect(
                 }
                 if len(found) >= limit:
                     break
+            if len(found) < limit:
+                resolve_search_timestamps(
+                    page,
+                    found,
+                    seen_timestamps,
+                    limit,
+                    cancelled,
+                    deadline,
+                    scope_check,
+                )
             emit(
                 {
                     "status": "SCANNING",

@@ -390,7 +390,9 @@ class FacebookDialog(QDialog):
         for b in (self.scan, self.login, self.ready, self.stop):
             controls.addWidget(b)
         layout.addLayout(controls)
-        self.status = QLabel("Sẵn sàng. Trình duyệt dùng phiên riêng trong data root.")
+        self.status = QLabel(
+            "Sẵn sàng. Kết nối tab Facebook trong Chrome đang mở trước khi Quét."
+        )
         self.status.setWordWrap(True)
         self.status.setObjectName("facebookStatus")
         layout.addWidget(self.status)
@@ -423,6 +425,11 @@ class FacebookDialog(QDialog):
         existing = self.browser_mode.currentData() == "existing"
         self.chrome_tabs.setEnabled(existing)
         self.login.setText("Kết nối Chrome đang mở" if existing else "Đăng nhập riêng")
+        self.status.setText(
+            "Kết nối tab Facebook trong Chrome đang mở trước khi Quét."
+            if existing
+            else "Trình duyệt riêng dùng phiên trong data root."
+        )
 
     def reload(self) -> None:
         self.rows = saved_sources(self.root)
