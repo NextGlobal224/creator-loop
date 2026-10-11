@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
@@ -11,6 +12,7 @@ from urllib.parse import urlparse
 from creator_loop.facebook_sources import HOSTS, post_link
 
 TARGET_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
+CONNECTION_SECONDS = 120
 
 
 class ConnectionRequired(Exception):
@@ -99,9 +101,12 @@ def attached_operation(
     if cancelled():
         raise InterruptedError()
     emit({"status": "CONNECTING", "count": 0})
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError()
     browser = playwright.chromium.connect_over_cdp(
         chrome_endpoint(),
-        timeout=30000,
+        timeout=max(1, int(min(CONNECTION_SECONDS, remaining) * 1000)),
         no_defaults=True,
     )
     # The Playwright context manager disconnects the owned driver on exit.

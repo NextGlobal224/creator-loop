@@ -61,7 +61,7 @@ class FacebookCdpTests(unittest.TestCase):
             return_value="ws://127.0.0.1:9222/devtools/browser/abcdefgh",
         ):
             return attached_operation(
-                pw, request, Mock(), cancel, time.monotonic() + 10
+                pw, request, Mock(), cancel, time.monotonic() + 600
             )
 
     def test_descriptor_confines_endpoint_to_loopback_without_url_input(self):
@@ -104,7 +104,7 @@ class FacebookCdpTests(unittest.TestCase):
         auth.assert_called_once_with(facebook)
         pw.chromium.connect_over_cdp.assert_called_once_with(
             "ws://127.0.0.1:9222/devtools/browser/abcdefgh",
-            timeout=30000,
+            timeout=120000,
             no_defaults=True,
         )
         browser.close.assert_not_called()
@@ -116,6 +116,22 @@ class FacebookCdpTests(unittest.TestCase):
         other.locator.assert_not_called()
         self.assertEqual(len(sessions), 1)
         sessions[0].detach.assert_called_once()
+
+    def test_connection_respects_remaining_operation_budget(self):
+        pw, _, _, _ = self.playwright(self.page("https://www.facebook.com/"))
+        with (
+            patch(
+                "creator_loop.facebook_cdp.chrome_endpoint",
+                return_value="ws://127.0.0.1:9222/devtools/browser/abcdefgh",
+            ),
+            patch("creator_loop.facebook_browser.session_problem", return_value=None),
+        ):
+            attached_operation(
+                pw, {"mode": "connect"}, Mock(), lambda: False, time.monotonic() + 5
+            )
+        timeout = pw.chromium.connect_over_cdp.call_args.kwargs["timeout"]
+        self.assertGreater(timeout, 0)
+        self.assertLessEqual(timeout, 5000)
 
     def test_multiple_facebook_tabs_require_explicit_selection_before_auth_or_scan(
         self,

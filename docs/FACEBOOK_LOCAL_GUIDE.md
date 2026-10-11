@@ -6,6 +6,8 @@ Mặc định **Chrome đang mở** dùng phiên Facebook bạn đã đăng nh�
 
 Sau khi app báo đã kết nối đúng tab Facebook, nhập từ khóa, giữ giới hạn20 hoặc chọn1–100 rồi **Quét**. App dùng chính tab đó để mở tìm kiếm Facebook; các tab khác được giữ nguyên. Nếu tab đóng/chuyển ra ngoài Facebook, hết phiên hoặc CAPTCHA, lượt dừng và báo, không tự đăng nhập/retry.
 
+Mỗi worker mới có thể cần Chrome cho phép lại. Chọn Allow khi Chrome hỏi; app chờ tối đa120giây, nằm trong thời hạn của lượt thao tác. Nếu kết nối bị treo trong khi tab cài đặt `chrome://inspect/#remote-debugging` còn mở, đóng riêng tab cài đặt đó, giữ Remote Debugging bật và tab Facebook mở, rồi kết nối lại trong app. Không cần đổi profile hoặc đăng nhập lại. Dừng vẫn ngắt riêng worker của app.
+
 Nếu muốn dùng browser riêng của app, đổi sang **Trình duyệt riêng**, chọn **Đăng nhập riêng**, đăng nhập trực tiếp rồi bấm **Đã đăng nhập** trong app. Không gửi mật khẩu cho ứng dụng/agent. Phiên riêng ở `facebook-browser-session/` trong data root; phiên Chrome đang mở vẫn ở profile Chrome của bạn. Không copy/import phiên giữa hai profile. Hết phiên/CAPTCHA dừng và báo; không retry tự động.
 
 Bảng lưu URL bài/video/reel thật, nguồn và trích đoạn nếu liên kết với bài được nhận diện chắc chắn, từ khóa và thời điểm UTC. Chọn hàng rồi **Mở nguồn**. Quét lại cùng post ID bỏ qua trùng, không sửa Source/Original cũ. Chỉ có URL thì không tạo Asset/file; trích đoạn nhìn thấy được lưu dưới TEXT/ORIGINAL, không phải file video/ảnh hoặc Evidence đã duyệt. Quyền sử dụng vẫn UNKNOWN.
