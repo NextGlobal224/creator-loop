@@ -289,6 +289,11 @@ class InstallationStageTests(unittest.TestCase):
     def test_manifest_writer_records_tested_bytes_and_build_context(self):
         from scripts.write_release_manifest import write_manifest
 
+        source_hashes = {"app/creator_loop/__init__.py": "b" * 64}
+        self.members["CreatorLoop/build-info.json"] = json.dumps(
+            {"git_commit": "a" * 40, "source_hashes": source_hashes}
+        ).encode("utf-8")
+        self._write()
         package = self.base / "extracted/CreatorLoop"
         for name, content in self.members.items():
             path = package.joinpath(*name.split("/")[1:])
@@ -320,6 +325,7 @@ class InstallationStageTests(unittest.TestCase):
         self.assertIn("schema_read_min", actual)
         self.assertIn("PySide6", actual["dependencies"])
         self.assertIn("backup", actual["recovery_notes"])
+        self.assertEqual(actual["source_hashes"], source_hashes)
 
     def test_overlap_disk_and_write_failures_preserve_db_and_prior_versions(self):
         for root in (self.data, self.data / "nested", self.base):
