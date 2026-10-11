@@ -13,6 +13,7 @@ from uuid import uuid4
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from creator_loop.facebook_browser import LOGIN_SECONDS, OPEN_SECONDS, SCAN_SECONDS
+from creator_loop.facebook_cdp import TARGET_ID
 from creator_loop.facebook_sources import post_link, save_capture, saved_sources
 from creator_loop.owned_process import OwnedWindowsProcess
 from creator_loop.owned_thread import OwnedThreadExit
@@ -55,10 +57,36 @@ def read_terminal(
         "CAPTCHA": 3,
         "TIMED_OUT": 4,
         "BROWSER_FAILED": 5,
+        "CONNECTION_REQUIRED": 7,
+        "FACEBOOK_TAB_REQUIRED": 8,
+        "SELECT_TAB": 0,
+        "OPENED_KEEP_BROWSER": 0,
+        "SESSION_UNCONFIRMED": 0,
     }
     status = body.get("status")
     if status not in codes or exit_code != codes[status]:
         raise ValueError("Browser terminal status/exit mismatch")
+    if status == "SESSION_READY" and "target_id" in body:
+        target = body["target_id"]
+        if not isinstance(target, str) or not TARGET_ID.fullmatch(target):
+            raise ValueError("Invalid connected target")
+    if status == "SELECT_TAB":
+        tabs = body.get("tabs")
+        if not isinstance(tabs, list) or not 2 <= len(tabs) <= 50:
+            raise ValueError("Invalid Facebook tab list")
+        ids = set()
+        for tab in tabs:
+            if (
+                not isinstance(tab, dict)
+                or set(tab) != {"target_id", "title"}
+                or not isinstance(tab["target_id"], str)
+                or not TARGET_ID.fullmatch(tab["target_id"])
+                or tab["target_id"] in ids
+                or not isinstance(tab["title"], str)
+                or len(tab["title"]) > 200
+            ):
+                raise ValueError("Invalid Facebook tab")
+            ids.add(tab["target_id"])
     if status == "SUCCEEDED":
         links = body.get("links")
         if (
@@ -92,7 +120,14 @@ class FacebookWorker(QThread):
     completed = Signal(str)
 
     def __init__(
-        self, root: Path, mode: str, keyword: str, limit: int, url: str | None = None
+        self,
+        root: Path,
+        mode: str,
+        keyword: str,
+        limit: int,
+        url: str | None = None,
+        transport: str = "private",
+        target_id: str | None = None,
     ) -> None:
         super().__init__()
         self.root = root
@@ -100,11 +135,18 @@ class FacebookWorker(QThread):
         self.keyword = keyword
         self.limit = limit
         self.url = url
+        self.transport = transport
+        self.target_id = target_id
+        self.connection_result: dict[str, Any] = {}
         self.workspace: Path | None = None
         self.session_ready = False
 
     def run(self) -> None:
-        self.progress.emit("Đang mở trình duyệt riêng…")
+        self.progress.emit(
+            "Đang kết nối Chrome; chọn Allow nếu Chrome hỏi…"
+            if self.transport == "existing"
+            else "Đang mở trình duyệt riêng…"
+        )
         saved = duplicates = 0
         try:
             root = resolve_file_path(self.root, strict=True)
@@ -117,7 +159,9 @@ class FacebookWorker(QThread):
             workspace = root / "runtime" / ("facebook-" + run_id)
             workspace.mkdir()
             self.workspace = workspace
-            component = "facebook-browser/1.63.0/chromium-1243"
+            component = "facebook-browser/1.63.0/" + (
+                "existing-cdp" if self.transport == "existing" else "chromium-1243"
+            )
             marker = create_workspace_marker(
                 root, workspace, component, kind="FACEBOOK_BROWSER_WORKSPACE"
             )
@@ -131,6 +175,8 @@ class FacebookWorker(QThread):
                         "keyword": self.keyword,
                         "limit": self.limit,
                         "url": self.url,
+                        "transport": self.transport,
+                        "target_id": self.target_id,
                     }
                 ),
                 encoding="utf-8",
@@ -147,6 +193,7 @@ class FacebookWorker(QThread):
                     {
                         "scan": SCAN_SECONDS,
                         "login": LOGIN_SECONDS,
+                        "connect": LOGIN_SECONDS,
                         "open": OPEN_SECONDS,
                     }[self.mode]
                 )
@@ -218,6 +265,9 @@ class FacebookWorker(QThread):
                     workspace / "result.json", run_id, outcome.exit_code, self.limit
                 )
                 status = str(body["status"])
+            self.connection_result = (
+                body if body.get("status") == status else {"status": status}
+            )
             if status == "SUCCEEDED":
                 for item in body.get("links", []):
                     if self.isInterruptionRequested():
@@ -238,14 +288,31 @@ class FacebookWorker(QThread):
                     )
             messages = {
                 "SUCCEEDED": f"Hoàn tất: lưu {saved}, bỏ qua {duplicates} link trùng.",
-                "CANCELLED": f"Đã dừng. Giữ {saved} tư liệu đã lưu; không đổi dữ liệu cũ.",
-                "AUTH_REQUIRED": "Phiên hết hạn hoặc cần đăng nhập. Đã dừng; bấm Đăng nhập riêng.",
+                "CANCELLED": f"Đã dừng. Giữ {saved} tư liệu đã lưu; Chrome đang mở của bạn được giữ nguyên.",
+                "AUTH_REQUIRED": (
+                    "Phiên Facebook đang mở cần xác thực lại. Đã dừng; Chrome được giữ nguyên."
+                    if self.transport == "existing"
+                    else "Phiên hết hạn hoặc cần đăng nhập. Đã dừng; bấm Đăng nhập riêng."
+                ),
                 "CAPTCHA": "Facebook yêu cầu xác minh/CAPTCHA. Đã dừng; không tự retry.",
                 "TIMED_OUT": "Đã dừng vì hết thời gian quét.",
-                "SESSION_READY": "Đã lưu phiên riêng. Có thể Quét.",
+                "SESSION_READY": (
+                    "Đã kết nối đúng tab Facebook trong Chrome đang mở. Có thể Quét."
+                    if self.transport == "existing"
+                    else "Đã lưu phiên riêng. Có thể Quét."
+                ),
                 "CLOSED": "Trình duyệt đã đóng.",
                 "OPENED": "Nguồn đã đóng.",
-                "BROWSER_FAILED": "Trình duyệt không hoàn tất. Đã đóng cây tiến trình riêng.",
+                "BROWSER_FAILED": (
+                    "Không kết nối được; Chrome của bạn vẫn mở. Kiểm tra Remote Debugging và chọn Allow khi Chrome hỏi."
+                    if self.transport == "existing"
+                    else "Trình duyệt không hoàn tất. Đã đóng cây tiến trình riêng."
+                ),
+                "SESSION_UNCONFIRMED": "Chưa xác nhận được phiên Facebook trên tab đã chọn. Chrome được giữ mở; chưa cho phép Quét.",
+                "CONNECTION_REQUIRED": "Chưa kết nối được. Bật Remote Debugging tại chrome://inspect/#remote-debugging trong Chrome đang mở, rồi cho phép kết nối.",
+                "FACEBOOK_TAB_REQUIRED": "Tab Facebook đã đóng hoặc chuyển sang trang khác. Giữ tab Facebook mở rồi kết nối lại.",
+                "SELECT_TAB": "Có nhiều tab Facebook. Chọn đúng tab bên trên rồi bấm Kết nối Chrome đang mở.",
+                "OPENED_KEEP_BROWSER": "Đã mở nguồn trong tab Facebook đã chọn; Chrome và phiên đăng nhập vẫn mở.",
             }
             self.completed.emit(messages.get(status, messages["BROWSER_FAILED"]))
         except InterruptedError:
@@ -269,6 +336,7 @@ class FacebookDialog(QDialog):
         self.worker: FacebookWorker | None = None
         self.guard: OwnedThreadExit | None = None
         self.close_after = False
+        self.verified_target: str | None = None
         self.setWindowTitle("Tư liệu Facebook — trình duyệt local riêng")
         self.resize(1050, 670)
         layout = QVBoxLayout(self)
@@ -277,6 +345,20 @@ class FacebookDialog(QDialog):
                 "Lưu link và trích đoạn nhìn thấy; không tải video/ảnh, không tự tạo Evidence ACCEPT."
             )
         )
+        connection = QHBoxLayout()
+        self.browser_mode = QComboBox()
+        self.browser_mode.setObjectName("facebookBrowserMode")
+        self.browser_mode.addItem("Chrome đang mở", "existing")
+        self.browser_mode.addItem("Trình duyệt riêng", "private")
+        self.chrome_tabs = QComboBox()
+        self.chrome_tabs.setObjectName("facebookChromeTab")
+        self.chrome_tabs.addItem("Kết nối để chọn tab Facebook", None)
+        self.chrome_tabs.currentIndexChanged.connect(
+            lambda: setattr(self, "verified_target", None)
+        )
+        connection.addWidget(self.browser_mode)
+        connection.addWidget(self.chrome_tabs, 1)
+        layout.addLayout(connection)
         controls = QHBoxLayout()
         self.keyword = QLineEdit()
         self.keyword.setPlaceholderText("Từ khóa tìm bài Facebook")
@@ -291,8 +373,13 @@ class FacebookDialog(QDialog):
         self.scan = QPushButton("Quét")
         self.scan.setObjectName("facebookScan")
         self.scan.clicked.connect(lambda: self.start("scan"))
-        self.login = QPushButton("Đăng nhập riêng")
-        self.login.clicked.connect(lambda: self.start("login"))
+        self.login = QPushButton("Kết nối Chrome đang mở")
+        self.login.setObjectName("facebookConnect")
+        self.login.clicked.connect(
+            lambda: self.start(
+                "connect" if self.browser_mode.currentData() == "existing" else "login"
+            )
+        )
         self.ready = QPushButton("Đã đăng nhập")
         self.ready.setEnabled(False)
         self.ready.clicked.connect(self.login_ready)
@@ -326,7 +413,16 @@ class FacebookDialog(QDialog):
         self.timer = QTimer(self)
         self.timer.setInterval(100)
         self.timer.timeout.connect(self.reap)
+        self.browser_mode.currentIndexChanged.connect(self.mode_changed)
         self.reload()
+
+    def mode_changed(self) -> None:
+        self.verified_target = None
+        self.chrome_tabs.clear()
+        self.chrome_tabs.addItem("Kết nối để chọn tab Facebook", None)
+        existing = self.browser_mode.currentData() == "existing"
+        self.chrome_tabs.setEnabled(existing)
+        self.login.setText("Kết nối Chrome đang mở" if existing else "Đăng nhập riêng")
 
     def reload(self) -> None:
         self.rows = saved_sources(self.root)
@@ -349,13 +445,26 @@ class FacebookDialog(QDialog):
         if mode == "scan" and not keyword:
             self.status.setText("Nhập từ khóa trước khi Quét.")
             return
+        transport = str(self.browser_mode.currentData())
+        target_id = self.chrome_tabs.currentData() if transport == "existing" else None
         if mode == "open":
             row = self.table.currentRow()
             if not 0 <= row < len(self.rows):
                 self.status.setText("Chọn một nguồn đã lưu.")
                 return
             url = str(self.rows[row]["canonical_url"])
-        worker = FacebookWorker(self.root, mode, keyword, self.limit.value(), url)
+        if (
+            transport == "existing"
+            and mode in ("scan", "open")
+            and (target_id is None or target_id != self.verified_target)
+        ):
+            self.status.setText(
+                "Kết nối đúng tab Facebook trước khi Quét hoặc Mở nguồn."
+            )
+            return
+        worker = FacebookWorker(
+            self.root, mode, keyword, self.limit.value(), url, transport, target_id
+        )
         self.worker = worker
         self.guard = OwnedThreadExit()
         worker.started.connect(self.guard.capture, Qt.ConnectionType.DirectConnection)
@@ -365,6 +474,8 @@ class FacebookDialog(QDialog):
             b.setEnabled(False)
         self.stop.setEnabled(True)
         self.ready.setEnabled(mode == "login")
+        self.browser_mode.setEnabled(False)
+        self.chrome_tabs.setEnabled(False)
         worker.start()
         self.timer.start()
 
@@ -391,11 +502,33 @@ class FacebookDialog(QDialog):
         self.guard.close()
         self.guard = None
         self.worker.wait(0)
+        if self.worker.transport == "existing":
+            body = self.worker.connection_result
+            if body.get("status") == "SELECT_TAB":
+                self.chrome_tabs.clear()
+                for tab in body["tabs"]:
+                    self.chrome_tabs.addItem(
+                        tab["title"] or "Facebook", tab["target_id"]
+                    )
+            elif body.get("status") == "SESSION_READY" and body.get("target_id"):
+                self.chrome_tabs.clear()
+                self.chrome_tabs.addItem("Tab Facebook đã kết nối", body["target_id"])
+                self.verified_target = str(body["target_id"])
+            elif body.get("status") in (
+                "AUTH_REQUIRED",
+                "CAPTCHA",
+                "FACEBOOK_TAB_REQUIRED",
+                "CONNECTION_REQUIRED",
+                "SESSION_UNCONFIRMED",
+            ):
+                self.verified_target = None
         self.worker.deleteLater()
         self.worker = None
         self.timer.stop()
         self.ready.setEnabled(False)
         self.stop.setEnabled(False)
+        self.browser_mode.setEnabled(True)
+        self.chrome_tabs.setEnabled(self.browser_mode.currentData() == "existing")
         for b in (self.scan, self.login, self.open_source):
             b.setEnabled(True)
         self.reload()

@@ -1,4 +1,4 @@
-"""Local-only DOM collection in a separately owned Chromium profile.
+"""Local-only collection in an owned profile or an attached Facebook tab.
 
 No Meta API, service, cookies, password values or page/network dumps are read.
 The caller owns this worker and every driver/browser descendant in a private Job.
@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote, urlparse
 
+from creator_loop.facebook_cdp import ConnectionRequired
 from creator_loop.facebook_runtime import verified_browser, verify_browser_namespace
 from creator_loop.facebook_sources import post_link
 from creator_loop.owned_process import _api
@@ -34,6 +35,7 @@ OPEN_SECONDS = 600
 # Adapted from AutoCLI facebook/search at c0969e2 (Apache-2.0).
 # Unlike its first-anchor result, inspect all anchors and validate permalinks.
 EXTRACT = r"""() => {
+ if (location.protocol !== 'https:' || location.port || !['facebook.com','www.facebook.com','m.facebook.com','web.facebook.com'].includes(location.hostname)) return [];
  const articles = [...document.querySelectorAll('[role="article"], [role="listitem"]')];
  const visible = e => !!(e.getClientRects().length && e.getBoundingClientRect().width);
  const truncate = (text, limit) => Array.from(text.trim()).slice(0,limit).join('');
@@ -79,11 +81,14 @@ def collect(
     emit: Callable[[dict[str, Any]], None],
     cancelled: Callable[[], bool],
     deadline: float,
+    scope_check: Callable[[], bool] | None = None,
 ) -> list[dict[str, Any]]:
     found: dict[str, dict[str, Any]] = {}
     for section in ("posts", "videos"):
         if cancelled():
             raise InterruptedError()
+        if scope_check is not None and not scope_check():
+            raise SessionRequired("FACEBOOK_TAB_REQUIRED")
         page.goto(
             "https://www.facebook.com/search/"
             + section
@@ -99,6 +104,8 @@ def collect(
                 raise InterruptedError()
             if time.monotonic() >= deadline:
                 raise TimeoutError()
+            if scope_check is not None and not scope_check():
+                raise SessionRequired("FACEBOOK_TAB_REQUIRED")
             problem = session_problem(page)
             if problem:
                 raise SessionRequired(problem)
@@ -140,10 +147,11 @@ class SessionRequired(Exception):
     pass
 
 
-def _validate_owner(marker: dict, child: dict, root: Path, workspace: Path) -> None:
+def _validate_owner(
+    marker: dict, child: dict, root: Path, workspace: Path, component: str
+) -> None:
     kernel = _api()
     observed = process_identity(kernel, kernel.GetCurrentProcess())
-    component = "facebook-browser/1.63.0/chromium-1243"
     if (
         type(marker.get("format")) is not int
         or marker.get("format") != 1
@@ -178,7 +186,7 @@ def _validate_owner(marker: dict, child: dict, root: Path, workspace: Path) -> N
         raise OSError("Browser requires an owned Job")
 
 
-def _request(path: Path, held: ExitStack) -> tuple[dict[str, Any], Path, Path]:
+def _request(path: Path, held: ExitStack) -> tuple[dict[str, Any], Path, Path | None]:
     root = resolve_file_path(path.parent.parent.parent, strict=True)
     workspace = path.parent
     run_id = workspace.name.removeprefix("facebook-")
@@ -197,15 +205,27 @@ def _request(path: Path, held: ExitStack) -> tuple[dict[str, Any], Path, Path]:
     child = held.enter_context(
         RuntimeHandle(workspace / "child-ownership.json")
     ).read_json(reject_duplicates=True)
-    _validate_owner(marker, child, root, workspace)
     request = held.enter_context(RuntimeHandle(path, read_only=True)).read_json(
         reject_duplicates=True
     )
     if (
-        set(request) != {"format", "mode", "keyword", "limit", "run_id", "url"}
+        set(request)
+        not in (
+            {"format", "mode", "keyword", "limit", "run_id", "url"},
+            {
+                "format",
+                "mode",
+                "keyword",
+                "limit",
+                "run_id",
+                "url",
+                "transport",
+                "target_id",
+            },
+        )
         or type(request.get("format")) is not int
         or request.get("format") != 1
-        or request.get("mode") not in ("scan", "login", "open")
+        or request.get("mode") not in ("scan", "login", "open", "connect")
         or not isinstance(request.get("keyword"), str)
         or len(request["keyword"]) > 200
         or (request["mode"] == "scan" and not request["keyword"].strip())
@@ -214,6 +234,29 @@ def _request(path: Path, held: ExitStack) -> tuple[dict[str, Any], Path, Path]:
         or request.get("run_id") != run_id
     ):
         raise ValueError("Invalid browser operation")
+    transport = request.get("transport", "private")
+    if transport not in ("private", "existing"):
+        raise ValueError("Invalid browser transport")
+    component = "facebook-browser/1.63.0/" + (
+        "existing-cdp" if transport == "existing" else "chromium-1243"
+    )
+    _validate_owner(marker, child, root, workspace, component)
+    if transport == "existing":
+        from creator_loop.facebook_cdp import TARGET_ID
+
+        target = request.get("target_id")
+        if (
+            request["mode"] == "login"
+            or (
+                target is not None
+                and (not isinstance(target, str) or not TARGET_ID.fullmatch(target))
+            )
+            or (request["mode"] in ("scan", "open") and target is None)
+        ):
+            raise ValueError("Explicit existing Facebook tab required")
+        return request, workspace, None
+    if request["mode"] == "connect" or request.get("target_id") is not None:
+        raise ValueError("Invalid private operation")
     profile = root / "facebook-browser-session"
     profile.mkdir(exist_ok=True)
     held.enter_context(RuntimeHandle(profile, directory=True, allow_child_writes=True))
@@ -240,7 +283,7 @@ def _run_browser_task(path: Path, held: ExitStack) -> int:
         SCAN_SECONDS
         if mode == "scan"
         else LOGIN_SECONDS
-        if mode == "login"
+        if mode in ("login", "connect")
         else OPEN_SECONDS
     )
     deadline = time.monotonic() + timeout
@@ -248,10 +291,17 @@ def _run_browser_task(path: Path, held: ExitStack) -> int:
     try:
         from playwright.sync_api import Error, sync_playwright
 
+        from creator_loop.facebook_cdp import attached_operation
+
         if importlib.metadata.version("playwright") != PLAYWRIGHT_VERSION:
             raise ValueError("Pinned browser SDK required")
 
         root = workspace.parent.parent
+        if profile is None:
+            with sync_playwright() as pw:
+                final = attached_operation(pw, request, emit, cancelled, deadline)
+            emit(final)
+            return 8 if final["status"] == "FACEBOOK_TAB_REQUIRED" else 0
         executable = verified_browser(root, held)
         emit({"status": "STARTING", "count": 0})
         with sync_playwright() as pw:
@@ -341,7 +391,10 @@ def _run_browser_task(path: Path, held: ExitStack) -> int:
         return 2
     except SessionRequired as exc:
         emit({"status": str(exc), "count": 0})
-        return 3
+        return 8 if str(exc) == "FACEBOOK_TAB_REQUIRED" else 3
+    except ConnectionRequired:
+        emit({"status": "CONNECTION_REQUIRED", "count": 0})
+        return 7
     except TimeoutError:
         emit({"status": "TIMED_OUT", "count": 0})
         return 4

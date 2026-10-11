@@ -35,3 +35,29 @@ class FacebookUiTests(unittest.TestCase):
                 dialog.close()
                 dialog.deleteLater()
                 self.app.processEvents()
+
+    def test_existing_chrome_scan_requires_a_verified_selected_tab(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            initialize(root / "creator_loop.sqlite3")
+            dialog = FacebookDialog(root)
+            try:
+                self.assertEqual(dialog.browser_mode.currentData(), "existing")
+                self.assertEqual(dialog.login.text(), "Kết nối Chrome đang mở")
+                dialog.keyword.setText("fixture")
+                dialog.scan.click()
+                self.assertIsNone(dialog.worker)
+                self.assertIn("Kết nối đúng tab Facebook", dialog.status.text())
+                dialog.chrome_tabs.clear()
+                dialog.chrome_tabs.addItem("selected", "target")
+                dialog.verified_target = "target"
+                dialog.chrome_tabs.addItem("another", "another")
+                dialog.chrome_tabs.setCurrentIndex(1)
+                self.assertIsNone(dialog.verified_target)
+                dialog.browser_mode.setCurrentIndex(1)
+                self.assertEqual(dialog.login.text(), "Đăng nhập riêng")
+                self.assertIsNone(dialog.chrome_tabs.currentData())
+            finally:
+                dialog.close()
+                dialog.deleteLater()
+                self.app.processEvents()

@@ -200,4 +200,4 @@ từ `main` sau required CI/tag gate.
 
 ## Facebook beta
 
-Dùng **Tư liệu Facebook** để quét từ khóa và lưu permalink qua browser local riêng. Giới hạn20, Dừng, Mở nguồn và dedup không tải media hay tự duyệt Evidence. Xem [hướng dẫn Facebook](FACEBOOK_LOCAL_GUIDE.md). Browser component được cài riêng trước khi dùng; đăng nhập trực tiếp một lần nếu cần.
+Dùng **Tư liệu Facebook → Chrome đang mở → Kết nối Chrome đang mở** để dùng tab Facebook đã đăng nhập; Chrome hỏi Allow qua DevTools local. Giới hạn20, Dừng, Mở nguồn và dedup không tải media hay tự duyệt Evidence. Dừng/Hủy giữ Chrome và phiên của bạn mở. Có thể chọn **Trình duyệt riêng** nếu muốn profile của app. Xem [hướng dẫn Facebook](FACEBOOK_LOCAL_GUIDE.md).

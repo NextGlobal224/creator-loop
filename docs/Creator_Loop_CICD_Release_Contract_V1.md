@@ -26,6 +26,8 @@ Mọi test dùng fixture giả, không chứa dữ liệu riêng của người 
 
 Runtime ownership record gồm `run_id`, PID, canonical executable path, thời điểm/identity tạo process, parent/job identity khi có và component version. Trước terminate phải đối chiếu với tiến trình hiện tại để chống PID reuse; không kill process ngoài quyền sở hữu. Trên Windows ưu tiên quản lý process tree bằng primitive phù hợp (ví dụ Job Object) nếu triển khai bảo đảm được. Cancel, normal exit và crash recovery có test riêng. Mục tiêu sau khi đóng app: không còn worker **do app sở hữu**; worker của ứng dụng khác không bị ảnh hưởng.
 
+Facebook có thể kết nối qua Playwright/CDP loopback tới Chrome đang mở sau khi user bật/cho phép DevTools. Chỉ điều khiển đúng tab Facebook đã chọn; không đọc/xuất cookie/token, tạo profile/context mới hoặc thao tác tab ngoài Facebook. Chrome/context/tab của user không thuộc Job/ownership của app: normal exit/cancel/timeout/crash chỉ ngắt kết nối và cleanup worker/driver do app sở hữu, giữ Chrome/phiên user mở. Private Chromium do app launch vẫn theo ownership cũ. Required tests phải chứng minh cả hai lifecycle; source/mock không thay native nghiệm thu artifact.
+
 ## 4. Release gate
 
 1. Build từ tag/commit xác định trên Windows sạch; đóng gói runtime cần thiết cho app hoặc nêu rõ prerequisite và kiểm tra ở preflight. Tách engine/model lớn qua component manager với version, digest, nguồn tải và quyền sở hữu.

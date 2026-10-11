@@ -1,5 +1,11 @@
 # Bàn giao hiện tại — Creator Loop V1
 
+## Facebook existing Chrome continuation — 11/10/2026
+
+User changed the beta plan to reuse the already signed-in Facebook tab in ordinary Chrome. The owned worker now supports CDP loopback attachment, explicit Facebook target selection, positive visible account-control verification, and disconnect-only cleanup for user-owned Chrome. No cookies/tokens/profile copying, browser/context/tab closing, new context or Meta API. Saving/reopening/deduplication still use schema7 Source captures; app-owned Chromium remains available. The default Facebook dialog now connects existing Chrome; the guide and ownership contract explain user permission and cancellation in each mode.
+
+Focused Facebook25 PASS and changed3file type/lint PASS; native SOURCE Qt/CDP fixture proves Stop and dialog-close keep the same external browser process and an unrelated fixture tab unchanged. This is fixture/source evidence, not real Facebook, the old packaged artifact or beta acceptance. Retained harness failures: venv launcher identity mismatch; observation ended before the queued terminal UI message. Base-Python/SDK caller and terminal UI observation passed without loosening ownership/deadlines. Private source fingerprints/receipts remain local. Required CI and a new exact packaged-artifact real connect/keyword/save/reopen/dedup/cancel proof are still needed after this commit; previous06e artifact has no CDP integration. No GitHub APPROVED or beta ACCEPT is implied. Three stable deferrals remain unaccepted and non-blocking for beta.
+
 **Cập nhật:** 03/10/2026 (+07:00). Đây là ảnh chụp trạng thái; khi tiếp tục phải đối chiếu lại Git, source và CI. [Biên bản Gate 1](../Creator_Loop_Gate_1_Status.md) là lịch sử, không phải trạng thái Gate 2 hiện tại.
 
 ## Trạng thái mới nhất
