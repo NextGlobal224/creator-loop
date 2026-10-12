@@ -38,7 +38,7 @@ DETAIL = r"""(id) => {
  const publisherAnchor=[...heading?.querySelectorAll('a[href]')||[]].find(a=>!postId(a.href));
  const dates=[...root.querySelectorAll('time[datetime],[data-utime]')].filter(e=>visible(e)&&(root.getAttribute('role')!=='article'||e.closest('[role="article"]')===root));
  let published=null;
- if(dates.length===1){const d=dates[0];try{published=d.getAttribute('datetime')?new Date(d.getAttribute('datetime')).toISOString():new Date(Number(d.getAttribute('data-utime'))*1000).toISOString();}catch{}}
+ if(dates.length===1){const d=dates[0];const iso=d.getAttribute('datetime');const seconds=d.getAttribute('data-utime');try{if(iso)published=new Date(iso).toISOString();else if(seconds&&/^\d+$/.test(seconds)&&Number(seconds)>0)published=new Date(Number(seconds)*1000).toISOString();}catch{}}
  const timestamp=[...root.querySelectorAll('a[href]')].find(a=>postId(a.href)===id);
  const labels=[...root.querySelectorAll('[role="button"],button,[aria-label]')].filter(visible).map(e=>e.getAttribute('aria-label')||text(e)).filter(v=>v.length<=160).slice(0,150);
  const metrics={};
