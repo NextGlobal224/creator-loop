@@ -30,7 +30,7 @@ class CorruptRestorePreparationTests(unittest.TestCase):
 
     def setup_fixture(self, version, *, closed_current_seed=False):
         if closed_current_seed and version != SCHEMA_VERSION:
-            raise ValueError("Current seed is only schema6")
+            raise ValueError("Current seed requires the current schema version")
         self.fixture = preparation_fixture.UpdatePreparationTests()
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)

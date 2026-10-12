@@ -1,2 +1,5 @@
 PySide6==6.10.2
 PyInstaller==6.16.0
+playwright==1.63.0
+pyee==13.0.1
+greenlet==3.5.6

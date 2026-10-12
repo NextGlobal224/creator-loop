@@ -557,6 +557,12 @@ class SourceWorker(QThread):
 
 
 class LibraryWindow(QMainWindow):
+    def choose_facebook(self) -> None:
+        from creator_loop.facebook_ui import FacebookDialog
+
+        FacebookDialog(self.root, self).exec()
+        self.reload()
+
     def __init__(self, root: Path) -> None:
         super().__init__()
         self.root = root
@@ -623,6 +629,11 @@ class LibraryWindow(QMainWindow):
         self._buttons.append(storage)
         actions.addWidget(storage)
         layout.addLayout(actions)
+        facebook = QPushButton("Tư liệu Facebook")
+        facebook.setObjectName("facebookLibrary")
+        facebook.clicked.connect(self.choose_facebook)
+        self._buttons.append(facebook)
+        layout.addWidget(facebook)
         self.maintenance_button = QPushButton(
             "Đóng Library để sao lưu / cập nhật / khôi phục"
         )

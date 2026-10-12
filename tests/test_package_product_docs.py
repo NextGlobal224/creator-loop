@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from html.parser import HTMLParser
@@ -34,7 +35,9 @@ class ProductDocsTests(unittest.TestCase):
         )
         (self.root / "_internal").mkdir()
         (self.root / "_internal/keep.bin").write_bytes(b"Unchanged application bytes")
-        self.commit = "a" * 40
+        self.commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True
+        ).strip()
 
     def snapshot(self):
         return {

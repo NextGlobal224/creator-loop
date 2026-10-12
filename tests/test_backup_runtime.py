@@ -22,7 +22,7 @@ class RetainedBackupTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name) / "QA retained"
+        self.root = Path(self.temp.name).resolve(strict=True) / "QA retained"
         ensure_data_root(self.root)
         initialize(self.root / "creator_loop.sqlite3")
         self.db = sqlite3.connect(self.root / "creator_loop.sqlite3")

@@ -26,6 +26,8 @@ Mọi test dùng fixture giả, không chứa dữ liệu riêng của người 
 
 Runtime ownership record gồm `run_id`, PID, canonical executable path, thời điểm/identity tạo process, parent/job identity khi có và component version. Trước terminate phải đối chiếu với tiến trình hiện tại để chống PID reuse; không kill process ngoài quyền sở hữu. Trên Windows ưu tiên quản lý process tree bằng primitive phù hợp (ví dụ Job Object) nếu triển khai bảo đảm được. Cancel, normal exit và crash recovery có test riêng. Mục tiêu sau khi đóng app: không còn worker **do app sở hữu**; worker của ứng dụng khác không bị ảnh hưởng.
 
+Facebook có thể kết nối qua Playwright/CDP loopback tới Chrome đang mở sau khi user bật/cho phép DevTools. Chỉ điều khiển đúng tab Facebook đã chọn; không đọc/xuất cookie/token, tạo profile/context mới hoặc thao tác tab ngoài Facebook. Chrome/context/tab của user không thuộc Job/ownership của app: normal exit/cancel/timeout/crash chỉ ngắt kết nối và cleanup worker/driver do app sở hữu, giữ Chrome/phiên user mở. Private Chromium do app launch vẫn theo ownership cũ. Required tests phải chứng minh cả hai lifecycle; source/mock không thay native nghiệm thu artifact.
+
 ## 4. Release gate
 
 1. Build từ tag/commit xác định trên Windows sạch; đóng gói runtime cần thiết cho app hoặc nêu rõ prerequisite và kiểm tra ở preflight. Tách engine/model lớn qua component manager với version, digest, nguồn tải và quyền sở hữu.
@@ -33,6 +35,28 @@ Runtime ownership record gồm `run_id`, PID, canonical executable path, thời 
 3. Test thực trên máy Windows mục tiêu 8 GB trước release: engine/model thật, video/ảnh/text mẫu, thiếu RAM, thiếu dung lượng, cancel, crash recovery và thời gian khởi động. Ghi kết quả, không suy từ runner hosted.
 4. Manifest ghi `app_version`, `git_commit`, `schema_from/schema_to`, `artifact_sha256`, file manifest/digest, minimum OS/runtime, component compatibility, migration IDs, release notes và hướng khôi phục. Chữ ký/attestation nếu bật phải kiểm được bằng quy trình công bố.
 5. Release thủ công hoặc gated; chỉ upload đúng artifact đã test. Không rebuild khác bytes sau gate rồi dùng kết quả test cũ.
+
+## 4.1. Gate beta riêng; V1 ổn định giữ nguyên
+
+Gate này chỉ có hiệu lực cho một quyết định phát hành **beta/pre-release** được người có quyền duyệt. Không đổi luật domain/schema, ownership, budget, quyền media, Package seal, Approval/REVOKED, backup nhất quán hoặc bất cứ tiêu chí V1 ổn định nào ở mục4. Beta không phải xác nhận product/V1 hoàn tất. Bản PR/installation dùng cá nhân không tự trở thành release beta.
+
+Điều kiện beta bắt buộc:
+
+1. Review độc lập hợp lệ trên GitHub và required checks được thực thi trên exact head/base của từng PR phụ thuộc; finding còn mở phải xử lý. Nguồn cuối phải có trên `main`; tag phải trỏ đúng commit đã kiểm. Retarget/merge làm đổi merge tree thì chạy required CI tương ứng, không chuyển bằng chứng synthetic merge cũ sang nguồn mới.
+2. Build Windows từ nguồn/tag xác định, kiểm **chính ZIP cuối**: inventory/manifest/provenance, đường dẫn khoảng trắng/Unicode, launcher, DB mới và mọi migration còn hỗ trợ, Library/Evidence/basic product flow, consistent DB backup/restore, containment/ownership/normal exit/cancel/crash recovery. Giữ scope thực đo; code hoặc artifact đổi bytes thì bổ sung kiểm ảnh hưởng. Hosted CI không thay đo hardware thật.
+3. Khai báo chính xác engine/model ngoài package: name/version/digest/source/license/local-use, preflight và native runtime đã kiểm; giữ budget đã chốt. Trạng thái compatibility beta chỉ được ghi đúng scope; không gán `VERIFIED_V1` cho phép đo có giới hạn hoặc quality chưa ACCEPT. Không bundle hoặc tải lại component chỉ để phát hành.
+4. Manifest, checksum, release notes, readable schema range, minimum OS/runtime, component compatibility và hướng cập nhật/khôi phục đầy đủ, cùng binding commit/run/ZIP. Không sửa metadata của artifact development cũ để biến thành release; pipeline phải tạo metadata trung thực cho artifact mới. Không rebuild khác bytes sau gate.
+5. Publish có quyền, qua checker beta riêng fail-closed và GitHub **pre-release=true**; stable channel vẫn dùng toàn bộ gate V1. Không bỏ/bypass checker hiện hành, approval hoặc CI. Version/tag phải tuân parser/manifest; nếu binary vẫn `0.1.0`, không báo binary `0.1.0-beta.1`. Nhãn pre-release trên GitHub là thuộc tính kênh phát hành, không đổi version trong executable.
+
+Chỉ các phạm vi dưới đây được hoãn nghiệm thu sang V1 ổn định; phải hiện rõ trong release notes/ledger, không đổi FAIL/SKIP/chưa kiểm thành PASS:
+
+| Phạm vi hoãn | Beta phải công bố | V1 ổn định vẫn bắt buộc |
+|---|---|---|
+| Chứng nhận Windows mục tiêu8GB và thiếu RAM/dung lượng **thực** | Môi trường/số đo đã kiểm; chưa chứng nhận physical shortage hoặc hỗ trợ rộng. Giữ các negative/ownership/backup guards và budget. | Toàn bộ mục4.3 và PRODUCT_ACCEPTANCE01/20/23. |
+| Chất lượng ASR tiếng Việt đại diện | Quality chưa nghiệm thu; RAW/MODEL có thể sai, phải nghe/đọc, sửa HUMAN và review riêng trước khi dùng. Không hứa accuracy từ mẫu corpus giới hạn. | Mẫu đại diện/reference/quyền dùng và quyết định chất lượng của người có trách nhiệm;20/23. |
+| PUBLISHED–Observation vận hành ngoài ứng dụng | Chưa nghiệm thu thao tác ngoài ứng dụng; không tự đăng, giả metadata hoặc tạo human approval. Guard/Post/Observation nội bộ vẫn phải kiểm. | Quyền và bằng chứng vận hành thật theo16/17/18. |
+
+`check_release_gate.py`/workflow chỉ hỗ trợ stable tại checkpoint chuẩn bị09/10/2026. Duyệt gate tài liệu chưa làm checker hỗ trợ beta: phải triển khai channel selection có ràng buộc, beta-specific evidence/manifest checks và tests từ chối bypass trước khi public release. Không dùng `--generate-notes` làm bằng chứng đã hoàn thành beta hoặc V1.
 
 ## 5. Update contract trên máy người dùng
 
@@ -52,3 +76,7 @@ Mỗi release công bố schema range app có thể đọc. Có thể quay lại
 ## 7. Gates trước commit đầu tiên
 
 Repository skeleton, `.gitignore`, docs baseline, workflow có kiểm tra thực, fixture DB, migration 0001, launcher Windows tối thiểu và một smoke test artifact. Không cần triển khai toàn bộ domain trước commit đầu, nhưng CI phải chạy và chặn vi phạm đang có. Mọi thay đổi luật dữ liệu đi qua PR cập nhật **baseline + migration + test** trong cùng thay đổi.
+
+### Beta publication sequencing
+
+Beta tags use `v<actual numeric app version>-beta.<positive sequence>`; this does not change the binary's numeric app_version. Tag from reviewed main triggers the unchanged required CI build; stable auto-publication skips beta tags. Agent downloads that immutable tagged ZIP, completes native eligibility and writes a sanitized structured receipt binding commit/build-run/original manifest/ZIP/EXE. Only then dispatch `publish_beta.yml`: validate exact tag/main/build jobs, finalize metadata without rebuilding ZIP, check every file and all beta scopes, publish identical bytes with `--prerelease`. Missing/stale/source-only/mock QA is refused. Default manifest writer remains development. Stable checker/24 criteria are retained; exactly three user-approved stable deferrals are enumerated, never entire requirement-row exclusions. No new scope or review/branch-protection bypass is authorized by the receipt.

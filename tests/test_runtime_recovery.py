@@ -55,6 +55,19 @@ class RuntimeRecoveryTests(unittest.TestCase):
                     child.discard()
         self.assertEqual(request.read_bytes(), original)
 
+    def test_immutable_directory_lease_allows_readers_without_delete_sharing(self):
+        directory = self.root / "runtime/immutable-browser"
+        directory.mkdir()
+        (directory / "original").write_bytes(b"retained")
+        with RuntimeHandle(directory, directory=True, read_only=True) as lease:
+            with RuntimeHandle(directory, directory=True, read_only=True):
+                self.assertEqual((directory / "original").read_bytes(), b"retained")
+                with self.assertRaises(OSError):
+                    directory.rename(directory.with_name("replaced"))
+                with self.assertRaises(RuntimeError):
+                    lease.discard()
+        self.assertEqual([p.name for p in directory.iterdir()], ["original"])
+
     def prepare(self, name="decode-dead0001", child=True):
         workspace = self.root / "runtime" / name
         workspace.mkdir()

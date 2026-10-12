@@ -43,3 +43,7 @@ Nếu có xung đột, **dừng phần phụ thuộc**, chỉ rõ xung đột v�
 ## Quy tắc làm việc
 
 Quy tắc gate/PR và bảo vệ tệp cá nhân nằm ở [AGENTS.md](../AGENTS.md); quy trình đọc context, kiểm tra và bàn giao dùng [CODEX_WORKFLOW.md](CODEX_WORKFLOW.md). Không tải model/engine nặng trong fast PR CI; dùng fake engine, test thật trước release trên máy mục tiêu 8 GB. Build từ commit/tag đã kiểm, test chính package phát hành. Không tự triển khai silent update hoặc xóa dữ liệu/components không thuộc app. Mỗi lần phát hiện schema baseline sai, sửa baseline và tests trước khi mở rộng code. Không gọi một release là production-ready chỉ vì GitHub Actions xanh.
+
+## Phạm vi beta khi đã được duyệt
+
+Khi chuẩn bị beta, dùng duy nhất [gate beta của CI/CD contract mục4.1](Creator_Loop_CICD_Release_Contract_V1.md#41-gate-beta-riêng-v1-ổn-định-giữ-nguyên) và phần phân mốc trong [PRODUCT_ACCEPTANCE](PRODUCT_ACCEPTANCE.md). Mốc beta không thay Goal V1 ổn định, thứ tự contract, quyền public hoặc điều kiện báo product hoàn tất. Không bypass stable checker để xuất bản development artifact; triển khai và kiểm gate beta đúng channel trước khi publish pre-release.

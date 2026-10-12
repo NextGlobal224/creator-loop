@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 if os.name == "nt":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from creator_loop.database import initialize
+    from creator_loop.database import SCHEMA_VERSION, initialize
     from creator_loop.maintenance_process import MAX_OUTPUT_BYTES, MaintenanceCommand
     from creator_loop.paths import ensure_data_root
     from PySide6.QtCore import QTimer
@@ -56,7 +56,7 @@ class MaintenanceProcessTests(unittest.TestCase):
         self.assertFalse(self.failures)
         self.assertEqual(len(self.results), 1)
         self.assertEqual(self.results[0][0], 0)
-        self.assertIn('"schema_version": 6', self.results[0][1])
+        self.assertIn(f'"schema_version": {SCHEMA_VERSION}', self.results[0][1])
         self.assertTrue((self.command.log_directory / "ownership.json").is_file())
 
     def test_real_timeout_and_cancel_close_retained_native_job(self):

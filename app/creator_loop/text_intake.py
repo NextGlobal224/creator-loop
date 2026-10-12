@@ -74,6 +74,7 @@ def _intake_original(
     preflight: Callable[[BinaryIO, Path], MediaInfo] | None = None,
     root: Path | None = None,
     cancel: Callable[[], bool] | None = None,
+    register: Callable[[sqlite3.Connection, ImportedOriginal], None] | None = None,
 ) -> ImportedOriginal:
     """Copy exact bytes, classify the held destination, then register it."""
     source_path = Path(source_path)
@@ -160,6 +161,8 @@ def _intake_original(
                 raise RuntimeError(
                     "Pending original registration does not match stored bytes"
                 )
+            if register is not None:
+                register(db, ImportedOriginal(asset_id, file_id, storage_key))
             _check_cancelled(cancel)
             commit_started = True
             db.commit()

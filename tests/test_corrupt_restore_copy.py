@@ -25,7 +25,8 @@ class CorruptRestoreCopyTests(unittest.TestCase):
     def setup_fixture(self, *, closed_current_seed=True):
         self.fixture = preparation_fixture.CorruptRestorePreparationTests()
         self.fixture.setup_fixture(
-            6 if closed_current_seed else 1, closed_current_seed=closed_current_seed
+            SCHEMA_VERSION if closed_current_seed else 1,
+            closed_current_seed=closed_current_seed,
         )
         self.addCleanup(self.fixture.doCleanups)
         self.root = self.fixture.root

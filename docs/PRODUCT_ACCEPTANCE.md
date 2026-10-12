@@ -1,5 +1,16 @@
 # Ma trận nghiệm thu Creator Loop V1
 
+**Date-label delta12/10/2026:** real047 scan exposed reel music title mislabeled as published_label; not date acceptance. Recognize actual date/relative-time labels on same-ID header links; unsupported/music labels remainNULL. Newexactartifact QA pending; no inferredyear/timezone, selection rules unchanged. Previous artifact results remain separate.
+
+**Selection reload delta12/10/2026:** real ee7e metadata/hashtags comparison succeeded, but save reloaded a previously unchecked unsaved qualified candidate as checked and next save imported it; clean duplicate QA not accepted. Preserve session choices by candidateID across reload/history, clear saved rows, no schema change. RealQt regression scoped PASS; requiredCI/newexactartifact intake/cancel/reopen pending. Keep ee7e/20b4 proofs separate.
+
+**Metadata permalink12/10/2026:** sửa sau95aa ưu tiên numeric authorID khớp permalink và một nhãn ngày placeholder duy nhất trong exactpost header; không suy năm/giờ hoặc lấy địa điểm làm nguồn. Scoped/native fixture và exactartifact QA mới đang chờ, không dùng kết quả20b4 nghiệm thu bytes mới. Review độc lập/release còn chưa đạt; stable deferrals giữ theo phạm vi đã chốt.
+
+**Facebook metadata beta delta12/10/2026:** exact2a4a206 prior lifecycle/intake acceptance retained separately; its URL-only sample was not selection-quality acceptance. Current parser fixes bounded readiness/preservation, author/date glyphs and semantic numeric post controls, excluding comments/decoys; explicit displayed day does not invent full timestamp. Native fixture/source diagnostics are distinct from Facebook real packaged acceptance. New exact-head CI/build and one bounded in-app metadata/selection/save/reopen comparison remain pending; independent review/release gates and stable deferrals unchanged.
+**Facebook beta resume12/10/2026:** exact8058dc2/CI38202637930 candidate demonstrated explicit URL-reference save, same-candidate duplicate preservation, normal close/reopen and connecting-worker cancellation with Chrome retained. Rich caption/metrics/hashtag quality, source-open and live-scan cancellation remain unaccepted. Default-budget discovery diagnosis found a non-actionable timestamp click timeout; scoped skip fix consumes the opening budget without fabricating content or weakening selection. New artifact validation is pending for that fix. Independent review/main/tag/release gates and the three stable deferrals remain unchanged.
+
+**Facebook research beta implementation12/10/2026:** topic/purpose/date/modes and local evidence rules; discovery separated from explicit selection/intake; immutable schema8 observations and save lineage; finite global4/40/20 budgets including sourced hashtag expansion. NULL/approximation/caption scope preserved. Hashtag labels apply to deduplicated sample with source URLs, known source IDs and observed interval; no growth/global-trend claim without comparable data. Focused source/migration validation passed; current pre-build browser diagnostics are not packaged acceptance. New required CI/artifact and real in-app save/reopen/dedup/Cancel still pending; release NOT ACCEPTED until actual gates. Stable deferrals unchanged.
+
 **Trạng thái 03/10/2026:** đang triển khai. Bảng này theo dõi việc thực hiện, không thay đổi luật trong [Data Architecture V1.1](Creator_Loop_Data_Architecture_V1_1.md), [CI/CD & Release Contract V1](Creator_Loop_CICD_Release_Contract_V1.md), [Layout Contract V1](Creator_Loop_Layout_Contract_V1.md), [Master Prompt V2](Codex_Master_Prompt_V2.md) hoặc [Gate 0 Decision Record](Creator_Loop_Gate_0_Decision_Record.md). Khi trạng thái Git, CI hoặc bản chạy đổi, cập nhật bằng chứng theo đúng commit/artifact.
 
 ## Mốc bắt buộc
@@ -95,3 +106,20 @@ Timeout cấp tiến trình và log đã có [runner Windows](../scripts/run_tes
 ## Quy tắc báo hoàn tất
 
 Chỉ báo **product hoàn tất** khi cả 24 dòng bắt buộc có phần triển khai, kiểm tra luồng sử dụng thực tế, CI required trên đúng commit, bản chạy/build cùng hướng dẫn, và toàn bộ release gate V1 đã được xác minh. Nếu thiếu, ghi **đang triển khai**, **bị chặn** hoặc **chờ nghiệm thu** với bằng chứng và bước tiếp theo. Một PR xanh hoặc một Gate đạt không thay thế điều kiện cuối.
+
+## Phân mốc beta và V1 ổn định
+
+Phạm vi beta theo [CI/CD contract mục4.1](Creator_Loop_CICD_Release_Contract_V1.md#41-gate-beta-riêng-v1-ổn-định-giữ-nguyên) chỉ áp dụng sau duyệt scope/channel và gate triển khai tương ứng. Tất cả24 ID ở trên vẫn là điều kiện **V1 ổn định**; bảng dưới không thay trạng thái/FAIL/SKIP/bằng chứng lịch sử và không tự ghi beta ACCEPT. Goal V1 chưa hoàn tất chỉ vì bàn giao launcher cá nhân hoặc public pre-release.
+
+| ID đã có | Điều kiện beta | Phần giữ cho V1 ổn định |
+|---|---|---|
+| 01/20/23 | Công bố host/measurement thực đã kiểm; component identity/source/license/preflight/native runtime đúng scope; giữ budget và lifecycle guards. | Chứng nhận8GB và thiếu RAM/đĩa thực, input dài/clean target/compatibility toàn phạm vi. |
+| 20/23 | ASR quality chưa ACCEPT; giữ RAW/MODEL lineage, HUMAN correction/review độc lập và công bố lỗi/giới hạn. | Chất lượng tiếng Việt đại diện và quyết định human quality. |
+| 16/17/18 | Approval/revoke/race, sealed Package, Post/Observation nội bộ và reopen phải kiểm trên artifact cuối. Chưa nghiệm thu vận hành ngoài app. | PUBLISHED/Observation thật có quyền, không giả external ID/time/metric hoặc human approval. |
+| 02–19/21/22/24 (ngoài đúng các phạm vi hoãn trên) | Invariants/permissions/storage, supported migrations, full basic flow, backup/restore, owned lifecycle, exact final artifact/guide/provenance và required CI/review không được bỏ. | Các tiêu chí cuối còn lại ở24 dòng vẫn phải đóng để công bố V1 ổn định. |
+
+Ledger beta phải ghim exact commit/main/tag/manifest/ZIP/run và ghi evidence còn thiếu; kiểm lại bytes đổi. Gate beta chưa được nghiệm thu ở checkpoint đề xuất. Không sửa status24 trước khi release thật tồn tại; không gán green CI của PR hoặc artifact dùng cá nhân cho tag/final bytes khác.
+
+### Beta Facebook local (user scope 11/10/2026)
+
+Required beta flow: keyword/default20 → real post/video/reel URL → Source and optional physical TEXT snapshot → reopen → rescan dedup → cancel/disconnect → normal close, on the exact final packaged artifact. URL-only creates no media file. Responsive progress/Stop/Open source, no credentials in Git/log/artifact, auth expiry/CAPTCHA stop and bounded retries are mandatory. User-approved11/10 continuation adds connection to the existing signed-in Facebook tab through Playwright1.63.0/CDP loopback after explicit Chrome permission. Select/verify the Facebook target before scan; do not manipulate unrelated tabs, launch a replacement profile, export cookies/tokens or close the user's Chrome/context/tab. Cancel/normal exit/crash clean only the owned worker/driver. The separate app-owned profile mode remains available with its existing containment/cleanup rules. No Meta API, scraping service or cloud. Status: IN PROGRESS / NOT ACCEPTED until native exact artifact evidence exists. Schema7 consistent pre-migration backup and retention are required. Three earlier stable deferrals were explicitly approved11/10; do not use them as beta blockers or mark them PASS. Required CI/review/main/tag/provenance remain.
