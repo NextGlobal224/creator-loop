@@ -6,6 +6,8 @@ import time
 from typing import Any, Callable
 from urllib.parse import quote
 
+from playwright.sync_api import TimeoutError as BrowserTimeoutError
+
 from creator_loop.facebook_browser import (
     EXTRACT,
     LAZY_TIMESTAMPS,
@@ -153,7 +155,17 @@ def discover(
                     previous = page.url
                     seen_lazy.add(lazy["href"])
                     details_used += 1
-                    element.click(timeout=5000)
+                    try:
+                        element.click(timeout=5000)
+                    except BrowserTimeoutError:
+                        # An unreadable placeholder is not a failed search. It
+                        # consumed a detail opening and must not be retried or
+                        # turned into a fabricated post/caption.
+                        guard()
+                        if page.url != previous:
+                            page.go_back(wait_until="domcontentloaded", timeout=15000)
+                            guard()
+                        break
                     page.wait_for_timeout(700)
                     guard()
                     actual = post_link(page.url)

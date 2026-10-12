@@ -2,8 +2,9 @@ import time
 import unittest
 from unittest.mock import Mock
 
-from creator_loop.facebook_browser import EXTRACT
+from creator_loop.facebook_browser import EXTRACT, LAZY_TIMESTAMPS
 from creator_loop.facebook_discovery import DETAIL, discover
+from playwright.sync_api import TimeoutError as BrowserTimeoutError
 from test_facebook_research import observation, settings
 
 
@@ -45,6 +46,63 @@ class Page:
 
 
 class DiscoveryTests(unittest.TestCase):
+    def lazy_timeout_page(self, on_click=None):
+        page = Page()
+        original_evaluate = page.evaluate
+        original_locator = page.locator
+        element = Mock()
+        element.evaluate.side_effect = lambda script: page.url
+
+        def click(**kwargs):
+            if on_click is not None:
+                on_click()
+            raise BrowserTimeoutError("Timestamp not actionable")
+
+        element.click.side_effect = click
+
+        def evaluate(script, argument=None):
+            if script == EXTRACT:
+                return [{"url": observation("12")["url"]}]
+            if script == LAZY_TIMESTAMPS:
+                return [{"index": 0, "href": page.url}]
+            return original_evaluate(script, argument)
+
+        page.evaluate = evaluate
+        page.locator = lambda selector: (
+            Mock(nth=Mock(return_value=element))
+            if selector == "a[href]"
+            else original_locator(selector)
+        )
+        return page, element
+
+    def test_unreadable_timestamp_keeps_results_and_consumes_budget_once(self):
+        page, element = self.lazy_timeout_page()
+        result = discover(
+            page,
+            settings(max_queries=1, max_candidates=40, max_details=3),
+            Mock(),
+            lambda: False,
+            time.monotonic() + 10,
+        )
+        self.assertEqual(result["status"], "SUCCEEDED")
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["details_used"], 2)
+        self.assertEqual(page.detail_reads, ["12"])
+        element.click.assert_called_once_with(timeout=5000)
+
+    def test_cancel_during_timestamp_timeout_is_not_swallowed(self):
+        cancelled = [False]
+        page, element = self.lazy_timeout_page(lambda: cancelled.__setitem__(0, True))
+        with self.assertRaises(InterruptedError):
+            discover(
+                page,
+                settings(max_queries=1, max_candidates=40, max_details=3),
+                Mock(),
+                lambda: cancelled[0],
+                time.monotonic() + 10,
+            )
+        element.click.assert_called_once()
+
     def test_candidate_detail_and_query_limits_apply_globally(self):
         page = Page()
         result = discover(
