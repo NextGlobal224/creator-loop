@@ -54,6 +54,66 @@ def observation(pid="12", **changes):
 
 
 class ResearchTests(unittest.TestCase):
+    def test_style_word_alone_is_not_a_guide_but_explicit_data_is_quoted(self):
+        style = candidate(
+            observation(excerpt="Python với phong cách mới"), "Python", settings()
+        )
+        self.assertFalse(style["assessment"]["analysis"])
+        data = candidate(
+            observation(excerpt="Python có mức giá 199K mỗi tháng"),
+            "Python",
+            settings(),
+        )
+        self.assertTrue(data["assessment"]["analysis"])
+        self.assertEqual(
+            data["assessment"]["reasons"],
+            ["Dữ kiện: có cụm “mức giá” trong phần đọc được"],
+        )
+        self.assertIn("199K", data["assessment"]["evidence"][0])
+
+    def test_displayed_date_filters_without_fabricating_midnight_or_relative_date(self):
+        params = settings(since="2025-10-10", until="2025-10-10")
+        item = candidate(
+            observation(published_at=None, published_label="10 tháng 10, 2025"),
+            "Python",
+            params,
+        )
+        self.assertEqual(item["assessment"]["state"], "QUALIFIED")
+        self.assertIsNone(item["published_at"])
+        self.assertIn("published_at", item["assessment"]["missing"])
+        for label in (
+            "2 giờ",
+            "10 tháng 10",
+            "31 tháng 2, 2025",
+            "10 tháng 10, 2025 và 11 tháng 10, 2025",
+        ):
+            item = candidate(
+                observation(published_at=None, published_label=label), "Python", params
+            )
+            self.assertIsNone(item["assessment"]["time_match"])
+
+    def test_observed_group_member_ids_count_same_publisher_across_groups(self):
+        first = candidate(
+            observation(
+                publisher_url="https://www.facebook.com/groups/12/user/10/?tracking=discard"
+            ),
+            "Python",
+            settings(),
+        )
+        second = candidate(
+            observation(
+                "13", publisher_url="https://www.facebook.com/groups/99/user/10/"
+            ),
+            "Python",
+            settings(),
+        )
+        self.assertEqual(
+            first["publisher_url"], "https://www.facebook.com/groups/12/user/10"
+        )
+        summary = hashtag_summary([first, second])[0]
+        self.assertEqual(summary["known_independent_sources"], 1)
+        self.assertEqual(summary["posts"], 2)
+
     def setUp(self):
         if os.name != "nt":
             owned_patch = patch(

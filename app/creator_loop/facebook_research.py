@@ -144,6 +144,28 @@ def metric(raw: Any) -> dict[str, Any] | None:
     }
 
 
+def displayed_post_date(label: Any) -> str | None:
+    """An explicit displayed calendar date is usable without inventing a time."""
+    if not isinstance(label, str):
+        return None
+    text = fold(label)
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text.strip()):
+        try:
+            return date.fromisoformat(text.strip()).isoformat()
+        except ValueError:
+            return None
+    matches = re.findall(
+        r"\b(\d{1,2})\s*thang\s*(\d{1,2})\s*[,\s]*(?:nam\s*)?(\d{4})\b", text
+    )
+    if len(matches) != 1:
+        return None
+    day, month, year = map(int, matches[0])
+    try:
+        return date(year, month, day).isoformat()
+    except ValueError:
+        return None
+
+
 def assess(item: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
     excerpt = item.get("excerpt") or ""
     tokens = set(re.findall(r"\w+", fold(re.sub(r"(?<!\w)#[\w]+", "", excerpt))))
@@ -157,7 +179,11 @@ def assess(item: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
     }
     topical = bool(topic) and topic <= tokens if excerpt else None
     published = item.get("published_at")
-    dated = published[:10] if published else None
+    dated = (
+        published[:10]
+        if published
+        else displayed_post_date(item.get("published_label"))
+    )
     in_time: bool | None = True
     if settings["since"] or settings["until"]:
         in_time = (
@@ -186,9 +212,17 @@ def assess(item: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
     )
     categories = {
         "Vấn đề": ("vấn đề", "rủi ro", "lỗi", "khó khăn", "tại sao"),
-        "Hướng dẫn": ("hướng dẫn", "bước", "cách", "mẹo"),
+        "Hướng dẫn": (
+            "hướng dẫn",
+            "từng bước",
+            "cách làm",
+            "cách chọn",
+            "cách dùng",
+            "cách kiểm tra",
+            "mẹo",
+        ),
         "Trải nghiệm": ("trải nghiệm", "kinh nghiệm", "tôi đã", "mình đã"),
-        "Dữ kiện": ("số liệu", "thống kê", "nghiên cứu"),
+        "Dữ kiện": ("số liệu", "thống kê", "nghiên cứu", "mức giá"),
         "Tình huống": ("tình huống", "ví dụ", "trường hợp"),
         "Trình bày": ("so sánh", "trước và sau", "minh họa", "checklist"),
     }
@@ -240,7 +274,7 @@ def assess(item: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
         "reasons": signals + reasons,
         "evidence": list(dict.fromkeys(evidence)),
         "missing": missing,
-        "method": "LOCAL_RULES_V1",
+        "method": "LOCAL_RULES_V1_1",
         "purpose": settings["purpose"],
     }
 
@@ -278,7 +312,7 @@ def candidate(
         )
         if (
             not re.fullmatch(
-                r"/(?:[A-Za-z0-9._-]+|groups/[0-9]+|pages/[^/]+/[0-9]+)",
+                r"/(?:[A-Za-z0-9._-]+|groups/[0-9]+(?:/user/[0-9]+)?|pages/[^/]+/[0-9]+)",
                 parsed.path.rstrip("/"),
             )
             or parsed.path in ("/search", "/watch", "/groups", "/reel", "/home.php")
@@ -541,6 +575,9 @@ def hashtag_summary(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if parsed.path == "/profile.php":
                 ids = parse_qs(parsed.query).get("id", [])
                 return ids[0] if len(ids) == 1 and ids[0].isdigit() else None
+            member = re.fullmatch(r"/groups/[0-9]+/user/([0-9]+)", parsed.path)
+            if member:
+                return member[1]
             match = re.fullmatch(r"/(?:groups|pages/[^/]+)/([0-9]+)", parsed.path)
             return match[1] if match else None
 

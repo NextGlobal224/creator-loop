@@ -4,7 +4,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from creator_loop.facebook_browser import EXTRACT, LAZY_TIMESTAMPS
-from creator_loop.facebook_discovery import DETAIL, discover
+from creator_loop.facebook_discovery import DETAIL, METRIC_SCROLL, discover, read_detail
+from creator_loop.facebook_research import validate_candidate
 from test_facebook_research import observation, settings
 
 
@@ -21,10 +22,12 @@ class Page:
         self.history = []
         self.mouse = Mock()
         self.detail_reads = []
+        self.scrolled = False
 
     def goto(self, url, **kwargs):
         self.history.append(self.url)
         self.url = url
+        self.scrolled = False
 
     def go_back(self, **kwargs):
         self.url = self.history.pop()
@@ -47,12 +50,62 @@ class Page:
                 for n in range(12, 18)
             ]
         if script == DETAIL:
-            self.detail_reads.append(argument)
+            if not self.scrolled:
+                self.detail_reads.append(argument)
             return observation(argument)
+        if script == METRIC_SCROLL:
+            self.scrolled = True
+            return True
         return []
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_detail_waits_for_late_caption_and_keeps_it_after_metric_scroll(self):
+        page = Page()
+        page.url = observation()["url"]
+        reads = [
+            {"url": page.url, "excerpt": None, "metrics": {}},
+            observation(published_label="10 tháng 10, 2025"),
+            {
+                "url": page.url,
+                "excerpt": None,
+                "metrics": {"likes": "Thích: 488 người"},
+            },
+        ]
+        original = page.evaluate
+        page.evaluate = lambda script, arg: (
+            reads.pop(0) if script == DETAIL else original(script, arg)
+        )
+        raw = read_detail(page, page.url, Mock())
+        self.assertEqual(raw["excerpt"], observation()["excerpt"])
+        self.assertEqual(raw["published_label"], "10 tháng 10, 2025")
+        self.assertEqual(raw["metrics"]["likes"], "Thích: 488 người")
+        self.assertEqual(reads, [])
+
+    def test_detail_wait_is_finite_and_does_not_copy_other_post(self):
+        page = Page()
+        page.url = observation()["url"]
+        page.evaluate = Mock(return_value=observation("99"))
+        raw = read_detail(page, page.url, Mock())
+        self.assertEqual(page.evaluate.call_count, 8)
+        self.assertNotIn("excerpt", raw)
+        self.assertEqual(raw["url"], observation()["url"])
+
+    def test_flat_rescan_does_not_erase_rich_caption_hashtags_or_metrics(self):
+        page = Page()
+        result = discover(
+            page,
+            settings(max_queries=1, max_details=6),
+            Mock(),
+            lambda: False,
+            time.monotonic() + 10,
+        )
+        for item in result["candidates"]:
+            validate_candidate(item, settings(max_queries=1, max_details=6))
+            self.assertTrue(item["excerpt"])
+            self.assertEqual(item["hashtags"], ["#Python"])
+            self.assertEqual(item["scope"], "VISIBLE_TEXT")
+
     def lazy_timeout_page(self, on_click=None):
         page = Page()
         original_evaluate = page.evaluate
