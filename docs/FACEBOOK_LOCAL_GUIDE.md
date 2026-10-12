@@ -4,6 +4,8 @@
 
 Với permalink có ID người đăng, nguồn phải khớp ID đó, không lấy link địa điểm bên cạnh làm tác giả. Một timestamp placeholder chỉ được giữ làm nhãn ngày khi nó là nhãn ngày duy nhất trong header của bài đã xác định; nhãn thiếu năm vẫn không suy ra năm hoặc timestamp.
 
+Link về cùng reel có thể là tên bản nhạc thay vì timestamp. App chỉ giữ nhãn ngày/thời gian nhận diện được từ header; tên nhạc, số tương tác hoặc nhãn khác không thành ngày đăng. Dạng ngày chưa hỗ trợ giữ Chưa rõ. Ngày tương đối hay thiếu năm được giữ làm nhãn, không tạo ngày/giờ cụ thể để lọc.
+
 Trong cùng cửa sổ tìm tư liệu, bài đã bỏ chọn vẫn được bỏ chọn sau Lưu hoặc chuyển lịch sử rồi quay lại. Bài vừa lưu được bỏ tick; app không tự chọn lại các bài còn lại mà bạn đã bỏ chọn. Khi mở cửa sổ mới, các ứng viên đủ căn cứ chưa lưu vẫn có mặc định chọn như trước; bạn review trước khi bấm Lưu.
 
 Nhập **chủ đề**, **mục đích**, khoảng **ngày đăng** tùy chọn và chế độ **Kết hợp** (mặc định), **Dấu hiệu viral** hoặc **Giá trị phân tích**. Không có chủ đề cố định. Bấm **Gợi ý truy vấn**, sửa từng dòng trước khi Quét; các cụm gợi ý không phải hashtag đã có nguồn. Nếu để trống truy vấn, app tạo gợi ý từ chủ đề/mục đích. Tổng budget mặc định: **4 truy vấn,40 ứng viên,20 lần mở chi tiết**, gồm cả mở timestamp và mở rộng hashtag; có thể điều chỉnh hữu hạn. Budget là trần, không phải số lượng app phải lấy đủ.

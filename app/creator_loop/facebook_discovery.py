@@ -71,13 +71,15 @@ DETAIL = (
  let published=null;
  if(dates.length===1){const d=dates[0];const iso=d.getAttribute('datetime');const seconds=d.getAttribute('data-utime');try{if(iso)published=new Date(iso).toISOString();else if(seconds&&/^\d+$/.test(seconds)&&Number(seconds)>0)published=new Date(Number(seconds)*1000).toISOString();}catch{}}
  const header=[...root.querySelectorAll('a[href]')].filter(a=>visible(a)&&(!message||(message.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_PRECEDING))&&(!a.closest('[role="article"]')||a.closest('[role="article"]')===message?.closest('[role="article"]')));
- const directTimestamp=header.find(a=>storyHref(a.href,id));
+ const dateLabel=a=>(a?.getAttribute('aria-label')||a?.getAttribute('title')||rendered(a)).trim();
+ const dated=label=>/^(?:(?:Thứ\s+(?:[2-7]|Hai|Ba|Tư|Năm|Sáu|Bảy)|Chủ\s+nhật),?\s+)?(?:\d{1,2}\s+tháng\s+\d{1,2}(?:\s*,?\s*\d{4})?(?:\s+lúc\s+\d{1,2}:\d{2})?|\d+\s+(?:phút|giờ|ngày|tuần|tháng|năm)(?:\s+trước)?|Vừa\s+xong|Hôm\s+qua(?:\s+lúc\s+\d{1,2}:\d{2})?|\d{4}-\d{2}-\d{2})$/iu.test(label);
+ const directTimestamp=header.find(a=>storyHref(a.href,id)&&dated(dateLabel(a)));
  const placeholderDates=header.filter(a=>{try{let u=new URL(a.href);return !postId(a.href)&&u.origin===location.origin&&u.pathname==='/permalink.php'&&/^(?:\d{1,2}\s+tháng\s+\d{1,2}(?:\s*,?\s*\d{4})?|\d{4}-\d{2}-\d{2})$/u.test(rendered(a));}catch{return false}});
  const timestamp=directTimestamp||(placeholderDates.length===1?placeholderDates[0]:null);
  const metrics={};
  const labels=metricNodes(root,message).filter(x=>visible(x.e));
  for(const [key,pattern] of Object.entries(patterns)){let matches=labels.map(l=>({match:l.label.match(pattern),priority:l.priority})).filter(x=>x.match),priority=Math.max(0,...matches.map(x=>x.priority)),found=matches.filter(x=>x.priority===priority).map(x=>x.match),counts=[...new Set(found.map(m=>(m[1]||m[2]).replace(/\s+/g,'').toLowerCase()))];if(counts.length===1)metrics[key]=found[0][0];}
- return {url:location.href,excerpt:(visible(message)?text(message):'').slice(0,8192)||null,scope:root.querySelector('video')?'CAPTION_ONLY':'VISIBLE_TEXT',publisher,publisher_url:publisherAnchor?.href||null,published_at:published,published_label:(timestamp?.getAttribute('aria-label')||timestamp?.getAttribute('title')||rendered(timestamp)).slice(0,200)||null,metrics};
+ return {url:location.href,excerpt:(visible(message)?text(message):'').slice(0,8192)||null,scope:root.querySelector('video')?'CAPTION_ONLY':'VISIBLE_TEXT',publisher,publisher_url:publisherAnchor?.href||null,published_at:published,published_label:dateLabel(timestamp).slice(0,200)||null,metrics};
 }"""
 )
 

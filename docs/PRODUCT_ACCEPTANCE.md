@@ -1,5 +1,7 @@
 # Ma trận nghiệm thu Creator Loop V1
 
+**Date-label delta12/10/2026:** real047 scan exposed reel music title mislabeled as published_label; not date acceptance. Recognize actual date/relative-time labels on same-ID header links; unsupported/music labels remainNULL. Newexactartifact QA pending; no inferredyear/timezone, selection rules unchanged. Previous artifact results remain separate.
+
 **Selection reload delta12/10/2026:** real ee7e metadata/hashtags comparison succeeded, but save reloaded a previously unchecked unsaved qualified candidate as checked and next save imported it; clean duplicate QA not accepted. Preserve session choices by candidateID across reload/history, clear saved rows, no schema change. RealQt regression scoped PASS; requiredCI/newexactartifact intake/cancel/reopen pending. Keep ee7e/20b4 proofs separate.
 
 **Metadata permalink12/10/2026:** sửa sau95aa ưu tiên numeric authorID khớp permalink và một nhãn ngày placeholder duy nhất trong exactpost header; không suy năm/giờ hoặc lấy địa điểm làm nguồn. Scoped/native fixture và exactartifact QA mới đang chờ, không dùng kết quả20b4 nghiệm thu bytes mới. Review độc lập/release còn chưa đạt; stable deferrals giữ theo phạm vi đã chốt.
