@@ -1,9 +1,11 @@
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
+from unittest.mock import patch
 
 from creator_loop.database import _connect_write, initialize, validate
 from creator_loop.facebook_research import (
@@ -18,6 +20,7 @@ from creator_loop.facebook_research import (
     suggested_queries,
 )
 from creator_loop.facebook_sources import save_capture
+from test_text_intake import _NonWindowsOwnedFile
 
 
 def settings(**changes):
@@ -51,6 +54,14 @@ def observation(pid="12", **changes):
 
 
 class ResearchTests(unittest.TestCase):
+    def setUp(self):
+        if os.name != "nt":
+            owned_patch = patch(
+                "creator_loop.text_intake.OwnedWindowsFile", _NonWindowsOwnedFile
+            )
+            owned_patch.start()
+            self.addCleanup(owned_patch.stop)
+
     def test_unknown_zero_compact_numbers_and_viral_without_rank_or_reel(self):
         self.assertIsNone(metric(None))
         self.assertEqual(metric("0 bình luận")["value"], 0)
