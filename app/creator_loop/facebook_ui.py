@@ -448,6 +448,7 @@ class FacebookDialog(QDialog):
         self.verified_target: str | None = None
         self.current_search: str | None = None
         self.candidate_rows: list[dict[str, Any]] = []
+        self._candidate_choices: dict[str, bool] = {}
         self._candidate_url: str | None = None
         self.setWindowTitle("Tư liệu Facebook — trình duyệt local riêng")
         self.resize(1250, 900)
@@ -752,6 +753,14 @@ class FacebookDialog(QDialog):
         self.reload_candidates(candidates(self.root))
 
     def reload_candidates(self, observations: list[dict[str, Any]]) -> None:
+        choices = self._candidate_choices
+        for i, previous in enumerate(self.candidate_rows):
+            pick = self.candidate_table.item(i, 0)
+            if pick is not None:
+                choices[previous["candidate_id"]] = (
+                    pick.checkState() == Qt.CheckState.Checked
+                )
+        self._candidate_choices = choices
         self.candidate_rows = [
             r for r in observations if r["search_id"] == self.current_search
         ]
@@ -762,6 +771,10 @@ class FacebookDialog(QDialog):
             "REJECTED": "Không đạt quy tắc",
         }
         for i, row in enumerate(self.candidate_rows):
+            checked = not row["saved"] and choices.get(
+                row["candidate_id"], row["assessment"]["state"] == "QUALIFIED"
+            )
+            choices[row["candidate_id"]] = checked
             pick = QTableWidgetItem()
             pick.setFlags(
                 Qt.ItemFlag.ItemIsEnabled
@@ -769,9 +782,7 @@ class FacebookDialog(QDialog):
                 | Qt.ItemFlag.ItemIsSelectable
             )
             pick.setCheckState(
-                Qt.CheckState.Checked
-                if row["assessment"]["state"] == "QUALIFIED" and not row["saved"]
-                else Qt.CheckState.Unchecked
+                Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
             )
             self.candidate_table.setItem(i, 0, pick)
             metrics = "; ".join(

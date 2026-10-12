@@ -5,11 +5,61 @@ import unittest
 from pathlib import Path
 
 from creator_loop.database import initialize
+from creator_loop.facebook_research import candidate
 from creator_loop.facebook_ui import FacebookDialog
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QPushButton
+from test_facebook_research import observation, settings
 
 
 class FacebookUiTests(unittest.TestCase):
+    def test_unchecked_candidate_stays_unchecked_after_save_and_history_reload(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            initialize(root / "creator_loop.sqlite3")
+            dialog = FacebookDialog(root)
+            try:
+                rows = [
+                    {
+                        **candidate(observation(str(n)), "Python", settings()),
+                        "candidate_id": str(n),
+                        "search_id": "search-a",
+                        "saved": False,
+                    }
+                    for n in (12, 13)
+                ]
+                dialog.current_search = "search-a"
+                dialog.reload_candidates(rows)
+                self.assertEqual(
+                    dialog.candidate_table.item(0, 0).checkState(),
+                    Qt.CheckState.Checked,
+                )
+                dialog.candidate_table.item(1, 0).setCheckState(Qt.CheckState.Unchecked)
+                rows[0]["saved"] = True
+                dialog.reload_candidates(rows)
+                self.assertEqual(
+                    dialog.candidate_table.item(0, 0).checkState(),
+                    Qt.CheckState.Unchecked,
+                )
+                self.assertEqual(
+                    dialog.candidate_table.item(1, 0).checkState(),
+                    Qt.CheckState.Unchecked,
+                )
+                dialog.current_search = "search-b"
+                dialog.reload_candidates(rows)
+                dialog.current_search = "search-a"
+                dialog.reload_candidates(rows)
+                self.assertEqual(
+                    dialog.candidate_table.item(1, 0).checkState(),
+                    Qt.CheckState.Unchecked,
+                )
+                self.assertTrue(rows[0]["saved"])
+                self.assertFalse(rows[1]["saved"])
+            finally:
+                dialog.close()
+                dialog.deleteLater()
+                self.app.processEvents()
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
