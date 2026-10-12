@@ -1,5 +1,11 @@
 # Bàn giao hiện tại — Creator Loop V1
 
+## Facebook research beta —12/10/2026
+
+User requested topic/purpose/date/mode criteria, actual caption/metric/hashtag provenance and explicit selection before intake. Existing CDP worker/intake retained; schema8 adds immutable searches/candidate observations/selection events with matching Source identity, consistent migration backup and no changes to Source first capture/Original/Evidence/review/publication invariants. Default4queries/40candidates/20detail openings is global including hashtag expansion; rules are literal/local and transparent. Missing is null/Chưa rõ, compact counts approximate, video caption scope explicit. Hashtag counts deduplicate posts; independent known IDs are conservative, unknown aliases stay unknown; growth remains unconfirmed without comparable windows. No default topic and no automatic import of all discovery results. Existing Sources retain their original provenance.
+
+Changed-file static checks pass; focused Facebook39 and bootstrap/migration checks pass with bounded process logs, including schema7→8 consistent backup and canceled/tampered selection. Real pre-build diagnostics confirmed the current Facebook session after automatically invoking the observed native Chrome consent under explicit user preauthorization. A reel initially lacked bound caption; exact-route/unique actually visible nested-dialog caption handling now reads its caption without background text. These diagnostics did not import links or count as app acceptance. Original failure/fixture logs preserved. Required CI/new exact packaged real bounded scan/select/save/reopen/dedup/live Cancel still required; independent GitHub review/main/tag/final release gates remain. Stable8GB RAM/disk, representativeVI quality and PUBLISHED→Observation remain unaccepted/nonblocking beta. No token/cookie export or Meta API.
+
 ## Facebook connection permission budget — 12/10/2026
 
 Validation: focused CDP9 PASS; changed-file Ruff lint/format and mypy PASS; workflow policy PASS; native SOURCE Qt/CDP Stop and dialog-close fixture PASS with the same external browser alive and unrelated fixture tab unchanged. Source evidence remains separate from final packaged Facebook acceptance. Observer column-name failure retained and corrected without touching application data.

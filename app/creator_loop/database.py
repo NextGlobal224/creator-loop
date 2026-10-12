@@ -17,6 +17,7 @@ MIGRATIONS = (
     "0005_publication_snapshot_guards",
     "0006_observation_metric_validation",
     "0007_source_captures",
+    "0008_facebook_research",
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 

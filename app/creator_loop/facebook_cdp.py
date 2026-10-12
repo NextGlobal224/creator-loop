@@ -155,8 +155,12 @@ def attached_operation(
         if problem := session_problem(page):
             raise SessionRequired(problem)
         return {"status": "OPENED_KEEP_BROWSER", "count": 0}
-    if mode != "scan" or target != request.get("target_id"):
+    if mode not in ("scan", "discover") or target != request.get("target_id"):
         raise ConnectionRequired()
+    if mode == "discover":
+        from creator_loop.facebook_discovery import discover
+
+        return discover(page, request["criteria"], emit, cancelled, deadline)
     links = collect(
         page,
         request["keyword"],

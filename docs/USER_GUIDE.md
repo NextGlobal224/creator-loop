@@ -200,4 +200,4 @@ từ `main` sau required CI/tag gate.
 
 ## Facebook beta
 
-Dùng **Tư liệu Facebook → Chrome đang mở → Kết nối Chrome đang mở** để dùng tab Facebook đã đăng nhập; Chrome hỏi Allow qua DevTools local. Giới hạn20, Dừng, Mở nguồn và dedup không tải media hay tự duyệt Evidence. Dừng/Hủy giữ Chrome và phiên của bạn mở. Có thể chọn **Trình duyệt riêng** nếu muốn profile của app. Xem [hướng dẫn Facebook](FACEBOOK_LOCAL_GUIDE.md).
+Dùng **Tư liệu Facebook → Chrome đang mở → Kết nối Chrome đang mở** với tab đã đăng nhập. Nhập chủ đề/mục đích/ngày đăng, chọn Kết hợp/Viral/Phân tích và sửa truy vấn. Budget mặc định4truy vấn/40ứng viên/20chi tiết. Quét ra ứng viên; chọn rồi **Lưu đã chọn**, xem lý do và Chưa rõ, mở nguồn/lịch sử/chống trùng. Hashtag có nguồn chỉ mô tả mẫu, chưa chứng minh tăng quan tâm toàn Facebook. Dừng/Hủy giữ Chrome và phiên mở; không tải media hoặc tự duyệt Evidence. Xem [hướng dẫn Facebook](FACEBOOK_LOCAL_GUIDE.md).

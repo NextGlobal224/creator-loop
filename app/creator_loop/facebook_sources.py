@@ -108,6 +108,9 @@ def save_capture(
     url: str,
     excerpt: str | None,
     publisher: str | None = None,
+    published_at: str | None = None,
+    observed_at: str | None = None,
+    on_saved: Callable[[sqlite3.Connection, str], None] | None = None,
     cancelled: Callable[[], bool] = lambda: False,
 ) -> tuple[str, bool]:
     if cancelled():
@@ -120,6 +123,9 @@ def save_capture(
     excerpt = excerpt or None
     source_id = uuid4().hex
     now = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    captured = observed_at or now
+    if observed_at is not None:
+        datetime.fromisoformat(observed_at)
 
     def existing(db: sqlite3.Connection) -> str | None:
         row = db.execute(
@@ -154,8 +160,8 @@ def save_capture(
                     link.url,
                     link.external_id,
                     (publisher or "").strip()[:200] or None,
-                    None,
-                    now,
+                    published_at,
+                    captured,
                     "UNKNOWN",
                     now,
                 )
@@ -170,8 +176,16 @@ def save_capture(
             )
         db.execute(
             "INSERT INTO source_captures VALUES (?,?,?,?,?)",
-            (source_id, keyword, now, excerpt, imported.file_id if imported else None),
+            (
+                source_id,
+                keyword,
+                captured,
+                excerpt,
+                imported.file_id if imported else None,
+            ),
         )
+        if on_saved is not None:
+            on_saved(db, source_id)
 
     temp: Path | None = None
     try:
@@ -183,7 +197,7 @@ def save_capture(
                 + "\nKeyword: "
                 + keyword
                 + "\nCaptured UTC: "
-                + now
+                + captured
                 + "\n\n"
                 + excerpt
                 + "\n"

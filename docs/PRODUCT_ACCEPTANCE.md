@@ -1,5 +1,7 @@
 # Ma trận nghiệm thu Creator Loop V1
 
+**Facebook research beta implementation12/10/2026:** topic/purpose/date/modes and local evidence rules; discovery separated from explicit selection/intake; immutable schema8 observations and save lineage; finite global4/40/20 budgets including sourced hashtag expansion. NULL/approximation/caption scope preserved. Hashtag labels apply to deduplicated sample with source URLs, known source IDs and observed interval; no growth/global-trend claim without comparable data. Focused source/migration validation passed; current pre-build browser diagnostics are not packaged acceptance. New required CI/artifact and real in-app save/reopen/dedup/Cancel still pending; release NOT ACCEPTED until actual gates. Stable deferrals unchanged.
+
 **Trạng thái 03/10/2026:** đang triển khai. Bảng này theo dõi việc thực hiện, không thay đổi luật trong [Data Architecture V1.1](Creator_Loop_Data_Architecture_V1_1.md), [CI/CD & Release Contract V1](Creator_Loop_CICD_Release_Contract_V1.md), [Layout Contract V1](Creator_Loop_Layout_Contract_V1.md), [Master Prompt V2](Codex_Master_Prompt_V2.md) hoặc [Gate 0 Decision Record](Creator_Loop_Gate_0_Decision_Record.md). Khi trạng thái Git, CI hoặc bản chạy đổi, cập nhật bằng chứng theo đúng commit/artifact.
 
 ## Mốc bắt buộc

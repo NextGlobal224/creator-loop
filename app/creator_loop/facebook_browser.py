@@ -291,6 +291,7 @@ def _request(path: Path, held: ExitStack) -> tuple[dict[str, Any], Path, Path | 
     request = held.enter_context(RuntimeHandle(path, read_only=True)).read_json(
         reject_duplicates=True
     )
+    research = request.pop("criteria", None)
     if (
         set(request)
         not in (
@@ -308,7 +309,7 @@ def _request(path: Path, held: ExitStack) -> tuple[dict[str, Any], Path, Path | 
         )
         or type(request.get("format")) is not int
         or request.get("format") != 1
-        or request.get("mode") not in ("scan", "login", "open", "connect")
+        or request.get("mode") not in ("scan", "discover", "login", "open", "connect")
         or not isinstance(request.get("keyword"), str)
         or len(request["keyword"]) > 200
         or (request["mode"] == "scan" and not request["keyword"].strip())
@@ -317,6 +318,14 @@ def _request(path: Path, held: ExitStack) -> tuple[dict[str, Any], Path, Path | 
         or request.get("run_id") != run_id
     ):
         raise ValueError("Invalid browser operation")
+    if request["mode"] == "discover":
+        from creator_loop.facebook_research import criteria
+
+        request["criteria"] = criteria(research)
+        if request["limit"] != request["criteria"]["max_candidates"]:
+            raise ValueError("Candidate budget mismatch")
+    elif research is not None:
+        raise ValueError("Unexpected research criteria")
     transport = request.get("transport", "private")
     if transport not in ("private", "existing"):
         raise ValueError("Invalid browser transport")
@@ -334,7 +343,7 @@ def _request(path: Path, held: ExitStack) -> tuple[dict[str, Any], Path, Path | 
                 target is not None
                 and (not isinstance(target, str) or not TARGET_ID.fullmatch(target))
             )
-            or (request["mode"] in ("scan", "open") and target is None)
+            or (request["mode"] in ("scan", "discover", "open") and target is None)
         ):
             raise ValueError("Explicit existing Facebook tab required")
         return request, workspace, None
@@ -363,7 +372,9 @@ def _run_browser_task(path: Path, held: ExitStack) -> int:
 
     mode = request["mode"]
     timeout = (
-        SCAN_SECONDS
+        600
+        if mode == "discover"
+        else SCAN_SECONDS
         if mode == "scan"
         else LOGIN_SECONDS
         if mode in ("login", "connect")
@@ -401,7 +412,14 @@ def _run_browser_task(path: Path, held: ExitStack) -> int:
             )
             try:
                 page = context.pages[0] if context.pages else context.new_page()
-                if mode == "scan":
+                if mode == "discover":
+                    from creator_loop.facebook_discovery import discover
+
+                    final = discover(
+                        page, request["criteria"], emit, cancelled, deadline
+                    )
+                    emit(final)
+                elif mode == "scan":
                     links = collect(
                         page,
                         request["keyword"],

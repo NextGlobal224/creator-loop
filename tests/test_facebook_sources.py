@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from creator_loop.database import (
     MIGRATIONS,
+    SCHEMA_VERSION,
     _connect_write,
     _execute_migration,
     _migration_sql,
@@ -228,7 +229,7 @@ class FacebookSourcesTests(unittest.TestCase):
             self.assertEqual(
                 db.execute("SELECT count(*) FROM source_captures").fetchone()[0], 0
             )
-        backups = list(self.root.glob("old.sqlite3.pre-v7-*.sqlite3"))
+        backups = list(self.root.glob(f"old.sqlite3.pre-v{SCHEMA_VERSION}-*.sqlite3"))
         self.assertEqual(len(backups), 1)
         with closing(_connect_write(backups[0])) as db:
             validate(db, expected_version=6)
