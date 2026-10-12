@@ -78,7 +78,27 @@ class ResearchTests(unittest.TestCase):
         )
         self.assertTrue(correct["assessment"]["topical"])
         self.assertEqual(research_counts([correct])["viral"], 1)
-        self.assertEqual(correct["assessment"]["method"], "LOCAL_RULES_V1_2")
+        self.assertEqual(correct["assessment"]["method"], "LOCAL_RULES_V1_3")
+
+    def test_topic_phrases_reject_scattered_words_in_unrelated_job_post(self):
+        params = settings(mode="VIRAL", topic="nhận thức đúng về sự thật")
+        raw = observation(
+            excerpt="Nhận lương trong bệnh viện, kiến thức chuyên môn. Công việc đúng mong muốn. Có sự may mắn, thật chân thành.",
+            metrics={"shares": "295 shares"},
+        )
+        item = candidate(raw, "nhận thức", params)
+        self.assertTrue(item["assessment"]["viral"])
+        self.assertFalse(item["assessment"]["topical"])
+        self.assertEqual(research_counts([item])["viral"], 0)
+        matched = candidate(
+            observation(
+                excerpt="Nhận thức đúng cần kiểm chứng thông tin. Không né tránh sự thật.",
+                metrics={"shares": "100 shares"},
+            ),
+            "nhận thức",
+            params,
+        )
+        self.assertEqual(matched["assessment"]["state"], "QUALIFIED")
 
     def test_viral_requires_observed_threshold_and_topic_not_analysis(self):
         params = settings(mode="VIRAL")

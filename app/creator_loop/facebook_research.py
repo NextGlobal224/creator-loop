@@ -191,25 +191,26 @@ def assess(item: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
     excerpt = item.get("excerpt") or ""
     # Vietnamese accents distinguish words (nhận/nhân, đúng/đứng/dùng).
     # Accent folding here turned unrelated long captions into topic matches.
-    tokens = set(
-        re.findall(
-            r"\w+",
-            unicodedata.normalize(
-                "NFC", re.sub(r"(?<!\w)#[\w]+", "", excerpt)
-            ).casefold(),
-        )
+    text = " ".join(
+        unicodedata.normalize("NFC", re.sub(r"(?<!\w)#[\w]+", "", excerpt))
+        .casefold()
+        .split()
     )
-    topic = set(
-        re.findall(r"\w+", unicodedata.normalize("NFC", settings["topic"]).casefold())
-    ) - {
-        "về",
-        "và",
-        "các",
-        "của",
-        "ở",
-        "tại",
-    }
-    topical = bool(topic) and topic <= tokens if excerpt else None
+    topic = " ".join(unicodedata.normalize("NFC", settings["topic"]).casefold().split())
+    phrases = [
+        p.strip() for p in re.split(r"\b(?:về|và|các|của|ở|tại)\b", topic) if p.strip()
+    ]
+    # Adjacent phrases prevent an unrelated caption matching scattered words
+    # such as nhận lương / kiến thức / công việc đúng / sự may mắn / thật thà.
+    topical = (
+        bool(phrases)
+        and all(
+            re.search(r"(?<!\w)" + re.escape(p) + r"(?!\w)", text) is not None
+            for p in phrases
+        )
+        if excerpt
+        else None
+    )
     published = item.get("published_at")
     dated = (
         published[:10]
@@ -306,7 +307,7 @@ def assess(item: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
         "reasons": signals + reasons,
         "evidence": list(dict.fromkeys(evidence)),
         "missing": missing,
-        "method": "LOCAL_RULES_V1_2",
+        "method": "LOCAL_RULES_V1_3",
         "purpose": settings["purpose"],
     }
 

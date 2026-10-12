@@ -13,6 +13,46 @@ from test_facebook_research import observation, settings
 
 
 class FacebookUiTests(unittest.TestCase):
+    def test_historical_assessment_is_preserved_but_not_counted_as_current_viral(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            initialize(root / "creator_loop.sqlite3")
+            dialog = FacebookDialog(root)
+            try:
+                params = settings(mode="VIRAL", topic="nhận thức đúng về sự thật")
+                item = candidate(
+                    observation(
+                        excerpt="Nhận lương, kiến thức chuyên môn, công việc đúng và sự thật thà.",
+                        metrics={"shares": "295 shares"},
+                    ),
+                    "nhận thức",
+                    params,
+                )
+                old = {
+                    **item["assessment"],
+                    "topical": True,
+                    "state": "QUALIFIED",
+                    "method": "LOCAL_RULES_V1_2",
+                }
+                row = {
+                    **item,
+                    "assessment": old,
+                    "criteria": params,
+                    "candidate_id": "legacy",
+                    "search_id": "legacy-search",
+                    "saved": False,
+                }
+                dialog.current_search = "legacy-search"
+                dialog.reload_candidates([row])
+                self.assertIn("Đạt viral 0", dialog.counts_label.text())
+                self.assertEqual(dialog.candidate_rows[0]["assessment_stored"], old)
+                self.assertFalse(dialog.candidate_rows[0]["assessment"]["topical"])
+                self.assertEqual(row["assessment"], old)
+            finally:
+                dialog.close()
+                dialog.deleteLater()
+                self.app.processEvents()
+
     def test_viral_counts_separate_analysis_and_wait_for_explicit_selection(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

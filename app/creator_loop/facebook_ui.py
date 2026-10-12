@@ -36,6 +36,7 @@ from creator_loop.facebook_research import (
     DEFAULT_THRESHOLDS,
     MAX_SCAN_BUDGETS,
     METRICS,
+    assess,
     candidates,
     criteria,
     hashtag_summary,
@@ -805,7 +806,13 @@ class FacebookDialog(QDialog):
                 )
         self._candidate_choices = choices
         self.candidate_rows = [
-            r for r in observations if r["search_id"] == self.current_search
+            {
+                **r,
+                "assessment_stored": r["assessment"],
+                "assessment": assess(r, r["criteria"]),
+            }
+            for r in observations
+            if r["search_id"] == self.current_search
         ]
         self.candidate_table.setRowCount(len(self.candidate_rows))
         states = {
