@@ -61,15 +61,19 @@ DETAIL = (
  if(!root)return {url:location.href,excerpt:null,metrics:{}};
  if(!message&&root.getAttribute('role')==='article'){const texts=[...root.querySelectorAll('[dir="auto"]')].filter(e=>visible(e)&&e.closest('[role="article"]')===root&&!e.closest('h2,h3,button,[role="button"],[role="textbox"],a')&&!e.querySelector('h2,h3,button,[role="button"],input,textarea')&&text(e).length>=20);const longest=texts.sort((a,b)=>text(b).length-text(a).length)[0];if(longest&&texts.every(e=>text(longest).includes(text(e))))message=longest;}
  const owner=location.pathname.match(/^\/([^/]+)\/posts\//)?.[1];
+ const ownerId=location.pathname==='/permalink.php'?new URL(location.href).searchParams.get('id'):null;
  const authorLinks=[...root.querySelectorAll('a[href]')].filter(a=>visible(a)&&!postId(a.href)&&(!message||(message.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_PRECEDING))).filter(a=>{try{let u=new URL(a.href);return ['facebook.com','www.facebook.com','web.facebook.com','m.facebook.com'].includes(u.hostname)&&(/^\/(?:[A-Za-z0-9._-]+|pages\/[^/]+\/\d+|groups\/\d+\/user\/\d+)\/?$/.test(u.pathname))&&!/^\/(?:groups|search|hashtag|watch|reel|photo|home.php)\/?$/.test(u.pathname)&&(u.pathname!=='/profile.php'||/^\d+$/.test(u.searchParams.get('id')||''));}catch{return false}});
- const preferred=owner?authorLinks.filter(a=>new URL(a.href).pathname.replace(/\/$/,'')==='/'+owner):authorLinks;
+ const preferred=owner?authorLinks.filter(a=>new URL(a.href).pathname.replace(/\/$/,'')==='/'+owner):/^\d+$/.test(ownerId||'')?authorLinks.filter(a=>{let u=new URL(a.href);return u.pathname==='/profile.php'&&u.searchParams.get('id')===ownerId;}):authorLinks;
  const authorPaths=[...new Set(preferred.map(a=>new URL(a.href).pathname+((new URL(a.href)).searchParams.get('id')?'?id='+new URL(a.href).searchParams.get('id'):'')))];
  const publisherAnchor=authorPaths.length===1?preferred.find(a=>text(a)&&!a.getAttribute('aria-label'))||preferred[0]:null;
  const publisher=publisherAnchor?(publisherAnchor.getAttribute('aria-label')||text(publisherAnchor)).slice(0,200):null;
  const dates=[...root.querySelectorAll('time[datetime],[data-utime]')].filter(e=>visible(e)&&(root.getAttribute('role')!=='article'||e.closest('[role="article"]')===root));
  let published=null;
  if(dates.length===1){const d=dates[0];const iso=d.getAttribute('datetime');const seconds=d.getAttribute('data-utime');try{if(iso)published=new Date(iso).toISOString();else if(seconds&&/^\d+$/.test(seconds)&&Number(seconds)>0)published=new Date(Number(seconds)*1000).toISOString();}catch{}}
- const timestamp=[...root.querySelectorAll('a[href]')].find(a=>storyHref(a.href,id)&&(!a.closest('[role="article"]')||a.closest('[role="article"]')===message?.closest('[role="article"]')));
+ const header=[...root.querySelectorAll('a[href]')].filter(a=>visible(a)&&(!message||(message.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_PRECEDING))&&(!a.closest('[role="article"]')||a.closest('[role="article"]')===message?.closest('[role="article"]')));
+ const directTimestamp=header.find(a=>storyHref(a.href,id));
+ const placeholderDates=header.filter(a=>{try{let u=new URL(a.href);return !postId(a.href)&&u.origin===location.origin&&u.pathname==='/permalink.php'&&/^(?:\d{1,2}\s+tháng\s+\d{1,2}(?:\s*,?\s*\d{4})?|\d{4}-\d{2}-\d{2})$/u.test(rendered(a));}catch{return false}});
+ const timestamp=directTimestamp||(placeholderDates.length===1?placeholderDates[0]:null);
  const metrics={};
  const labels=metricNodes(root,message).filter(x=>visible(x.e));
  for(const [key,pattern] of Object.entries(patterns)){let matches=labels.map(l=>({match:l.label.match(pattern),priority:l.priority})).filter(x=>x.match),priority=Math.max(0,...matches.map(x=>x.priority)),found=matches.filter(x=>x.priority===priority).map(x=>x.match),counts=[...new Set(found.map(m=>(m[1]||m[2]).replace(/\s+/g,'').toLowerCase()))];if(counts.length===1)metrics[key]=found[0][0];}

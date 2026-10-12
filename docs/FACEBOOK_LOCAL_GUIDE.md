@@ -2,6 +2,8 @@
 
 ## Beta tìm và chọn tư liệu
 
+Với permalink có ID người đăng, nguồn phải khớp ID đó, không lấy link địa điểm bên cạnh làm tác giả. Một timestamp placeholder chỉ được giữ làm nhãn ngày khi nó là nhãn ngày duy nhất trong header của bài đã xác định; nhãn thiếu năm vẫn không suy ra năm hoặc timestamp.
+
 Nhập **chủ đề**, **mục đích**, khoảng **ngày đăng** tùy chọn và chế độ **Kết hợp** (mặc định), **Dấu hiệu viral** hoặc **Giá trị phân tích**. Không có chủ đề cố định. Bấm **Gợi ý truy vấn**, sửa từng dòng trước khi Quét; các cụm gợi ý không phải hashtag đã có nguồn. Nếu để trống truy vấn, app tạo gợi ý từ chủ đề/mục đích. Tổng budget mặc định: **4 truy vấn,40 ứng viên,20 lần mở chi tiết**, gồm cả mở timestamp và mở rộng hashtag; có thể điều chỉnh hữu hạn. Budget là trần, không phải số lượng app phải lấy đủ.
 
 Quét chỉ lưu **lịch sử và ứng viên**, không tự nhập mọi kết quả thành Source. Mặc định chọn những ứng viên khớp từ của chủ đề trong phần text đọc được VÀ có dấu hiệu viral HOẶC căn cứ phân tích theo chế độ. Hashtag riêng lẻ không chứng minh nội dung đúng chủ đề. Viral chỉ dựa số thích/bình luận/chia sẻ/lượt xem nhìn thấy gắn với chính bài; ngưỡng mặc định1000/100/100/10000, có thể sửa. Thứ hạng, URL reel và #viral không phải bằng chứng. Số rút gọn giữ raw và nhãn xấp xỉ; thiếu dữ liệu là **Chưa rõ**, khác số0 thực đọc được.
