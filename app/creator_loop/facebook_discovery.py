@@ -6,8 +6,6 @@ import time
 from typing import Any, Callable
 from urllib.parse import quote
 
-from playwright.sync_api import TimeoutError as BrowserTimeoutError
-
 from creator_loop.facebook_browser import (
     EXTRACT,
     LAZY_TIMESTAMPS,
@@ -157,7 +155,15 @@ def discover(
                     details_used += 1
                     try:
                         element.click(timeout=5000)
-                    except BrowserTimeoutError:
+                    except Exception as error:
+                        # Keep the optional browser SDK out of module imports,
+                        # as in the existing worker. Only its timeout is skipped.
+                        from playwright.sync_api import (
+                            TimeoutError as BrowserTimeoutError,
+                        )
+
+                        if not isinstance(error, BrowserTimeoutError):
+                            raise
                         # An unreadable placeholder is not a failed search. It
                         # consumed a detail opening and must not be retried or
                         # turned into a fabricated post/caption.

@@ -1,11 +1,18 @@
 import time
 import unittest
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from creator_loop.facebook_browser import EXTRACT, LAZY_TIMESTAMPS
 from creator_loop.facebook_discovery import DETAIL, discover
-from playwright.sync_api import TimeoutError as BrowserTimeoutError
 from test_facebook_research import observation, settings
+
+
+class BrowserTimeoutError(Exception):
+    pass
+
+
+TIMEOUT_SDK = {"playwright.sync_api": SimpleNamespace(TimeoutError=BrowserTimeoutError)}
 
 
 class Page:
@@ -77,13 +84,14 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_unreadable_timestamp_keeps_results_and_consumes_budget_once(self):
         page, element = self.lazy_timeout_page()
-        result = discover(
-            page,
-            settings(max_queries=1, max_candidates=40, max_details=3),
-            Mock(),
-            lambda: False,
-            time.monotonic() + 10,
-        )
+        with patch.dict("sys.modules", TIMEOUT_SDK):
+            result = discover(
+                page,
+                settings(max_queries=1, max_candidates=40, max_details=3),
+                Mock(),
+                lambda: False,
+                time.monotonic() + 10,
+            )
         self.assertEqual(result["status"], "SUCCEEDED")
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["details_used"], 2)
@@ -93,7 +101,10 @@ class DiscoveryTests(unittest.TestCase):
     def test_cancel_during_timestamp_timeout_is_not_swallowed(self):
         cancelled = [False]
         page, element = self.lazy_timeout_page(lambda: cancelled.__setitem__(0, True))
-        with self.assertRaises(InterruptedError):
+        with (
+            patch.dict("sys.modules", TIMEOUT_SDK),
+            self.assertRaises(InterruptedError),
+        ):
             discover(
                 page,
                 settings(max_queries=1, max_candidates=40, max_details=3),
@@ -102,6 +113,18 @@ class DiscoveryTests(unittest.TestCase):
                 time.monotonic() + 10,
             )
         element.click.assert_called_once()
+
+    def test_unexpected_timestamp_error_still_fails(self):
+        page, element = self.lazy_timeout_page()
+        element.click.side_effect = ValueError("Invalid timestamp state")
+        with patch.dict("sys.modules", TIMEOUT_SDK), self.assertRaises(ValueError):
+            discover(
+                page,
+                settings(max_queries=1, max_candidates=40, max_details=3),
+                Mock(),
+                lambda: False,
+                time.monotonic() + 10,
+            )
 
     def test_candidate_detail_and_query_limits_apply_globally(self):
         page = Page()
