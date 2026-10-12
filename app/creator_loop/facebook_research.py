@@ -189,14 +189,25 @@ def displayed_post_date(label: Any) -> str | None:
 
 def assess(item: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
     excerpt = item.get("excerpt") or ""
-    tokens = set(re.findall(r"\w+", fold(re.sub(r"(?<!\w)#[\w]+", "", excerpt))))
-    topic = set(re.findall(r"\w+", fold(settings["topic"]))) - {
-        "ve",
-        "va",
-        "cac",
-        "cua",
-        "o",
-        "tai",
+    # Vietnamese accents distinguish words (nhận/nhân, đúng/đứng/dùng).
+    # Accent folding here turned unrelated long captions into topic matches.
+    tokens = set(
+        re.findall(
+            r"\w+",
+            unicodedata.normalize(
+                "NFC", re.sub(r"(?<!\w)#[\w]+", "", excerpt)
+            ).casefold(),
+        )
+    )
+    topic = set(
+        re.findall(r"\w+", unicodedata.normalize("NFC", settings["topic"]).casefold())
+    ) - {
+        "về",
+        "và",
+        "các",
+        "của",
+        "ở",
+        "tại",
     }
     topical = bool(topic) and topic <= tokens if excerpt else None
     published = item.get("published_at")
@@ -295,7 +306,7 @@ def assess(item: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
         "reasons": signals + reasons,
         "evidence": list(dict.fromkeys(evidence)),
         "missing": missing,
-        "method": "LOCAL_RULES_V1_1",
+        "method": "LOCAL_RULES_V1_2",
         "purpose": settings["purpose"],
     }
 

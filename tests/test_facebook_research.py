@@ -55,6 +55,31 @@ def observation(pid="12", **changes):
 
 
 class ResearchTests(unittest.TestCase):
+    def test_vietnamese_topic_preserves_accents_against_false_positive_words(self):
+        params = settings(mode="VIRAL", topic="nhận thức đúng về sự thật")
+        false = candidate(
+            observation(
+                excerpt="Nhân cách và hình thức: đứng lên dùng sự thật",
+                metrics={"likes": "5000 likes"},
+            ),
+            "nhận thức",
+            params,
+        )
+        self.assertFalse(false["assessment"]["topical"])
+        self.assertTrue(false["assessment"]["viral"])
+        self.assertEqual(research_counts([false])["viral"], 0)
+        correct = candidate(
+            observation(
+                excerpt="NHẬN THỨC ĐÚNG VỀ SỰ THẬT và kiểm chứng thông tin",
+                metrics={"likes": "1000 likes"},
+            ),
+            "nhận thức",
+            params,
+        )
+        self.assertTrue(correct["assessment"]["topical"])
+        self.assertEqual(research_counts([correct])["viral"], 1)
+        self.assertEqual(correct["assessment"]["method"], "LOCAL_RULES_V1_2")
+
     def test_viral_requires_observed_threshold_and_topic_not_analysis(self):
         params = settings(mode="VIRAL")
         analytical = candidate(observation("15"), "Python", params)
