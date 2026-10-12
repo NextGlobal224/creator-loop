@@ -13,7 +13,13 @@ from creator_loop.facebook_browser import (
     session_problem,
 )
 from creator_loop.facebook_cdp import is_facebook_url
-from creator_loop.facebook_research import candidate, criteria, hashtag_summary
+from creator_loop.facebook_research import (
+    VIRAL_TARGET,
+    candidate,
+    criteria,
+    hashtag_summary,
+    research_counts,
+)
 from creator_loop.facebook_sources import post_link
 
 RESEARCH_SECONDS = 600
@@ -168,6 +174,12 @@ def discover(
     seen_lazy: set[str] = set()
     details_used = 0
 
+    def viral_target_met() -> bool:
+        return (
+            settings["mode"] == "VIRAL"
+            and research_counts(list(found.values()))["viral"] >= VIRAL_TARGET
+        )
+
     def guard() -> None:
         if cancelled():
             raise InterruptedError()
@@ -213,6 +225,7 @@ def discover(
         if (
             len(executed) >= settings["max_queries"]
             or len(found) >= settings["max_candidates"]
+            or viral_target_met()
         ):
             break
         guard()
@@ -225,18 +238,36 @@ def discover(
         )
         page.wait_for_timeout(1200)
         idle = 0
-        for turn in range(4):
+        for turn in range(12 if settings["mode"] == "VIRAL" else 4):
             guard()
             before = len(found)
             for raw in page.evaluate(EXTRACT):
                 remember(raw, query)
+                if viral_target_met():
+                    break
             # Details use exact canonical posts already found, bounded globally.
             for item in list(found.values()):
                 if (
                     item["external_id"] in opened
                     or details_used >= settings["max_details"]
+                    or viral_target_met()
                 ):
                     continue
+                if settings["mode"] == "VIRAL":
+                    assessment = item["assessment"]
+                    # Reuse already sufficient metadata; skip known off-topic
+                    # posts. Missing caption/counters still need exact details.
+                    if (
+                        assessment["topical"] is False
+                        or assessment["time_match"] is False
+                        or (
+                            item["publisher"]
+                            and item["excerpt"]
+                            and assessment["viral"] is not None
+                            and assessment["time_match"] is not None
+                        )
+                    ):
+                        continue
                 guard()
                 previous = page.url
                 opened.add(item["external_id"])
@@ -257,6 +288,7 @@ def discover(
             if (
                 details_used < settings["max_details"]
                 and len(found) < settings["max_candidates"]
+                and not viral_target_met()
             ):
                 for lazy in page.evaluate(LAZY_TIMESTAMPS):
                     if (
@@ -314,9 +346,10 @@ def discover(
                     "count": len(found),
                     "queries_used": len(executed),
                     "details_used": details_used,
+                    **research_counts(list(found.values())),
                 }
             )
-            if len(found) >= settings["max_candidates"]:
+            if len(found) >= settings["max_candidates"] or viral_target_met():
                 break
             idle = idle + 1 if len(found) == before else 0
             if idle >= 2:

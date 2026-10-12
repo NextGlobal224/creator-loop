@@ -32,11 +32,14 @@ from PySide6.QtWidgets import (
 from creator_loop.facebook_browser import LOGIN_SECONDS, OPEN_SECONDS, SCAN_SECONDS
 from creator_loop.facebook_cdp import TARGET_ID
 from creator_loop.facebook_research import (
+    DEFAULT_SCAN_BUDGETS,
     DEFAULT_THRESHOLDS,
+    MAX_SCAN_BUDGETS,
     METRICS,
     candidates,
     criteria,
     hashtag_summary,
+    research_counts,
     save_selected,
     saved_assessment,
     searches,
@@ -309,7 +312,9 @@ class FacebookWorker(QThread):
                                     status = str(body.get("status", ""))
                                     if status == "SCANNING":
                                         self.progress.emit(
-                                            f"Đã tìm {body.get('count', 0)}/{self.limit} link; đang quét…"
+                                            f"Ứng viên {body.get('count', 0)}/{self.limit}; "
+                                            f"đủ dữ liệu {body.get('evaluated', 0)}; "
+                                            f"đạt viral {body.get('viral', 0)}; đang quét…"
                                         )
                                     elif status == "WAIT_LOGIN":
                                         self.progress.emit(
@@ -394,8 +399,12 @@ class FacebookWorker(QThread):
                 "OPENED_KEEP_BROWSER": "Đã mở nguồn trong tab Facebook đã chọn; Chrome và phiên đăng nhập vẫn mở.",
             }
             if status == "SUCCEEDED" and self.mode == "discover":
+                counts = research_counts(body["candidates"])
                 messages["SUCCEEDED"] = (
-                    f"Tìm thấy {body['count']} ứng viên; {len(body['queries'])} truy vấn, {body['details_used']} lần mở chi tiết. Chọn tư liệu rồi bấm Lưu đã chọn."
+                    f"Ứng viên {counts['candidates']}; đủ dữ liệu {counts['evaluated']}; "
+                    f"đạt viral {counts['viral']}; {len(body['queries'])} truy vấn, "
+                    f"{body['details_used']} lần mở chi tiết. "
+                    "Chọn/bỏ chọn trước khi Lưu; bài phân tích không được tính viral."
                 )
             self.completed.emit(messages.get(status, messages["BROWSER_FAILED"]))
         except InterruptedError:
@@ -478,8 +487,8 @@ class FacebookDialog(QDialog):
         self.keyword.setMaxLength(200)
         self.keyword.setObjectName("facebookKeyword")
         self.limit = QSpinBox()
-        self.limit.setRange(1, 50)
-        self.limit.setValue(20)
+        self.limit.setRange(1, MAX_SCAN_BUDGETS["max_details"])
+        self.limit.setValue(DEFAULT_SCAN_BUDGETS["max_details"])
         self.limit.setObjectName("facebookLimit")
         self.limit.setToolTip(
             "Tổng số lần mở chi tiết, bao gồm timestamp và lượt mở rộng hashtag"
@@ -528,6 +537,7 @@ class FacebookDialog(QDialog):
             ("Giá trị phân tích", "ANALYSIS"),
         ):
             self.research_mode.addItem(label, value)
+        self.research_mode.setCurrentIndex(self.research_mode.findData("VIRAL"))
         research_row.addWidget(self.purpose, 2)
         research_row.addWidget(self.since)
         research_row.addWidget(self.until)
@@ -536,17 +546,17 @@ class FacebookDialog(QDialog):
         budget = QHBoxLayout()
         self.query_limit = QSpinBox()
         self.query_limit.setObjectName("facebookQueryLimit")
-        self.query_limit.setRange(1, 8)
-        self.query_limit.setValue(4)
+        self.query_limit.setRange(1, MAX_SCAN_BUDGETS["max_queries"])
+        self.query_limit.setValue(DEFAULT_SCAN_BUDGETS["max_queries"])
         self.candidate_limit = QSpinBox()
         self.candidate_limit.setObjectName("facebookCandidateLimit")
-        self.candidate_limit.setRange(1, 100)
-        self.candidate_limit.setValue(40)
+        self.candidate_limit.setRange(1, MAX_SCAN_BUDGETS["max_candidates"])
+        self.candidate_limit.setValue(DEFAULT_SCAN_BUDGETS["max_candidates"])
         budget.addWidget(QLabel("Tối đa truy vấn"))
         budget.addWidget(self.query_limit)
         budget.addWidget(QLabel("Ứng viên"))
         budget.addWidget(self.candidate_limit)
-        budget.addWidget(QLabel("Chi tiết: ô20 bên trên"))
+        budget.addWidget(QLabel("Mở chi tiết: ô bên trên"))
         self.thresholds: dict[str, QSpinBox] = {}
         for name, label in zip(
             METRICS, ("Thích", "Bình luận", "Chia sẻ", "Lượt xem"), strict=True
@@ -572,11 +582,16 @@ class FacebookDialog(QDialog):
         query_row.addWidget(self.query_editor, 1)
         query_row.addWidget(self.suggest)
         layout.addLayout(query_row)
-        layout.addWidget(
-            QLabel(
-                "Đúng chủ đề VÀ (viral HOẶC phân tích). Viral chỉ dựa số liệu đọc được; phân tích dùng cụm từ và trích đoạn. Ngày/số liệu thiếu: Chưa rõ. Video: chỉ đánh giá caption."
-            )
-        )
+        self.research_rule = QLabel()
+        self.research_rule.setObjectName("facebookResearchRule")
+        self.research_rule.setWordWrap(True)
+        layout.addWidget(self.research_rule)
+        self.research_mode.currentIndexChanged.connect(self.update_rule)
+        self.update_rule()
+        self.counts_label = QLabel()
+        self.counts_label.setObjectName("facebookResearchCounts")
+        self.counts_label.setWordWrap(True)
+        layout.addWidget(self.counts_label)
         self.status = QLabel(
             "Sẵn sàng. Kết nối tab Facebook trong Chrome đang mở trước khi Quét."
         )
@@ -595,6 +610,7 @@ class FacebookDialog(QDialog):
         self.tabs = QTabWidget()
         self.candidate_table = QTableWidget(0, 6)
         self.candidate_table.setObjectName("facebookCandidates")
+        self.candidate_table.itemChanged.connect(lambda _: self.update_counts())
         self.candidate_table.setHorizontalHeaderLabels(
             (
                 "Chọn",
@@ -748,6 +764,33 @@ class FacebookDialog(QDialog):
             }
         )
 
+    def update_rule(self) -> None:
+        mode = self.research_mode.currentData()
+        condition = {
+            "VIRAL": "ĐÚNG CHỦ ĐỀ VÀ ĐẠT VIRAL; phân tích không thay thế viral.",
+            "ANALYSIS": "Đúng chủ đề VÀ có giá trị phân tích; không đồng nghĩa đạt viral.",
+            "COMBINED": "Đúng chủ đề VÀ (viral HOẶC phân tích); số đạt viral tính riêng.",
+        }[mode]
+        self.research_rule.setText(
+            condition
+            + " Viral: ít nhất một số liệu của chính bài đạt ngưỡng bên trên. "
+            "Thiếu dữ liệu: Chưa rõ; video chỉ đánh giá caption."
+        )
+
+    def update_counts(self) -> None:
+        rows = self.candidate_rows
+        counts = research_counts(rows)
+        selected = sum(
+            pick.checkState() == Qt.CheckState.Checked
+            for i in range(len(rows))
+            if (pick := self.candidate_table.item(i, 0)) is not None
+        )
+        self.counts_label.setText(
+            f"Ứng viên {counts['candidates']} | Đủ dữ liệu đánh giá viral {counts['evaluated']} "
+            f"| Đạt viral {counts['viral']} / mục tiêu 40 (tối thiểu 20) "
+            f"| Đang chọn lưu {selected} | Đã lưu {sum(bool(r['saved']) for r in rows)}"
+        )
+
     def change_search(self) -> None:
         self.current_search = self.search_history.currentData()
         self.reload_candidates(candidates(self.root))
@@ -772,7 +815,9 @@ class FacebookDialog(QDialog):
         }
         for i, row in enumerate(self.candidate_rows):
             checked = not row["saved"] and choices.get(
-                row["candidate_id"], row["assessment"]["state"] == "QUALIFIED"
+                row["candidate_id"],
+                row["criteria"]["mode"] != "VIRAL"
+                and row["assessment"]["state"] == "QUALIFIED",
             )
             choices[row["candidate_id"]] = checked
             pick = QTableWidgetItem()
@@ -795,9 +840,17 @@ class FacebookDialog(QDialog):
                 )
                 for name, value in row["metrics"].items()
             )
+            label = states[row["assessment"]["state"]]
+            if row["criteria"]["mode"] == "VIRAL":
+                label = (
+                    "Đạt viral"
+                    if research_counts([row])["viral"]
+                    else "Không đạt chủ đề/ngày"
+                    if row["assessment"]["state"] == "REJECTED"
+                    else "Chưa đủ căn cứ viral"
+                )
             values = (
-                states[row["assessment"]["state"]]
-                + (" — đã lưu" if row["saved"] else ""),
+                label + (" — đã lưu" if row["saved"] else ""),
                 (row["publisher"] or "Nguồn: Chưa rõ") + "\n" + row["url"],
                 (row["published_at"] or row["published_label"] or "Ngày đăng: Chưa rõ")
                 + "\n"
@@ -813,6 +866,7 @@ class FacebookDialog(QDialog):
                 self.candidate_table.setItem(i, j, QTableWidgetItem(value))
         for col, width in enumerate((55, 145, 260, 320, 300, 160)):
             self.candidate_table.setColumnWidth(col, width)
+        self.update_counts()
         summaries = hashtag_summary(self.candidate_rows)
         self.hashtag_table.setRowCount(len(summaries))
         for i, summary in enumerate(summaries):

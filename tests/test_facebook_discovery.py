@@ -60,6 +60,62 @@ class Page:
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_viral_skips_off_topic_and_reuses_sufficient_metadata(self):
+        page = Page()
+        original = page.evaluate
+        page.evaluate = lambda script, arg=None: (
+            [
+                observation("12", metrics={"likes": "1500 likes"}),
+                observation("13"),
+                observation("14", excerpt="Java", metrics={"likes": "9000 likes"}),
+            ]
+            if script == EXTRACT
+            else original(script, arg)
+        )
+        result = discover(
+            page,
+            settings(mode="VIRAL", max_queries=1),
+            Mock(),
+            lambda: False,
+            time.monotonic() + 10,
+        )
+        self.assertEqual(page.detail_reads, ["13"])
+        self.assertEqual(result["details_used"], 1)
+        self.assertEqual(
+            sum(
+                c["assessment"]["topical"] is True and c["assessment"]["viral"] is True
+                for c in result["candidates"]
+            ),
+            1,
+        )
+
+    def test_viral_stops_at_forty_unique_qualified_without_detail_reopening(self):
+        page = Page()
+        original = page.evaluate
+        page.evaluate = lambda script, arg=None: (
+            [
+                observation(str(n), metrics={"likes": "1500 likes"})
+                for n in range(100, 140)
+            ]
+            if script == EXTRACT
+            else original(script, arg)
+        )
+        result = discover(
+            page,
+            settings(
+                mode="VIRAL",
+                queries=["Python", "Python guide"],
+                max_candidates=160,
+                max_details=80,
+            ),
+            Mock(),
+            lambda: False,
+            time.monotonic() + 10,
+        )
+        self.assertEqual(result["count"], 40)
+        self.assertEqual(len(result["queries"]), 1)
+        self.assertEqual(result["details_used"], 0)
+
     def test_detail_waits_for_late_caption_and_keeps_it_after_metric_scroll(self):
         page = Page()
         page.url = observation()["url"]

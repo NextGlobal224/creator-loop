@@ -15,6 +15,7 @@ from creator_loop.facebook_research import (
     criteria,
     hashtag_summary,
     metric,
+    research_counts,
     save_selected,
     store_search,
     suggested_queries,
@@ -54,6 +55,52 @@ def observation(pid="12", **changes):
 
 
 class ResearchTests(unittest.TestCase):
+    def test_viral_requires_observed_threshold_and_topic_not_analysis(self):
+        params = settings(mode="VIRAL")
+        analytical = candidate(observation("15"), "Python", params)
+        self.assertTrue(analytical["assessment"]["analysis"])
+        self.assertIsNone(analytical["assessment"]["viral"])
+        self.assertEqual(analytical["assessment"]["state"], "NEEDS_REVIEW")
+        matched = candidate(
+            observation(metrics={"likes": "1000 likes"}), "Python", params
+        )
+        unrelated = candidate(
+            observation("13", excerpt="Java", metrics={"likes": "9000 likes"}),
+            "Python",
+            params,
+        )
+        missing = candidate({"url": observation("14")["url"]}, "Python", params)
+        self.assertEqual(
+            research_counts([matched, matched, analytical, unrelated, missing]),
+            {"candidates": 4, "evaluated": 2, "viral": 1},
+        )
+        self.assertIn("≥ 1000", matched["assessment"]["reasons"][0])
+        below = candidate(
+            observation(
+                metrics={
+                    "likes": "999 likes",
+                    "comments": "99 comments",
+                    "shares": "99 shares",
+                    "views": "9999 views",
+                }
+            ),
+            "Python",
+            params,
+        )
+        self.assertFalse(below["assessment"]["viral"])
+        self.assertEqual(research_counts([below])["viral"], 0)
+
+    def test_larger_budget_is_still_finite_without_changing_thresholds(self):
+        params = settings(max_queries=12, max_candidates=300, max_details=120)
+        self.assertEqual(params["thresholds"], DEFAULT_THRESHOLDS)
+        for key, invalid in (
+            ("max_queries", 13),
+            ("max_candidates", 301),
+            ("max_details", 121),
+        ):
+            with self.assertRaises(ValueError):
+                settings(**{key: invalid})
+
     def test_style_word_alone_is_not_a_guide_but_explicit_data_is_quoted(self):
         style = candidate(
             observation(excerpt="Python với phong cách mới"), "Python", settings()

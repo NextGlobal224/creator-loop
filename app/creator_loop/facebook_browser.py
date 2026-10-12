@@ -292,6 +292,8 @@ def _request(path: Path, held: ExitStack) -> tuple[dict[str, Any], Path, Path | 
         reject_duplicates=True
     )
     research = request.pop("criteria", None)
+    from creator_loop.facebook_research import MAX_SCAN_BUDGETS
+
     if (
         set(request)
         not in (
@@ -314,7 +316,13 @@ def _request(path: Path, held: ExitStack) -> tuple[dict[str, Any], Path, Path | 
         or len(request["keyword"]) > 200
         or (request["mode"] == "scan" and not request["keyword"].strip())
         or type(request.get("limit")) is not int
-        or not 1 <= request["limit"] <= 100
+        or not 1
+        <= request["limit"]
+        <= (
+            MAX_SCAN_BUDGETS["max_candidates"]
+            if request.get("mode") == "discover"
+            else 100
+        )
         or request.get("run_id") != run_id
     ):
         raise ValueError("Invalid browser operation")

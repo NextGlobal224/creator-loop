@@ -18,6 +18,9 @@ from creator_loop.facebook_sources import post_link, save_capture
 MODES = ("COMBINED", "VIRAL", "ANALYSIS")
 METRICS = ("likes", "comments", "shares", "views")
 DEFAULT_THRESHOLDS = dict(zip(METRICS, (1000, 100, 100, 10000), strict=True))
+MAX_SCAN_BUDGETS = {"max_queries": 12, "max_candidates": 300, "max_details": 120}
+DEFAULT_SCAN_BUDGETS = {"max_queries": 8, "max_candidates": 160, "max_details": 80}
+VIRAL_TARGET = 40
 
 
 def utc_now() -> str:
@@ -68,11 +71,7 @@ def criteria(value: Any) -> dict[str, Any]:
         raise ValueError("Topic required")
     if result["mode"] not in MODES:
         raise ValueError("Invalid research mode")
-    for key, upper in (
-        ("max_queries", 8),
-        ("max_candidates", 100),
-        ("max_details", 50),
-    ):
+    for key, upper in MAX_SCAN_BUDGETS.items():
         if type(result[key]) is not int or not 1 <= result[key] <= upper:
             raise ValueError("Invalid bounded scan budget")
     for key in ("since", "until"):
@@ -102,6 +101,28 @@ def criteria(value: Any) -> dict[str, Any]:
     ):
         raise ValueError("Invalid viral thresholds")
     return result
+
+
+def research_counts(items: list[dict[str, Any]]) -> dict[str, int]:
+    """Unique posts; analysis eligibility never contributes to viral counts."""
+    unique = {item["external_id"]: item for item in items}
+    evaluated = viral = 0
+    for item in unique.values():
+        assessment = item["assessment"]
+        bound = bool(item.get("excerpt") and item.get("publisher"))
+        evaluated += int(
+            bound
+            and assessment["topical"] is not None
+            and assessment["time_match"] is not None
+            and assessment["viral"] is not None
+        )
+        viral += int(
+            bound
+            and assessment["topical"] is True
+            and assessment["time_match"] is True
+            and assessment["viral"] is True
+        )
+    return {"candidates": len(unique), "evaluated": evaluated, "viral": viral}
 
 
 def metric(raw: Any) -> dict[str, Any] | None:

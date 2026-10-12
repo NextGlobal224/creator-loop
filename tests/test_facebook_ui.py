@@ -13,6 +13,48 @@ from test_facebook_research import observation, settings
 
 
 class FacebookUiTests(unittest.TestCase):
+    def test_viral_counts_separate_analysis_and_wait_for_explicit_selection(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            initialize(root / "creator_loop.sqlite3")
+            dialog = FacebookDialog(root)
+            try:
+                params = settings(mode="VIRAL")
+                rows = [
+                    {
+                        **candidate(raw, "Python", params),
+                        "candidate_id": str(n),
+                        "search_id": "viral-a",
+                        "saved": False,
+                        "criteria": params,
+                    }
+                    for n, raw in enumerate(
+                        (
+                            observation("12", metrics={"likes": "1500 likes"}),
+                            observation("13"),
+                        )
+                    )
+                ]
+                dialog.current_search = "viral-a"
+                dialog.reload_candidates(rows)
+                self.assertIn("Ứng viên 2", dialog.counts_label.text())
+                self.assertIn("Đạt viral 1", dialog.counts_label.text())
+                self.assertIn("Đang chọn lưu 0", dialog.counts_label.text())
+                self.assertEqual(dialog.candidate_table.item(0, 1).text(), "Đạt viral")
+                self.assertEqual(
+                    dialog.candidate_table.item(1, 1).text(), "Chưa đủ căn cứ viral"
+                )
+                dialog.candidate_table.item(0, 0).setCheckState(Qt.CheckState.Checked)
+                self.assertIn("Đang chọn lưu 1", dialog.counts_label.text())
+                dialog.research_mode.setCurrentIndex(
+                    dialog.research_mode.findData("ANALYSIS")
+                )
+                self.assertIn("không đồng nghĩa đạt viral", dialog.research_rule.text())
+            finally:
+                dialog.close()
+                dialog.deleteLater()
+                self.app.processEvents()
+
     def test_unchecked_candidate_stays_unchecked_after_save_and_history_reload(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -25,6 +67,7 @@ class FacebookUiTests(unittest.TestCase):
                         "candidate_id": str(n),
                         "search_id": "search-a",
                         "saved": False,
+                        "criteria": settings(),
                     }
                     for n in (12, 13)
                 ]
@@ -73,7 +116,9 @@ class FacebookUiTests(unittest.TestCase):
                 self.assertTrue(callable(dialog.open))
                 self.assertIsInstance(dialog.open_source, QPushButton)
                 self.assertEqual(dialog.open_source.objectName(), "facebookOpen")
-                self.assertEqual(dialog.limit.value(), 20)
+                self.assertEqual(dialog.limit.value(), 80)
+                self.assertEqual(dialog.research_mode.currentData(), "VIRAL")
+                self.assertIn("ĐÚNG CHỦ ĐỀ VÀ ĐẠT VIRAL", dialog.research_rule.text())
                 self.assertEqual(dialog.keyword.maxLength(), 200)
                 self.assertFalse(dialog.stop.isEnabled())
                 dialog.open_source.click()
