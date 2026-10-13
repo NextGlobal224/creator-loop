@@ -9,6 +9,7 @@ from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 
+from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.app_lock import AppDataLock
 from creator_loop.backend.runtime.corrupt_copy_recovery import _record
 from creator_loop.backend.runtime.corrupt_database import _regular
@@ -17,7 +18,6 @@ from creator_loop.backend.runtime.corrupt_restore_inspection import (
     _hold_inspected_copy,
 )
 from creator_loop.backend.runtime.installation_stage import _installation_root
-from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.restore_assessment import (
     LOSS_WARNING,
     _media_assessment,

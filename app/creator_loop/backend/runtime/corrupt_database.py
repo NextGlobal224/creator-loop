@@ -18,8 +18,8 @@ from contextlib import ExitStack, closing, contextmanager
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from creator_loop.backend.runtime.app_lock import AppDataLock
 from creator_loop.backend.publication.publication_media import _open_read_lock
+from creator_loop.backend.runtime.app_lock import AppDataLock
 from creator_loop.backend.runtime.windows_paths import file_io_path
 
 _NAMES = tuple(

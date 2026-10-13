@@ -6,7 +6,11 @@ match the persisted ownership record exactly before process control occurs.
 
 from collections.abc import Callable
 
-from creator_loop.backend.runtime.worker_process import ProcessIdentity, WorkerOwnership, owns_process
+from creator_loop.backend.runtime.worker_process import (
+    ProcessIdentity,
+    WorkerOwnership,
+    owns_process,
+)
 
 ProcessProbe = Callable[[int], ProcessIdentity | None]
 ProcessTerminator = Callable[[int], bool]

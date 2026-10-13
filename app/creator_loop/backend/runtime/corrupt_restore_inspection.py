@@ -16,15 +16,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.app_lock import AppDataLock
 from creator_loop.backend.runtime.corrupt_database import _NAMES, _identity, _regular
 from creator_loop.backend.runtime.corrupt_restore_copy import _hash
-from creator_loop.backend.runtime.corrupt_stage_validation import hold_corrupt_preparation
+from creator_loop.backend.runtime.corrupt_stage_validation import (
+    hold_corrupt_preparation,
+)
 from creator_loop.backend.runtime.database import validate
 from creator_loop.backend.runtime.fresh_guard import fresh_guard_names
 from creator_loop.backend.runtime.fresh_retention import hold_fresh_history
 from creator_loop.backend.runtime.preserved_source_validation import _unique_object
-from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.restore_assessment import _database_identity
 from creator_loop.backend.runtime.runtime_files import RuntimeHandle
 from creator_loop.backend.runtime.sqlite_recovery_file import hold_recovery_database

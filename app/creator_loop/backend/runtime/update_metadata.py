@@ -10,10 +10,17 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from creator_loop.backend.library.storage_roots import (
+    _load,
+    _manifest_path,
+    _write_manifest,
+)
 from creator_loop.backend.runtime.app_lock import AppDataLock
 from creator_loop.backend.runtime.database import SCHEMA_VERSION, validate
-from creator_loop.backend.runtime.installation_stage import _installation_root, load_release_manifest
-from creator_loop.backend.library.storage_roots import _load, _manifest_path, _write_manifest
+from creator_loop.backend.runtime.installation_stage import (
+    _installation_root,
+    load_release_manifest,
+)
 from creator_loop.backend.runtime.update_activation import (
     _read_record,
     active_candidate,

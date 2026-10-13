@@ -8,7 +8,10 @@ from pathlib import Path
 from types import TracebackType
 from typing import BinaryIO
 
-from creator_loop.backend.runtime.windows_owned_file import _INVALID_HANDLE_VALUE, _kernel32
+from creator_loop.backend.runtime.windows_owned_file import (
+    _INVALID_HANDLE_VALUE,
+    _kernel32,
+)
 from creator_loop.backend.runtime.windows_paths import file_io_path, resolve_file_path
 
 

@@ -12,6 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from creator_loop.backend.library.storage_roots import (
+    StorageRootError,
+    _load,
+    _manifest_path,
+    _write_manifest,
+)
 from creator_loop.backend.runtime.app_lock import AppDataLock, DataRootBusy
 from creator_loop.backend.runtime.database import SCHEMA_VERSION, _sqlite_uri, validate
 from creator_loop.backend.runtime.local_components import (
@@ -22,12 +28,6 @@ from creator_loop.backend.runtime.local_components import (
     hold_verified_components,
     load_component_manifest,
     parse_component_manifest,
-)
-from creator_loop.backend.library.storage_roots import (
-    StorageRootError,
-    _load,
-    _manifest_path,
-    _write_manifest,
 )
 from creator_loop.backend.runtime.windows_paths import file_io_path
 
@@ -245,7 +245,9 @@ def select_components_cli(
 def inspect_components_cli(root: Path) -> int:
     """Read saved declarations, including offline files; not a fresh check."""
     try:
-        from creator_loop.backend.runtime.local_components import component_manifest_bytes
+        from creator_loop.backend.runtime.local_components import (
+            component_manifest_bytes,
+        )
 
         selection = load_component_selection(root)
         print(

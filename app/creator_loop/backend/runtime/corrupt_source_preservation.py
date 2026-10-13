@@ -20,8 +20,12 @@ from typing import BinaryIO
 from uuid import uuid4
 
 from creator_loop import __version__
-from creator_loop.backend.runtime.corrupt_database import _identity, _regular, hold_corrupt_database
 from creator_loop.backend.publication.publication_media import _open_read_lock
+from creator_loop.backend.runtime.corrupt_database import (
+    _identity,
+    _regular,
+    hold_corrupt_database,
+)
 from creator_loop.backend.runtime.runtime_files import RuntimeHandle
 from creator_loop.backend.runtime.windows_owned_file import OwnedWindowsFile, _kernel32
 

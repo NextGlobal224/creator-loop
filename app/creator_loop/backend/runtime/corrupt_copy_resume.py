@@ -16,20 +16,27 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.app_lock import AppDataLock
 from creator_loop.backend.runtime.corrupt_copy_recovery import _record
 from creator_loop.backend.runtime.corrupt_copy_review import _review_copy_locked
 from creator_loop.backend.runtime.corrupt_database import _NAMES, _identity, _regular
 from creator_loop.backend.runtime.corrupt_restore_copy import _hash
 from creator_loop.backend.runtime.corrupt_restore_inspection import _hold_inspected_copy
-from creator_loop.backend.runtime.corrupt_source_retention import hold_existing_corrupt_source
-from creator_loop.backend.runtime.corrupt_stage_validation import hold_corrupt_preparation
+from creator_loop.backend.runtime.corrupt_source_retention import (
+    hold_existing_corrupt_source,
+)
+from creator_loop.backend.runtime.corrupt_stage_validation import (
+    hold_corrupt_preparation,
+)
 from creator_loop.backend.runtime.database import validate
 from creator_loop.backend.runtime.fresh_guard import anchor_fresh_guard
-from creator_loop.backend.runtime.fresh_restore_review import _fresh_choice, _FreshRestoreRequest
+from creator_loop.backend.runtime.fresh_restore_review import (
+    _fresh_choice,
+    _FreshRestoreRequest,
+)
 from creator_loop.backend.runtime.fresh_retention import hold_fresh_history
 from creator_loop.backend.runtime.installation_stage import _installation_root
-from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.restore_assessment import (
     _database_identity,
     _media_assessment,

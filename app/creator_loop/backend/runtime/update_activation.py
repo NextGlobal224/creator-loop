@@ -12,7 +12,11 @@ from typing import Any
 from uuid import uuid4
 
 from creator_loop.backend.runtime.app_lock import AppDataLock
-from creator_loop.backend.runtime.database import SCHEMA_VERSION, open_readonly, validate
+from creator_loop.backend.runtime.database import (
+    SCHEMA_VERSION,
+    open_readonly,
+    validate,
+)
 from creator_loop.backend.runtime.installation_stage import (
     MAX_FILES,
     _installation_root,
@@ -241,7 +245,9 @@ def activate_prepared_update(
                 raise ValueError("Prepared candidate compatibility mismatch")
             verify_prepared_backup(canonical, record)
             if restore_id is not None:
-                from creator_loop.backend.runtime.restore_apply import _verify_restored_state
+                from creator_loop.backend.runtime.restore_apply import (
+                    _verify_restored_state,
+                )
 
                 if (
                     record.get("restore_format") != 1
@@ -344,7 +350,9 @@ def activate_prepared_update(
                 raise
             # Core activation/health is already durable. A metadata failure
             # must not pretend health failed or undo a compatible active app.
-            from creator_loop.backend.runtime.update_metadata import record_successful_update
+            from creator_loop.backend.runtime.update_metadata import (
+                record_successful_update,
+            )
 
             try:
                 record_successful_update(canonical, db, record, candidate, manifest)

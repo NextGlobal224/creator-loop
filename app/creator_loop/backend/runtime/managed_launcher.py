@@ -12,7 +12,10 @@ from uuid import uuid4
 
 from creator_loop.backend.runtime.app_lock import AppDataLock
 from creator_loop.backend.runtime.database import validate
-from creator_loop.backend.runtime.installation_stage import _installation_root, load_release_manifest
+from creator_loop.backend.runtime.installation_stage import (
+    _installation_root,
+    load_release_manifest,
+)
 from creator_loop.backend.runtime.owned_process import OwnedWindowsProcess
 from creator_loop.backend.runtime.restore_guard import require_no_pending_restore
 from creator_loop.backend.runtime.update_activation import active_candidate

@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from creator_loop.backend.runtime.app_lock import AppDataLock
-from creator_loop.backend.runtime.database import SCHEMA_VERSION, _migrate_locked, validate
+from creator_loop.backend.runtime.database import (
+    SCHEMA_VERSION,
+    _migrate_locked,
+    validate,
+)
 from creator_loop.backend.runtime.installation_stage import _installation_root
 from creator_loop.backend.runtime.update_activation import (
     _read_record,

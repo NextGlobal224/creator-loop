@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.app_lock import AppDataLock
 from creator_loop.backend.runtime.database import (
     SCHEMA_VERSION,
@@ -22,7 +23,6 @@ from creator_loop.backend.runtime.database import (
     validate,
 )
 from creator_loop.backend.runtime.installation_stage import _installation_root
-from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.restore_assessment import (
     _assess_locked,
     _check_deadline,

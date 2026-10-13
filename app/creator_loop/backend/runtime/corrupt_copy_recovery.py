@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.app_lock import AppDataLock
 from creator_loop.backend.runtime.corrupt_database import _regular
 from creator_loop.backend.runtime.corrupt_restore_copy import _hash
@@ -21,7 +22,6 @@ from creator_loop.backend.runtime.corrupt_restore_inspection import _hold_inspec
 from creator_loop.backend.runtime.database import SCHEMA_VERSION, validate
 from creator_loop.backend.runtime.installation_stage import _installation_root
 from creator_loop.backend.runtime.preserved_source_validation import _unique_object
-from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.restore_assessment import (
     _database_identity,
     _media_assessment,
@@ -29,7 +29,10 @@ from creator_loop.backend.runtime.restore_assessment import (
 )
 from creator_loop.backend.runtime.runtime_files import RuntimeHandle
 from creator_loop.backend.runtime.sqlite_recovery_file import hold_recovery_database
-from creator_loop.backend.runtime.update_activation import _candidate_from_pointer, verify_candidate
+from creator_loop.backend.runtime.update_activation import (
+    _candidate_from_pointer,
+    verify_candidate,
+)
 from creator_loop.backend.runtime.update_backup import _digest
 from creator_loop.backend.runtime.update_health import run_health_check
 from creator_loop.backend.runtime.update_metadata import record_successful_update

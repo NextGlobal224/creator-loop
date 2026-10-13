@@ -13,12 +13,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from creator_loop.backend.runtime.app_lock import AppDataLock
-from creator_loop.backend.runtime.database import SCHEMA_VERSION, open_readonly, validate
-from creator_loop.backend.runtime.installation_stage import _installation_root
-from creator_loop.backend.publication.publication_media import _open_read_lock
-from creator_loop.backend.library.storage_paths import StoragePathError, resolve_storage_path
+from creator_loop.backend.library.storage_paths import (
+    StoragePathError,
+    resolve_storage_path,
+)
 from creator_loop.backend.library.storage_roots import _load
+from creator_loop.backend.publication.publication_media import _open_read_lock
+from creator_loop.backend.runtime.app_lock import AppDataLock
+from creator_loop.backend.runtime.database import (
+    SCHEMA_VERSION,
+    open_readonly,
+    validate,
+)
+from creator_loop.backend.runtime.installation_stage import _installation_root
 from creator_loop.backend.runtime.update_activation import (
     _read_record,
     verify_candidate,

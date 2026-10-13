@@ -17,11 +17,16 @@ from pathlib import Path
 from uuid import uuid4
 
 from creator_loop import __version__
-from creator_loop.backend.runtime.app_lock import AppDataLock
-from creator_loop.backend.runtime.backup_runtime import hold_terminal_audio_runtime
-from creator_loop.backend.runtime.database import SCHEMA_VERSION, _sqlite_uri, open_readonly, validate
 from creator_loop.backend.library.storage_paths import resolve_storage_path
 from creator_loop.backend.library.storage_roots import list_storage_roots
+from creator_loop.backend.runtime.app_lock import AppDataLock
+from creator_loop.backend.runtime.backup_runtime import hold_terminal_audio_runtime
+from creator_loop.backend.runtime.database import (
+    SCHEMA_VERSION,
+    _sqlite_uri,
+    open_readonly,
+    validate,
+)
 from creator_loop.backend.runtime.windows_paths import file_io_path, resolve_file_path
 
 

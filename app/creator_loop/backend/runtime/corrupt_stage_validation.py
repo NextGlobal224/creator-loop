@@ -16,13 +16,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.corrupt_database import _identity, _regular
 from creator_loop.backend.runtime.database import SCHEMA_VERSION, validate
 from creator_loop.backend.runtime.preserved_source_validation import (
     _unique_object,
     hold_preserved_source,
 )
-from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.restore_assessment import _database_identity
 from creator_loop.backend.runtime.runtime_files import RuntimeHandle
 

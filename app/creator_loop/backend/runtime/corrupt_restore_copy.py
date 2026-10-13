@@ -18,16 +18,32 @@ from pathlib import Path
 from typing import Any, BinaryIO
 from uuid import uuid4
 
+from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.app_lock import AppDataLock
-from creator_loop.backend.runtime.corrupt_database import _NAMES, _hold_corrupt_source_locked, _regular
-from creator_loop.backend.runtime.corrupt_restore_assessment import _assess_corrupt_locked
-from creator_loop.backend.runtime.corrupt_source_preservation import _create_file, _publish_new_manifest
-from creator_loop.backend.runtime.corrupt_source_retention import hold_existing_corrupt_source
-from creator_loop.backend.runtime.corrupt_stage_validation import hold_corrupt_preparation
+from creator_loop.backend.runtime.corrupt_database import (
+    _NAMES,
+    _hold_corrupt_source_locked,
+    _regular,
+)
+from creator_loop.backend.runtime.corrupt_restore_assessment import (
+    _assess_corrupt_locked,
+)
+from creator_loop.backend.runtime.corrupt_source_preservation import (
+    _create_file,
+    _publish_new_manifest,
+)
+from creator_loop.backend.runtime.corrupt_source_retention import (
+    hold_existing_corrupt_source,
+)
+from creator_loop.backend.runtime.corrupt_stage_validation import (
+    hold_corrupt_preparation,
+)
 from creator_loop.backend.runtime.database import SCHEMA_VERSION, validate
 from creator_loop.backend.runtime.installation_stage import _installation_root
-from creator_loop.backend.publication.publication_media import _open_read_lock
-from creator_loop.backend.runtime.restore_assessment import _database_identity, _media_assessment
+from creator_loop.backend.runtime.restore_assessment import (
+    _database_identity,
+    _media_assessment,
+)
 from creator_loop.backend.runtime.restore_guard import require_no_pending_restore
 from creator_loop.backend.runtime.runtime_files import RuntimeHandle
 from creator_loop.backend.runtime.sqlite_stage_file import hold_new_sqlite_target

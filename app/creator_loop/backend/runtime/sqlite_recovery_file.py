@@ -11,7 +11,10 @@ from pathlib import Path
 from typing import BinaryIO
 
 from creator_loop.backend.runtime.corrupt_database import _regular
-from creator_loop.backend.runtime.windows_owned_file import _INVALID_HANDLE_VALUE, _kernel32
+from creator_loop.backend.runtime.windows_owned_file import (
+    _INVALID_HANDLE_VALUE,
+    _kernel32,
+)
 
 
 @contextmanager

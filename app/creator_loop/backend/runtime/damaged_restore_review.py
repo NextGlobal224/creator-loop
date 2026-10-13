@@ -9,13 +9,25 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
-from creator_loop.backend.runtime.corrupt_database import _regular, hold_corrupt_database
-from creator_loop.backend.runtime.corrupt_restore_assessment import _assess_corrupt_locked
-from creator_loop.backend.runtime.corrupt_stage_validation import hold_corrupt_preparation
-from creator_loop.backend.runtime.installation_stage import _installation_root
-from creator_loop.backend.runtime.preserved_source_validation import hold_preserved_source
 from creator_loop.backend.publication.publication_media import _open_read_lock
-from creator_loop.backend.runtime.restore_assessment import _restore_inputs, assessment_identity
+from creator_loop.backend.runtime.corrupt_database import (
+    _regular,
+    hold_corrupt_database,
+)
+from creator_loop.backend.runtime.corrupt_restore_assessment import (
+    _assess_corrupt_locked,
+)
+from creator_loop.backend.runtime.corrupt_stage_validation import (
+    hold_corrupt_preparation,
+)
+from creator_loop.backend.runtime.installation_stage import _installation_root
+from creator_loop.backend.runtime.preserved_source_validation import (
+    hold_preserved_source,
+)
+from creator_loop.backend.runtime.restore_assessment import (
+    _restore_inputs,
+    assessment_identity,
+)
 from creator_loop.backend.runtime.runtime_files import RuntimeHandle
 from creator_loop.backend.runtime.update_activation import verify_candidate
 from creator_loop.backend.runtime.update_backup import _digest

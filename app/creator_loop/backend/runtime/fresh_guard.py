@@ -9,8 +9,11 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from creator_loop.backend.runtime.corrupt_source_preservation import _create_file, _publish_new_manifest
 from creator_loop.backend.publication.publication_media import _open_read_lock
+from creator_loop.backend.runtime.corrupt_source_preservation import (
+    _create_file,
+    _publish_new_manifest,
+)
 from creator_loop.backend.runtime.update_preparation import _journal
 
 

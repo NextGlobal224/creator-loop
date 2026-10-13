@@ -18,9 +18,19 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from creator_loop.backend.runtime.corrupt_database import _identity, _regular, hold_corrupt_database
-from creator_loop.backend.runtime.corrupt_restore_assessment import _assess_corrupt_locked
-from creator_loop.backend.runtime.corrupt_source_preservation import _create_file, _publish_new_manifest
+from creator_loop.backend.publication.publication_media import _open_read_lock
+from creator_loop.backend.runtime.corrupt_database import (
+    _identity,
+    _regular,
+    hold_corrupt_database,
+)
+from creator_loop.backend.runtime.corrupt_restore_assessment import (
+    _assess_corrupt_locked,
+)
+from creator_loop.backend.runtime.corrupt_source_preservation import (
+    _create_file,
+    _publish_new_manifest,
+)
 from creator_loop.backend.runtime.database import (
     SCHEMA_VERSION,
     _migrate_locked,
@@ -28,10 +38,14 @@ from creator_loop.backend.runtime.database import (
     validate,
 )
 from creator_loop.backend.runtime.installation_stage import _installation_root
-from creator_loop.backend.runtime.preserved_source_validation import hold_preserved_source
-from creator_loop.backend.publication.publication_media import _open_read_lock
+from creator_loop.backend.runtime.preserved_source_validation import (
+    hold_preserved_source,
+)
 from creator_loop.backend.runtime.restore_apply import _refs
-from creator_loop.backend.runtime.restore_assessment import _database_identity, _media_assessment
+from creator_loop.backend.runtime.restore_assessment import (
+    _database_identity,
+    _media_assessment,
+)
 from creator_loop.backend.runtime.runtime_files import RuntimeHandle
 from creator_loop.backend.runtime.sqlite_stage_file import hold_new_sqlite_target
 from creator_loop.backend.runtime.update_activation import verify_prepared_backup

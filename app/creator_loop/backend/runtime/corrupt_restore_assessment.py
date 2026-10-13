@@ -9,10 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from creator_loop.backend.library.storage_roots import _load
+from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.corrupt_database import hold_corrupt_database
 from creator_loop.backend.runtime.database import SCHEMA_VERSION, open_readonly
 from creator_loop.backend.runtime.installation_stage import _installation_root
-from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.restore_assessment import (
     LOSS_WARNING,
     _check_deadline,
@@ -21,7 +22,6 @@ from creator_loop.backend.runtime.restore_assessment import (
     _restore_inputs,
     assessment_identity,
 )
-from creator_loop.backend.library.storage_roots import _load
 from creator_loop.backend.runtime.update_backup import _digest
 from creator_loop.backend.runtime.update_preparation import manifest_identity
 
