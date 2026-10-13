@@ -184,7 +184,7 @@ class VideoDialog(QDialog):
         self.remove_button.clicked.connect(
             lambda: self.scenes.removeRow(self.scenes.currentRow())
         )
-        self.render_button.clicked.connect(self.render)
+        self.render_button.clicked.connect(self.start_render)
         self.cancel_button.clicked.connect(self.cancel)
         self.configure_button.clicked.connect(self.configure)
         self.history.itemSelectionChanged.connect(self.show_output)
@@ -203,7 +203,7 @@ class VideoDialog(QDialog):
         if auto_start:
             from PySide6.QtCore import QTimer
 
-            QTimer.singleShot(0, self.render)
+            QTimer.singleShot(0, self.start_render)
 
     def _draft_changed(self) -> None:
         if self._worker is not None:
@@ -261,18 +261,16 @@ class VideoDialog(QDialog):
         for scene in scenes:
             self._add(scene)
 
-    def render(self) -> None:
+    def start_render(self) -> None:
         if self._worker is not None or not self.draft.currentData():
             return
         try:
             scenes = []
             for row in range(self.scenes.rowCount()):
-                values = [
-                    self.scenes.item(row, col).text()
-                    if self.scenes.item(row, col)
-                    else ""
-                    for col in range(5)
-                ]
+                values = []
+                for col in range(5):
+                    item = self.scenes.item(row, col)
+                    values.append(item.text() if item is not None else "")
                 kind = values[2].strip().upper()
                 if kind not in {"TITLE", "IMAGE", "VIDEO"}:
                     raise ValueError("Loại cảnh phải là TITLE, IMAGE hoặc VIDEO.")

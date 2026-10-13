@@ -79,7 +79,7 @@ class VideoUiTests(unittest.TestCase):
 
             try:
                 with patch.object(dialog.service, "render", side_effect=render):
-                    dialog.render()
+                    dialog.start_render()
                     self.assertFalse(dialog.render_button.isEnabled())
                     self.assertTrue(dialog.cancel_button.isEnabled())
                     app.processEvents()

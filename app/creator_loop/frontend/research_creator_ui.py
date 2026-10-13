@@ -123,15 +123,15 @@ class ResearchCreatorDialog(QDialog):
         self.purpose.setObjectName("researchPurpose")
         self.audience = QLineEdit("Người đọc muốn kiểm chứng thông tin")
         self.audience.setObjectName("researchAudience")
-        self.style = QLineEdit("Rõ ràng, thận trọng, có nguồn")
-        self.style.setObjectName("researchStyle")
+        self.style_input = QLineEdit("Rõ ràng, thận trọng, có nguồn")
+        self.style_input.setObjectName("researchStyle")
         for label, widget in (
             ("Project", self.project),
             ("Chế độ", self.mode),
             ("Định dạng", self.format),
             ("Mục đích", self.purpose),
             ("Khán giả", self.audience),
-            ("Phong cách", self.style),
+            ("Phong cách", self.style_input),
         ):
             form.addRow(label, widget)
         layout.addLayout(form)
@@ -230,8 +230,13 @@ class ResearchCreatorDialog(QDialog):
                 else None
             )
         )
-        for widget in (self.evidence, evidence_button, self.claim, claim_button):
-            refs.addWidget(widget)
+        for reference_widget in (
+            self.evidence,
+            evidence_button,
+            self.claim,
+            claim_button,
+        ):
+            refs.addWidget(reference_widget)
         layout.addLayout(refs)
         self.status = QLabel("Chọn Project và tư liệu; không tự nhập toàn bộ ứng viên.")
         self.status.setObjectName("researchStatus")
@@ -297,10 +302,13 @@ class ResearchCreatorDialog(QDialog):
         self.direction.setPlainText(value["direction_text"])
         self.purpose.setText(value["purpose"])
         self.audience.setText(value["audience"])
-        self.style.setText(value["style"])
+        self.style_input.setText(value["style"])
         self.format.setCurrentIndex(self.format.findData(value["output_format"]))
         for index, material in enumerate(self.material_rows):
-            self.material_table.item(index, 0).setCheckState(
+            pick = self.material_table.item(index, 0)
+            if pick is None:
+                raise ValueError("Tư liệu trong bảng chưa có ô lựa chọn.")
+            pick.setCheckState(
                 Qt.CheckState.Checked
                 if material.material_id in value["material_ids"]
                 else Qt.CheckState.Unchecked
@@ -325,17 +333,18 @@ class ResearchCreatorDialog(QDialog):
         )
 
     def request(self) -> CreatorRequest:
-        ids = tuple(
-            material.material_id
-            for index, material in enumerate(self.material_rows)
-            if self.material_table.item(index, 0).checkState() == Qt.CheckState.Checked
-        )
+        selected = []
+        for index, material in enumerate(self.material_rows):
+            pick = self.material_table.item(index, 0)
+            if pick is not None and pick.checkState() == Qt.CheckState.Checked:
+                selected.append(material.material_id)
+        ids = tuple(selected)
         return CreatorRequest(
             str(self.project.currentData() or ""),
             self.mode.currentData(),
             self.purpose.text(),
             self.audience.text(),
-            self.style.text(),
+            self.style_input.text(),
             self.format.currentData(),
             ids,
             self.direction.toPlainText(),
