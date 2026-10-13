@@ -1436,6 +1436,9 @@ def _run(
     recovery = None
     runtime_recovery = None
     if not args.ui_smoke:
+        from creator_loop.backend.video.render_service import RenderService
+
+        RenderService(root).recover_interrupted()
         from creator_loop.backend.runtime.processing_recovery import (
             recover_processing_startup,
         )

@@ -330,6 +330,15 @@ class LibraryWindow(QMainWindow):
         self._buttons.append(storage)
         actions.addWidget(storage)
         layout.addLayout(actions)
+        workflow_actions = QHBoxLayout()
+        research_creator = QPushButton("Tư liệu → phân tích → Draft")
+        research_creator.clicked.connect(self.choose_research_creator)
+        video = QPushButton("Video nháp / MP4 local")
+        video.clicked.connect(self.choose_video)
+        for button in (research_creator, video):
+            self._buttons.append(button)
+            workflow_actions.addWidget(button)
+        layout.addLayout(workflow_actions)
         facebook = QPushButton("Tư liệu Facebook")
         facebook.setObjectName("facebookLibrary")
         facebook.clicked.connect(self.choose_facebook)
@@ -716,6 +725,40 @@ class LibraryWindow(QMainWindow):
         if self._worker is not None:
             return
         ProjectDialog(self.root).exec()
+
+    def choose_research_creator(self) -> None:
+        if self._worker is not None:
+            return
+        from creator_loop.frontend.research_creator_ui import ResearchCreatorDialog
+
+        dialog = ResearchCreatorDialog(self.root, self)
+        dialog.evidence_requested.connect(self.open_claim_evidence)
+        dialog.claim_requested.connect(self.open_draft_claim)
+        dialog.draft_ready.connect(
+            lambda version_id, automatic: (
+                self.choose_video(version_id=version_id, auto_start=automatic)
+                if automatic
+                else None
+            )
+        )
+        dialog.exec()
+        self.reload()
+
+    def choose_video(
+        self,
+        _checked: bool = False,
+        *,
+        version_id: str | None = None,
+        auto_start: bool = False,
+    ) -> None:
+        if self._worker is not None:
+            return
+        from creator_loop.frontend.video_ui import VideoDialog
+
+        VideoDialog(
+            self.root, self, draft_version_id=version_id, auto_start=auto_start
+        ).exec()
+        self.reload()
 
     def choose_claim(self) -> None:
         if self._worker is not None:
