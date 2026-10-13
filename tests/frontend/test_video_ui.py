@@ -14,6 +14,40 @@ from PySide6.QtWidgets import QApplication
 
 
 class VideoUiTests(unittest.TestCase):
+    def test_bad_plan_stays_editable_and_opening_never_hashes_media(self):
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            ensure_data_root(root)
+            initialize(root / "creator_loop.sqlite3")
+            with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+                db.execute(
+                    "INSERT INTO projects VALUES('p','Truth','ACTIVE','now',NULL)"
+                )
+                db.commit()
+                draft = create_draft(
+                    db,
+                    project_id="p",
+                    body_text="KỊCH BẢN VIDEO NHÁP\nKẾ HOẠCH CẢNH\n1. invalid",
+                    format="VIDEO",
+                    actor="creator",
+                )
+            with patch(
+                "creator_loop.backend.video.render_service.RenderService.media",
+                side_effect=AssertionError("No media hashing on GUI"),
+            ):
+                dialog = VideoDialog(root, draft_version_id=draft.draft_version_id)
+            try:
+                self.assertIn("Chưa lập cảnh", dialog.status.text())
+                self.assertEqual(dialog.scenes.rowCount(), 0)
+                self.assertTrue(dialog.add_button.isEnabled())
+                dialog.add_button.click()
+                app.processEvents()
+                self.assertEqual(dialog.scenes.rowCount(), 1)
+            finally:
+                dialog.close()
+                app.processEvents()
+
     def test_real_editor_dispatch_and_cancel_remain_responsive_and_history_safe(self):
         app = QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as folder:

@@ -9,3 +9,5 @@ Các bảng bổ sung nằm trong SQLite, không thay Source/Asset/Evidence/Clai
 `draft_render_outputs` chỉ nhận MP4 thực đã kiểm và run SUCCEEDED: storage key trong derived, digest, bytes, thời lượng/kích thước, tool/version. Tệp đang ghi, lỗi hoặc Hủy không có output thành công. MP4 tổng hợp chưa trở thành Asset nhập/Publication Package; muốn đưa vào Library/publication cần nhập file thực qua intake và giữ lineage tới render. Không giả một original VIDEO từ URL hoặc script TEXT. Render mới giữ output cũ.
 
 Workflow và output metadata append-only. Request chỉ được cập nhật một lần từ building sang sealed. JSON kế hoạch trong SQLite là payload snapshot, không là nguồn chuẩn thứ hai ở file JSON. Các file runtime chỉ là IPC/ownership; không cấp review hay quyền media.
+
+Render request/cache ghim cả implementation/source fingerprint, font/version/digest, component và cấu hình codec/budget. Worker đối chiếu snapshot trước chạy và cấu hình thực tế trước ghi output; thay đổi làm từ chối/cache miss. GUI chỉ đọc media options; worker xác minh các file được sử dụng với deadline và Hủy.

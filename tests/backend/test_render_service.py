@@ -46,6 +46,16 @@ class RenderServiceTests(unittest.TestCase):
         )
         self.selection.start()
         self.addCleanup(self.selection.stop)
+        self.identity = patch(
+            "creator_loop.backend.video.render_service.renderer_identity",
+            return_value={
+                "implementation_version": "test",
+                "font_path": "fixture-font.ttf",
+                "configuration": {"font_sha256": "f" * 64},
+            },
+        )
+        self.identity.start()
+        self.addCleanup(self.identity.stop)
 
     def prepare(self):
         return self.service.prepare(
@@ -135,6 +145,23 @@ class RenderServiceTests(unittest.TestCase):
                     lambda: False,
                 )
             self.assertEqual(cached.run_id, request.run_id)
+            with patch(
+                "creator_loop.backend.video.render_service.renderer_identity",
+                return_value={
+                    "implementation_version": "changed",
+                    "font_path": "fixture-font.ttf",
+                    "configuration": {"font_sha256": "e" * 64},
+                },
+            ):
+                self.assertIsNone(
+                    self.service.cached_result(
+                        request.draft.draft_version_id,
+                        request.scenes,
+                        request.preset,
+                        (),
+                        None,
+                    )
+                )
             new = append_draft_version(
                 db,
                 draft_version_id=self.draft.draft_version_id,

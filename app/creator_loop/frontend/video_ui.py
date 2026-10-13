@@ -214,14 +214,14 @@ class VideoDialog(QDialog):
         version = self.draft.currentData()
         if version:
             draft = self.service.draft(str(version))
-            media = self.service.media(draft.project_id)
-            for item in media:
-                if item.media_type == "AUDIO":
-                    self.voiceover.addItem(item.file_id, item.file_id)
+            media = self.service.media_choices(draft.project_id)
+            for file_id, kind in media:
+                if kind == "AUDIO":
+                    self.voiceover.addItem(file_id, file_id)
             self.media_hint.setText(
                 "Media được phép: "
                 + (
-                    "; ".join(f"{m.media_type}: {m.file_id}" for m in media)
+                    "; ".join(f"{kind}: {file_id}" for file_id, kind in media)
                     or "chưa có — preview dùng cảnh chữ."
                 )
             )
@@ -249,7 +249,16 @@ class VideoDialog(QDialog):
             return
         draft = self.service.draft(str(self.draft.currentData()))
         self.scenes.setRowCount(0)
-        for scene in plan_draft(draft, preset=self.preset.currentData()):
+        try:
+            scenes = plan_draft(draft, preset=self.preset.currentData())
+        except ValueError as exc:
+            self.status.setText(
+                "Chưa lập cảnh được: "
+                + str(exc)
+                + " Có thể chỉnh Draft hoặc thêm cảnh thủ công."
+            )
+            return
+        for scene in scenes:
             self._add(scene)
 
     def render(self) -> None:
@@ -280,9 +289,10 @@ class VideoDialog(QDialog):
             offset = 0
             if self.subtitles.isChecked():
                 for scene in scenes:
-                    subtitles.append(
-                        Subtitle(offset, offset + scene.duration_ms, scene.text)
-                    )
+                    if scene.text.strip():
+                        subtitles.append(
+                            Subtitle(offset, offset + scene.duration_ms, scene.text)
+                        )
                     offset += scene.duration_ms
             self.preview.dispose()
             self._result = None

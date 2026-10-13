@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 from contextlib import ExitStack, closing
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -15,13 +16,14 @@ from uuid import uuid4
 
 from creator_loop.backend.library.storage_paths import resolve_storage_path
 from creator_loop.backend.library.text_intake import intake_text_original
-from creator_loop.backend.publication.publication_media import hold_publication_media
+from creator_loop.backend.publication.publication_media import _open_read_lock
 from creator_loop.backend.runtime.database import _connect_write, open_readonly
 from creator_loop.backend.runtime.owned_process import _api
 from creator_loop.backend.runtime.paths import ensure_data_root
 from creator_loop.backend.runtime.runtime_ownership import process_identity
 from creator_loop.backend.runtime.runtime_recovery import _identity_dead
 from creator_loop.backend.video.component_config import load_video_components
+from creator_loop.backend.video.render_identity import renderer_identity
 from creator_loop.shared.workflow import (
     DraftSnapshot,
     Progress,
@@ -38,9 +40,17 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
-def _hash(path: Path) -> str:
+def _hash(path: Path, cancelled: Callable[[], bool] = lambda: False) -> str:
+    deadline = time.monotonic() + 120
+    digest = hashlib.sha256()
     with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        while chunk := stream.read(1024 * 1024):
+            if cancelled():
+                raise InterruptedError("Đã Hủy kiểm file.")
+            if time.monotonic() > deadline:
+                raise TimeoutError("Kiểm file vượt deadline.")
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 class RenderService:
@@ -80,23 +90,60 @@ class RenderService:
             raise ValueError("Cần một Draft VIDEO đã lưu và niêm phong.")
         return found
 
-    def media(self, project_id: str) -> tuple[VerifiedMedia, ...]:
+    def media_choices(self, project_id: str) -> tuple[tuple[str, str], ...]:
+        """Detached options only; physical files are checked by the render worker."""
+        with closing(open_readonly(self.db_path)) as db:
+            return tuple(
+                db.execute(
+                    "SELECT DISTINCT f.file_id,a.media_type FROM asset_files f JOIN assets a ON a.asset_id=f.asset_id JOIN project_references p ON p.asset_id=a.asset_id WHERE p.project_id=? AND p.usage_intent='REUSE_MEDIA' AND a.deleted_at IS NULL AND a.media_type IN ('IMAGE','VIDEO','AUDIO') AND EXISTS(SELECT 1 FROM source_assets sa WHERE sa.asset_id=a.asset_id) AND NOT EXISTS(SELECT 1 FROM source_assets sa JOIN sources s ON s.source_id=sa.source_id WHERE sa.asset_id=a.asset_id AND s.rights_status NOT IN ('OWNED','LICENSED')) ORDER BY f.file_id",
+                    (project_id,),
+                ).fetchall()
+            )
+
+    def media(
+        self,
+        project_id: str,
+        file_ids: set[str] | None = None,
+        cancelled: Callable[[], bool] = lambda: False,
+    ) -> tuple[VerifiedMedia, ...]:
         found = []
+        deadline = time.monotonic() + 120
+
+        def check() -> None:
+            if cancelled():
+                raise InterruptedError("Đã Hủy xác minh media.")
+            if time.monotonic() > deadline:
+                raise TimeoutError("Xác minh media vượt deadline.")
+
         with closing(open_readonly(self.db_path)) as db:
             rows = db.execute(
-                "SELECT DISTINCT f.file_id,f.asset_id,f.role,f.storage_key,f.sha256,a.media_type FROM asset_files f JOIN assets a ON a.asset_id=f.asset_id JOIN project_references p ON p.asset_id=a.asset_id WHERE p.project_id=? AND p.usage_intent='REUSE_MEDIA' AND a.deleted_at IS NULL AND a.media_type IN ('IMAGE','VIDEO','AUDIO')",
+                "SELECT DISTINCT f.file_id,f.asset_id,f.role,f.storage_key,f.sha256,a.media_type,f.byte_size FROM asset_files f JOIN assets a ON a.asset_id=f.asset_id JOIN project_references p ON p.asset_id=a.asset_id WHERE p.project_id=? AND p.usage_intent='REUSE_MEDIA' AND a.deleted_at IS NULL AND a.media_type IN ('IMAGE','VIDEO','AUDIO')",
                 (project_id,),
             ).fetchall()
-            for file_id, asset_id, role, key, digest, kind in rows:
+            for file_id, asset_id, role, key, digest, kind, expected_size in rows:
+                if file_ids is not None and file_id not in file_ids:
+                    continue
+                check()
                 try:
                     with ExitStack() as handles:
-                        hold_publication_media(
-                            db,
-                            file_id=file_id,
-                            expected_digest=digest,
-                            data_root=self.root,
-                            handles=handles,
-                        )
+                        path = resolve_storage_path(self.root, role, key)
+                        stream = handles.enter_context(_open_read_lock(path))
+                        actual = hashlib.sha256()
+                        size = 0
+                        while chunk := stream.read(1024 * 1024):
+                            check()
+                            actual.update(chunk)
+                            size += len(chunk)
+                        if actual.hexdigest() != digest or size != expected_size:
+                            raise ValueError("Media bytes không khớp.")
+                        rights = db.execute(
+                            "SELECT s.rights_status FROM source_assets sa JOIN sources s ON s.source_id=sa.source_id WHERE sa.asset_id=?",
+                            (asset_id,),
+                        ).fetchall()
+                        if not rights or any(
+                            r[0] not in {"OWNED", "LICENSED"} for r in rights
+                        ):
+                            raise ValueError("Quyền media chưa rõ.")
                     found.append(
                         VerifiedMedia(
                             file_id,
@@ -118,7 +165,10 @@ class RenderService:
         preset: RenderPreset,
         subtitles: tuple[Subtitle, ...] = (),
         voiceover_file_id: str | None = None,
+        cancelled: Callable[[], bool] = lambda: False,
     ) -> RenderRequest:
+        if cancelled():
+            raise InterruptedError("Đã Hủy trước khi tạo render run.")
         draft = self.draft(version_id)
         if not scenes or len(scenes) > 40 or any(s.duration_ms <= 0 for s in scenes):
             raise ValueError("Cần 1–40 cảnh có thời lượng dương.")
@@ -127,7 +177,7 @@ class RenderService:
         media_ids = {s.file_id for s in scenes if s.file_id is not None}
         if voiceover_file_id:
             media_ids.add(voiceover_file_id)
-        media = tuple(m for m in self.media(draft.project_id) if m.file_id in media_ids)
+        media = self.media(draft.project_id, media_ids, cancelled)
         if {m.file_id for m in media} != media_ids:
             raise ValueError(
                 "Media chưa có tham chiếu REUSE_MEDIA và quyền hợp lệ, hoặc file không còn khớp."
@@ -170,6 +220,7 @@ class RenderService:
                 {"id": s.component_id, "version": s.version, "sha256": s.sha256}
                 for s in specs
             ],
+            "renderer": renderer_identity(specs),
         }
         serialized = json.dumps(
             payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -305,7 +356,7 @@ class RenderService:
         voiceover_file_id: str | None = None,
     ) -> RenderResult:
         cached = self.cached_result(
-            version_id, scenes, preset, subtitles, voiceover_file_id
+            version_id, scenes, preset, subtitles, voiceover_file_id, cancelled
         )
         if cached is not None and not cancelled():
             progress(
@@ -318,20 +369,48 @@ class RenderService:
                 )
             )
             return cached
-        request = self.prepare(version_id, scenes, preset, subtitles, voiceover_file_id)
+        request = self.prepare(
+            version_id, scenes, preset, subtitles, voiceover_file_id, cancelled
+        )
         try:
             from creator_loop.backend.video.renderer import LocalFFmpegRenderer
 
             specs = load_video_components(self.root)
+            with closing(open_readonly(self.db_path)) as db:
+                sealed = json.loads(
+                    db.execute(
+                        "SELECT request_json FROM draft_render_requests WHERE render_run_id=?",
+                        (request.run_id,),
+                    ).fetchone()[0]
+                )
+            identity = renderer_identity(specs)
+            if identity != sealed["renderer"] or sealed["components"] != [
+                {"id": s.component_id, "version": s.version, "sha256": s.sha256}
+                for s in specs
+            ]:
+                raise ValueError(
+                    "Component/font/cấu hình đã đổi sau seal; tạo render mới."
+                )
             with closing(_connect_write(self.db_path)) as db:
                 db.execute(
                     "UPDATE processing_runs SET status='RUNNING',started_at=? WHERE run_id=? AND status='QUEUED'",
                     (_now(), request.run_id),
                 )
                 db.commit()
-            result = LocalFFmpegRenderer(self.root, specs).render(
-                request, progress, cancelled
+            renderer = LocalFFmpegRenderer(
+                self.root, specs, font_path=Path(str(identity["font_path"]))
             )
+            result = renderer.render(request, progress, cancelled)
+            if (
+                result.status == "SUCCEEDED"
+                and renderer.configuration != identity["configuration"]
+            ):
+                result = RenderResult(
+                    request.run_id,
+                    version_id,
+                    "FAILED",
+                    error="Cấu hình/font thực tế không khớp snapshot render.",
+                )
         except Exception as exc:
             result = RenderResult(
                 request.run_id,
@@ -357,12 +436,13 @@ class RenderService:
         preset: RenderPreset,
         subtitles: tuple[Subtitle, ...],
         voiceover: str | None,
+        cancelled: Callable[[], bool] = lambda: False,
     ) -> RenderResult | None:
         draft = self.draft(version_id)
         ids = {s.file_id for s in scenes if s.file_id}
         if voiceover:
             ids.add(voiceover)
-        media = tuple(m for m in self.media(draft.project_id) if m.file_id in ids)
+        media = self.media(draft.project_id, ids, cancelled)
         if {m.file_id for m in media} != ids:
             return None
         specs = load_video_components(self.root)
@@ -380,6 +460,7 @@ class RenderService:
                 {"id": s.component_id, "version": s.version, "sha256": s.sha256}
                 for s in specs
             ],
+            "renderer": renderer_identity(specs),
         }
         with closing(open_readonly(self.db_path)) as db:
             rows = db.execute(
@@ -396,7 +477,8 @@ class RenderService:
                 ).fetchall()
                 try:
                     if any(
-                        _hash(resolve_storage_path(self.root, role, key)) != digest
+                        _hash(resolve_storage_path(self.root, role, key), cancelled)
+                        != digest
                         for role, key, digest in inputs
                     ):
                         continue
