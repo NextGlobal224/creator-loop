@@ -16,6 +16,7 @@ from creator_loop.backend.facebook.facebook_browser import (
     SCAN_SECONDS,
 )
 from creator_loop.backend.facebook.facebook_cdp import TARGET_ID
+from creator_loop.backend.facebook.facebook_diagnostics import diagnostic_label
 from creator_loop.backend.facebook.facebook_research import (
     research_counts,
     store_search,
@@ -325,7 +326,7 @@ def run_FacebookWorker(self: Any) -> None:
             else "Đã lưu phiên riêng. Có thể Quét.",
             "CLOSED": "Trình duyệt đã đóng.",
             "OPENED": "Nguồn đã đóng.",
-            "BROWSER_FAILED": "Không kết nối được; Chrome của bạn vẫn mở. Kiểm tra Remote Debugging và chọn Allow khi Chrome hỏi."
+            "BROWSER_FAILED": "Tác vụ Facebook không hoàn tất; Chrome và dữ liệu cũ được giữ. Xem mã lỗi trước khi thử lại."
             if self.transport == "existing"
             else "Trình duyệt không hoàn tất. Đã đóng cây tiến trình riêng.",
             "SESSION_UNCONFIRMED": "Chưa xác nhận được phiên Facebook trên tab đã chọn. Chrome được giữ mở; chưa cho phép Quét.",
@@ -339,6 +340,10 @@ def run_FacebookWorker(self: Any) -> None:
             messages["SUCCEEDED"] = (
                 f"Ứng viên {counts['candidates']}; đủ dữ liệu {counts['evaluated']}; đạt viral {counts['viral']}; {len(body['queries'])} truy vấn, {body['details_used']} lần mở chi tiết. Chọn/bỏ chọn trước khi Lưu; bài phân tích không được tính viral."
             )
+        if status in ("BROWSER_FAILED", "TIMED_OUT") and (
+            label := diagnostic_label(body.get("diagnostic"))
+        ):
+            messages[status] += " Mã lỗi: " + label
         self.completed.emit(messages.get(status, messages["BROWSER_FAILED"]))
     except InterruptedError:
         self.completed.emit(

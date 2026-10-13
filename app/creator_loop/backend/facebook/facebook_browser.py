@@ -515,10 +515,13 @@ def _run_browser_task(path: Path, held: ExitStack) -> int:
     except TimeoutError:
         emit({"status": "TIMED_OUT", "count": 0})
         return 4
-    except Exception:
+    except Exception as error:
         # Never dump browser exceptions: they may contain URLs/session secrets.
-        emit({"status": "BROWSER_FAILED", "count": 0})
-        return 5
+        from creator_loop.backend.facebook.facebook_diagnostics import browser_failure
+
+        failure = browser_failure(error)
+        emit(failure)
+        return 4 if failure["status"] == "TIMED_OUT" else 5
     return 0
 
 
