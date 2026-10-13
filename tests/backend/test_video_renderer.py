@@ -206,6 +206,14 @@ class RendererTests(unittest.TestCase):
         result = self.render()
         self.assertEqual(result.status, "FAILED")
         self.assertFalse(list(self.request.output_directory.iterdir()))
+
+    def test_incomplete_scene_is_rejected_before_concatenation(self):
+        self.tools.output_frames = 47
+        result = self.render()
+        self.assertEqual(result.status, "FAILED")
+        self.assertIn("frame/track", result.error)
+        self.assertFalse(any("concat" in args for _tool, args in self.tools.calls))
+        self.assertIsNone(result.output_path)
         self.tools.bad_output = False
         self.tools.fail_encode = True
         result = self.render(replace(self.request, run_id="fail2"))

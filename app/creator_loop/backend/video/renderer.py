@@ -311,6 +311,20 @@ class LocalFFmpegRenderer:
                                 progress_file=position,
                                 callback=scene_progress,
                             )
+                            segment = workspace / f"segment-{index:03d}.mp4"
+                            segment_info = parse_probe(
+                                run("ffprobe", probe_arguments(segment), workspace)
+                            )
+                            if (
+                                segment_info.frame_count != timed.frames
+                                or segment_info.width != request.preset.width
+                                or segment_info.height != request.preset.height
+                                or segment_info.video_codec != "h264"
+                                or segment_info.audio_codec != "aac"
+                            ):
+                                raise LocalToolError(
+                                    "Cảnh render không có đủ frame/track theo timeline."
+                                )
                         (workspace / "concat.txt").write_text(
                             "\n".join(
                                 f"file 'segment-{i:03d}.mp4'"
@@ -636,8 +650,14 @@ class LocalFFmpegRenderer:
         if voiceover is not None:
             args += ["-protocol_whitelist", "file,pipe", "-i", str(voiceover.path)]
         args += ["-map", "0:v:0", "-map", "1:a:0" if voiceover else "0:a:0"]
-        if filters:
-            args += ["-vf", ",".join(filters)]
+        # AAC priming can shift concat demux timestamps by one frame. Rebuild
+        # the video clock from the verified scene frame sequence, not audio PTS.
+        args += [
+            "-vf",
+            ",".join((f"setpts=N/({request.preset.fps}*TB)", *filters)),
+            "-r",
+            str(request.preset.fps),
+        ]
         args += [
             "-t",
             f"{timeline.frames / request.preset.fps:.6f}",
