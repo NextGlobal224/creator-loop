@@ -12,9 +12,9 @@ from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from creator_loop.database import SCHEMA_VERSION, initialize
-from creator_loop.owned_process import OwnedWindowsProcess
-from creator_loop.paths import ensure_data_root
+from creator_loop.backend.runtime.database import SCHEMA_VERSION, initialize
+from creator_loop.backend.runtime.owned_process import OwnedWindowsProcess
+from creator_loop.backend.runtime.paths import ensure_data_root
 
 
 def main() -> None:

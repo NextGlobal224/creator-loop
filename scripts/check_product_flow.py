@@ -14,7 +14,7 @@ from pathlib import Path
 from PySide6.QtGui import QImage
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-from creator_loop.windows_paths import file_io_path
+from creator_loop.backend.runtime.windows_paths import file_io_path
 
 
 def snapshot(root: Path) -> dict[str, str]:
