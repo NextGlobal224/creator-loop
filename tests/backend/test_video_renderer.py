@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -172,6 +173,33 @@ class RendererTests(unittest.TestCase):
         result = self.render(cancelled=lambda: True)
         self.assertEqual(result.status, "CANCELLED")
         self.assertEqual(self.tools.calls, [])
+
+    def test_hardlinked_system_font_can_be_copied_but_media_alias_is_rejected(self):
+        font_alias = self.root / "font-winsxs-alias.ttf"
+        os.link(self.font, font_alias)
+        result = self.render()
+        self.assertEqual(result.status, "SUCCEEDED", result.error)
+        media_path = self.root / "hardlinked.png"
+        media_path.write_bytes(b"synthetic image")
+        os.link(media_path, self.root / "another-hardlink.png")
+        image = VerifiedMedia(
+            "image",
+            "asset",
+            media_path,
+            hashlib.sha256(media_path.read_bytes()).hexdigest(),
+            "IMAGE",
+            True,
+        )
+        result = self.render(
+            replace(
+                self.request,
+                run_id="alias-media",
+                scenes=(Scene("", 2000, "IMAGE", "image"),),
+                media=(image,),
+            )
+        )
+        self.assertEqual(result.status, "FAILED")
+        self.assertIsNone(result.output_path)
 
     def test_bad_probe_and_encoder_failure_do_not_publish(self):
         self.tools.bad_output = True

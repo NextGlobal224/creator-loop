@@ -82,7 +82,7 @@ BASE_ARGS = [
 ]
 
 
-def _canonical_file(path: Path) -> Path:
+def _canonical_file(path: Path, *, allow_font_hardlinks: bool = False) -> Path:
     canonical = resolve_file_path(path, strict=True)
     if os.path.normcase(str(path.absolute())) != os.path.normcase(str(canonical)):
         raise VideoPlanError("File render phải dùng đường dẫn chuẩn, không qua alias.")
@@ -95,7 +95,7 @@ def _canonical_file(path: Path) -> Path:
     info = file_io_path(canonical).stat()
     if (
         not stat.S_ISREG(info.st_mode)
-        or info.st_nlink != 1
+        or (info.st_nlink != 1 and not allow_font_hardlinks)
         or not 0 < info.st_size <= MAX_INPUT_BYTES
     ):
         raise VideoPlanError(
@@ -254,7 +254,11 @@ class LocalFFmpegRenderer:
                     self._check_tools(lambda tool, args: run(tool, args, workspace))
                     with ExitStack() as held:
                         media = self._hold_inputs(request, held, check)
-                        font = _canonical_file(self.font_path or _font())
+                        # Windows system fonts commonly have a WinSxS hardlink.
+                        # This is a read-only font copy, never an imported Asset.
+                        font = _canonical_file(
+                            self.font_path or _font(), allow_font_hardlinks=True
+                        )
                         if file_io_path(font).stat().st_size > 20 * 1024 * 1024:
                             raise VideoPlanError("Font local vượt giới hạn 20 MiB.")
                         font_stream = held.enter_context(_open_read_lock(font))
