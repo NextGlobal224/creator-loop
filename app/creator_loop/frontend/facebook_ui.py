@@ -11,6 +11,7 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -38,6 +39,7 @@ from creator_loop.backend.facebook.facebook_research import (
     METRICS,
     candidates,
     criteria,
+    export_viral_results,
     hashtag_summary,
     reassessed_candidates,
     research_counts,
@@ -329,8 +331,12 @@ class FacebookDialog(QDialog):
         self.open_candidate = QPushButton("Mở ứng viên")
         self.open_candidate.setObjectName("facebookOpenCandidate")
         self.open_candidate.clicked.connect(self.open_candidate_source)
+        self.export_results = QPushButton("Xuất bảng bài đạt viral")
+        self.export_results.setObjectName("facebookExportViral")
+        self.export_results.clicked.connect(self.export_viral)
         actions.addWidget(self.save_candidates)
         actions.addWidget(self.open_candidate)
+        actions.addWidget(self.export_results)
         layout.addLayout(actions)
         self.open_source = QPushButton("Mở nguồn")
         self.open_source.setObjectName("facebookOpen")
@@ -451,6 +457,7 @@ class FacebookDialog(QDialog):
         )
         self.counts_label.setText(
             f"Ứng viên {counts['candidates']} | Đủ dữ liệu đánh giá viral {counts['evaluated']} "
+            f"| Đúng chủ đề/ngày {counts['topical']} "
             f"| Đạt viral {counts['viral']} / mục tiêu 40 (tối thiểu 20) "
             f"| Đang chọn lưu {selected} | Đã lưu {sum(bool(r['saved']) for r in rows)}"
         )
@@ -458,6 +465,17 @@ class FacebookDialog(QDialog):
     def change_search(self) -> None:
         self.current_search = self.search_history.currentData()
         self.reload_candidates(candidates(self.root))
+
+    def export_viral(self) -> None:
+        target, _ = QFileDialog.getSaveFileName(
+            self, "Xuất bảng bài đạt viral", "viral-results.csv", "CSV (*.csv)"
+        )
+        if target:
+            try:
+                count = export_viral_results(Path(target), self.candidate_rows)
+                self.status.setText(f"Đã xuất {count} bài đạt viral: {target}")
+            except (OSError, ValueError) as exc:
+                self.status.setText("Không xuất bảng: " + str(exc))
 
     def reload_candidates(self, observations: list[dict[str, Any]]) -> None:
         choices = self._candidate_choices
@@ -510,7 +528,10 @@ class FacebookDialog(QDialog):
                     "Đạt viral"
                     if research_counts([row])["viral"]
                     else "Không đạt chủ đề/ngày"
-                    if row["assessment"]["state"] == "REJECTED"
+                    if row["assessment"]["topical"] is False
+                    or row["assessment"]["time_match"] is False
+                    else "Không đạt ngưỡng viral"
+                    if row["assessment"]["viral"] is False
                     else "Chưa đủ căn cứ viral"
                 )
             values = (

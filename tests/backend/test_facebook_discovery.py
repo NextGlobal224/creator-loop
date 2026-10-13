@@ -111,7 +111,7 @@ class DiscoveryTests(unittest.TestCase):
             settings(
                 mode="VIRAL",
                 queries=["Python", "Python guide"],
-                max_candidates=160,
+                max_candidates=100,
                 max_details=80,
             ),
             Mock(),
@@ -284,3 +284,19 @@ class DiscoveryTests(unittest.TestCase):
             discover(page, settings(), Mock(), lambda: True, time.monotonic() + 10)
         self.assertEqual(page.url, "https://www.facebook.com/")
         self.assertEqual(page.detail_reads, [])
+
+    def test_viral_query_expansion_cites_observed_related_source_and_keeps_budget(self):
+        result = discover(
+            Page(),
+            settings(mode="VIRAL", max_queries=3, max_candidates=100, max_details=20),
+            Mock(),
+            lambda: False,
+            time.monotonic() + 10,
+        )
+        sources = [q for q in result["queries"] if q["kind"] == "OBSERVED_SOURCE"]
+        self.assertEqual(len(sources), 1)
+        self.assertTrue(sources[0]["source_urls"])
+        self.assertLessEqual(result["count"], 100)
+        self.assertEqual(
+            len({i["external_id"] for i in result["candidates"]}), result["count"]
+        )

@@ -18,8 +18,8 @@ from creator_loop.backend.runtime.database import _connect_write, open_readonly
 MODES = ("COMBINED", "VIRAL", "ANALYSIS")
 METRICS = ("likes", "comments", "shares", "views")
 DEFAULT_THRESHOLDS = dict(zip(METRICS, (1000, 100, 100, 10000), strict=True))
-MAX_SCAN_BUDGETS = {"max_queries": 12, "max_candidates": 300, "max_details": 120}
-DEFAULT_SCAN_BUDGETS = {"max_queries": 8, "max_candidates": 160, "max_details": 80}
+MAX_SCAN_BUDGETS = {"max_queries": 12, "max_candidates": 100, "max_details": 100}
+DEFAULT_SCAN_BUDGETS = {"max_queries": 12, "max_candidates": 100, "max_details": 60}
 VIRAL_TARGET = 40
 
 
@@ -37,6 +37,17 @@ def fold(value: str) -> str:
 
 def suggested_queries(topic: str, purpose: str = "") -> list[str]:
     topic = topic.strip()[:200]
+    if truth_topic(topic):
+        return [
+            topic,
+            "kiểm chứng sự thật",
+            "thiên kiến nhận thức",
+            "tư duy phản biện",
+            "phân biệt sự thật và niềm tin",
+            "nhìn nhận thực tại",
+            "nhận thức sai lầm",
+            "thông tin sai lệch",
+        ]
     return (
         [
             topic,
@@ -106,7 +117,7 @@ def criteria(value: Any) -> dict[str, Any]:
 def research_counts(items: list[dict[str, Any]]) -> dict[str, int]:
     """Unique posts; analysis eligibility never contributes to viral counts."""
     unique = {item["external_id"]: item for item in items}
-    evaluated = viral = 0
+    evaluated = topical = viral = 0
     for item in unique.values():
         assessment = item["assessment"]
         bound = bool(item.get("excerpt") and item.get("publisher"))
@@ -116,13 +127,122 @@ def research_counts(items: list[dict[str, Any]]) -> dict[str, int]:
             and assessment["time_match"] is not None
             and assessment["viral"] is not None
         )
+        topical += int(
+            bound and assessment["topical"] is True and assessment["time_match"] is True
+        )
         viral += int(
             bound
             and assessment["topical"] is True
             and assessment["time_match"] is True
             and assessment["viral"] is True
         )
-    return {"candidates": len(unique), "evaluated": evaluated, "viral": viral}
+    return {
+        "candidates": len(unique),
+        "evaluated": evaluated,
+        "topical": topical,
+        "viral": viral,
+    }
+
+
+def normalized_text(value: str) -> str:
+    return " ".join(
+        unicodedata.normalize("NFC", re.sub(r"(?<!\w)#[\w]+", "", value))
+        .casefold()
+        .split()
+    )
+
+
+def truth_topic(topic: str) -> bool:
+    text = normalized_text(topic)
+    return "sự thật" in text and any(
+        cue in text for cue in ("nhận thức", "hiểu đúng", "kiểm chứng", "tư duy")
+    )
+
+
+def topic_assessment(
+    excerpt: str, topic: str
+) -> tuple[bool | None, list[str], list[str]]:
+    """Transparent local concept rules, not semantic-model inference.
+
+    Truth/cognition cues must occur in one local passage. Generic motivation,
+    a publisher's name and hashtags cannot alone establish the topic.
+    """
+    if not excerpt:
+        return None, ["Chủ đề: Chưa rõ — chưa đọc được nội dung"], []
+    text = normalized_text(excerpt)
+    if truth_topic(topic):
+        truths = (
+            "sự thật",
+            "chân lý",
+            "thực tại",
+            "hiện thực",
+            "tin giả",
+            "thông tin sai",
+            "thông tin sai lệch",
+            "thật giả",
+            "bằng chứng",
+            "dữ kiện",
+        )
+        cognition = (
+            "nhận thức",
+            "hiểu đúng",
+            "hiểu sai",
+            "niềm tin",
+            "định kiến",
+            "thiên kiến",
+            "ngộ nhận",
+            "kiểm chứng",
+            "hoài nghi",
+            "suy diễn",
+            "tư duy phản biện",
+            "phân biệt",
+            "góc nhìn",
+            "ảo tưởng",
+        )
+        matches = []
+        for truth in truths:
+            for anchor in re.finditer(r"(?<!\w)" + re.escape(truth) + r"(?!\w)", text):
+                passage = text[max(0, anchor.start() - 140) : anchor.end() + 180]
+                cues = [
+                    c
+                    for c in cognition
+                    if re.search(r"(?<!\w)" + re.escape(c) + r"(?!\w)", passage)
+                ]
+                if cues:
+                    matches.append((truth, cues[0], passage))
+        if matches:
+            truth, cue, passage = matches[0]
+            return (
+                True,
+                [
+                    f"Chủ đề TRUTH_AWARENESS: “{truth}” + “{cue}” trong cùng ngữ cảnh; quy tắc local, cần review nội dung"
+                ],
+                [passage],
+            )
+        return (
+            False,
+            [
+                "Chủ đề TRUTH_AWARENESS: chưa có căn cứ liên hệ sự thật/thực tại với nhận thức hoặc kiểm chứng trong phần đọc được"
+            ],
+            [],
+        )
+    phrases = [
+        p.strip()
+        for p in re.split(r"\b(?:về|và|các|của|ở|tại)\b", normalized_text(topic))
+        if p.strip()
+    ]
+    matched = bool(phrases) and all(
+        re.search(r"(?<!\w)" + re.escape(p) + r"(?!\w)", text) for p in phrases
+    )
+    return (
+        bool(matched),
+        (
+            ["Chủ đề: các cụm nội dung đã đọc khớp “" + topic + "”"]
+            if matched
+            else ["Chủ đề: không tìm thấy căn cứ trong phần đọc được"]
+        ),
+        ([excerpt[:350]] if matched else []),
+    )
 
 
 def metric(raw: Any) -> dict[str, Any] | None:
@@ -189,27 +309,8 @@ def displayed_post_date(label: Any) -> str | None:
 
 def assess(item: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
     excerpt = item.get("excerpt") or ""
-    # Vietnamese accents distinguish words (nhận/nhân, đúng/đứng/dùng).
-    # Accent folding here turned unrelated long captions into topic matches.
-    text = " ".join(
-        unicodedata.normalize("NFC", re.sub(r"(?<!\w)#[\w]+", "", excerpt))
-        .casefold()
-        .split()
-    )
-    topic = " ".join(unicodedata.normalize("NFC", settings["topic"]).casefold().split())
-    phrases = [
-        p.strip() for p in re.split(r"\b(?:về|và|các|của|ở|tại)\b", topic) if p.strip()
-    ]
-    # Adjacent phrases prevent an unrelated caption matching scattered words
-    # such as nhận lương / kiến thức / công việc đúng / sự may mắn / thật thà.
-    topical = (
-        bool(phrases)
-        and all(
-            re.search(r"(?<!\w)" + re.escape(p) + r"(?!\w)", text) is not None
-            for p in phrases
-        )
-        if excerpt
-        else None
+    topical, topic_reasons, topic_evidence = topic_assessment(
+        excerpt, settings["topic"]
     )
     published = item.get("published_at")
     dated = (
@@ -227,7 +328,7 @@ def assess(item: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
             if dated
             else None
         )
-    reasons, evidence = [], []
+    reasons, evidence = [], list(topic_evidence)
     signals = []
     for name in METRICS:
         reading = item.get("metrics", {}).get(name)
@@ -242,6 +343,15 @@ def assess(item: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
         else False
         if all(item.get("metrics", {}).get(n) is not None for n in METRICS)
         else None
+    )
+    viral_reasons = (
+        ["Viral: cả bốn chỉ số đã đọc đều dưới ngưỡng — không đạt"]
+        if viral is False
+        else [
+            "Viral: Chưa rõ — chỉ số đã đọc chưa đạt ngưỡng, còn thiếu trường quyết định"
+        ]
+        if viral is None
+        else []
     )
     categories = {
         "Vấn đề": ("vấn đề", "rủi ro", "lỗi", "khó khăn", "tại sao"),
@@ -287,7 +397,9 @@ def assess(item: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
         "QUALIFIED"
         if eligible
         else "REJECTED"
-        if topical is False or in_time is False
+        if topical is False
+        or in_time is False
+        or (settings["mode"] == "VIRAL" and viral is False)
         else "NEEDS_REVIEW"
     )
     missing = [
@@ -304,10 +416,16 @@ def assess(item: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
         "viral": viral,
         "analysis": analysis,
         "state": state,
-        "reasons": signals + reasons,
+        "reasons": signals + topic_reasons + viral_reasons + reasons,
         "evidence": list(dict.fromkeys(evidence)),
         "missing": missing,
-        "method": "LOCAL_RULES_V1_3",
+        "method": "LOCAL_RULES_V1_4_CONTEXT",
+        "viral_rule": " OR ".join(
+            f"{name} >= {settings['thresholds'][name]}" for name in METRICS
+        ),
+        "eligibility_rule": "TOPIC AND TIME AND VIRAL"
+        if settings["mode"] == "VIRAL"
+        else settings["mode"],
         "purpose": settings["purpose"],
     }
 
@@ -643,3 +761,72 @@ def reassessed_candidates(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
         for r in items
     ]
+
+
+def prioritized_sources(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Observed relevant post history, never an invented badge/quality claim."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in {r["external_id"]: r for r in items}.values():
+        if item.get("publisher_url") and item["assessment"]["topical"] is True:
+            grouped.setdefault(item["publisher_url"], []).append(item)
+    return sorted(
+        [
+            {
+                "publisher_url": url,
+                "publisher": posts[0].get("publisher"),
+                "topical_posts": len(posts),
+                "viral_posts": sum(p["assessment"]["viral"] is True for p in posts),
+                "source_urls": [p["url"] for p in posts],
+                "reason": "Có bài liên quan đã đọc trong mẫu; ưu tiên số bài có chỉ số đạt ngưỡng. Tích xanh, tần suất đăng và tính thật của tương tác: Chưa rõ.",
+            }
+            for url, posts in grouped.items()
+        ],
+        key=lambda p: (-p["viral_posts"], -p["topical_posts"], p["publisher_url"]),
+    )
+
+
+def export_viral_results(path: Path, items: list[dict[str, Any]]) -> int:
+    """Human requested export of the same assessed observations; no intake."""
+    import csv
+
+    rows = [
+        r
+        for r in {i["external_id"]: i for i in items}.values()
+        if research_counts([r])["viral"]
+    ]
+    fields = [
+        "external_id",
+        "url",
+        "publisher",
+        "observed_at",
+        "published_at",
+        "published_label",
+        "scope",
+        "query",
+        "caption_excerpt",
+        "viral_rule",
+        "reason",
+    ] + list(METRICS)
+    with path.open("x", encoding="utf-8-sig", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fields)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    **{key: row.get(key) or "Chưa rõ" for key in fields[:8]},
+                    "query": row["query"],
+                    "caption_excerpt": " ".join(
+                        (row.get("excerpt") or "").split()[:20]
+                    ),
+                    "viral_rule": row["assessment"]["viral_rule"],
+                    "reason": "; ".join(row["assessment"]["reasons"]),
+                    **{
+                        name: row["metrics"][name]["raw"]
+                        + (" (xấp xỉ)" if row["metrics"][name]["approximate"] else "")
+                        if row["metrics"][name]
+                        else "Chưa rõ"
+                        for name in METRICS
+                    },
+                }
+            )
+    return len(rows)

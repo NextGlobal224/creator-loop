@@ -115,7 +115,12 @@ def read_terminal(
                     or set(q) != {"text", "kind", "source_urls"}
                     or not isinstance(q["text"], str)
                     or not 1 <= len(q["text"]) <= 200
-                    or q["kind"] not in ("EDITABLE_SUGGESTION", "OBSERVED_HASHTAG")
+                    or q["kind"]
+                    not in (
+                        "EDITABLE_SUGGESTION",
+                        "OBSERVED_HASHTAG",
+                        "OBSERVED_SOURCE",
+                    )
                     or not isinstance(q["source_urls"], list)
                     or len(q["source_urls"]) > 100
                     or any(post_link(url) is None for url in q["source_urls"])

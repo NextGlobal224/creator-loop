@@ -18,7 +18,9 @@ from creator_loop.backend.facebook.facebook_research import (
     candidate,
     criteria,
     hashtag_summary,
+    prioritized_sources,
     research_counts,
+    truth_topic,
 )
 from creator_loop.backend.facebook.facebook_sources import post_link
 
@@ -370,6 +372,30 @@ def discover(
                         "source_urls": tag["source_urls"][:40],
                     }
                 )
+        if settings["mode"] == "VIRAL" and len(queue) < settings["max_queries"]:
+            for source in prioritized_sources(list(found.values())):
+                if (
+                    not source["viral_posts"] and source["topical_posts"] < 2
+                ) or not source["publisher"]:
+                    continue
+                expanded = (
+                    source["publisher"]
+                    + " "
+                    + (
+                        "sự thật"
+                        if truth_topic(settings["topic"])
+                        else settings["topic"]
+                    )
+                )[:200]
+                if expanded not in {q["text"] for q in queue}:
+                    queue.append(
+                        {
+                            "text": expanded,
+                            "kind": "OBSERVED_SOURCE",
+                            "source_urls": source["source_urls"][:40],
+                        }
+                    )
+                    break
     return {
         "status": "SUCCEEDED",
         "count": len(found),

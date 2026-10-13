@@ -12,8 +12,10 @@ from creator_loop.backend.facebook.facebook_research import (
     candidate,
     candidates,
     criteria,
+    export_viral_results,
     hashtag_summary,
     metric,
+    prioritized_sources,
     research_counts,
     save_selected,
     store_search,
@@ -56,6 +58,57 @@ def observation(pid="12", **changes):
 
 
 class ResearchTests(unittest.TestCase):
+    def test_context_match_accepts_verification_without_whole_query_and_rejects_hashtag_only(
+        self,
+    ):
+        params = settings(mode="VIRAL", topic="nhận thức đúng về sự thật")
+        matched = candidate(
+            observation(
+                excerpt="Kiểm chứng tin giả trước khi chia sẻ: hãy phân biệt dữ kiện với niềm tin.",
+                metrics={"comments": "100 bình luận"},
+            ),
+            "kiểm chứng",
+            params,
+        )
+        self.assertTrue(matched["assessment"]["topical"])
+        self.assertEqual(research_counts([matched])["viral"], 1)
+        self.assertIn("TRUTH_AWARENESS", matched["assessment"]["reasons"][1])
+        self.assertEqual(
+            matched["assessment"]["eligibility_rule"], "TOPIC AND TIME AND VIRAL"
+        )
+        self.assertIn("comments >= 100", matched["assessment"]["viral_rule"])
+        false = candidate(
+            observation(
+                "13",
+                excerpt="Tuyển sinh tư duy sáng tạo #viral #sự_thật #nhận_thức",
+                metrics={"shares": "1000 shares"},
+            ),
+            "tư duy",
+            params,
+        )
+        self.assertFalse(false["assessment"]["topical"])
+        self.assertEqual(research_counts([false])["viral"], 0)
+
+    def test_source_priority_and_export_use_observed_unique_topical_viral_posts(self):
+        params = settings(mode="VIRAL")
+        one = candidate(observation(metrics={"likes": "1,2K likes"}), "Python", params)
+        unrelated = candidate(
+            observation("13", excerpt="Java", metrics={"likes": "9000 likes"}),
+            "Python",
+            params,
+        )
+        priority = prioritized_sources([one, one, unrelated])
+        self.assertEqual(priority[0]["viral_posts"], 1)
+        self.assertEqual(priority[0]["source_urls"], [one["url"]])
+        self.assertIn("Chưa rõ", priority[0]["reason"])
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "kết quả.csv"
+            self.assertEqual(export_viral_results(path, [one, one, unrelated]), 1)
+            text = path.read_text(encoding="utf-8-sig")
+            self.assertIn("xấp xỉ", text)
+            self.assertIn("likes >= 1000", text)
+            self.assertNotIn(unrelated["url"], text)
+
     def test_vietnamese_topic_preserves_accents_against_false_positive_words(self):
         params = settings(mode="VIRAL", topic="nhận thức đúng về sự thật")
         false = candidate(
@@ -79,7 +132,7 @@ class ResearchTests(unittest.TestCase):
         )
         self.assertTrue(correct["assessment"]["topical"])
         self.assertEqual(research_counts([correct])["viral"], 1)
-        self.assertEqual(correct["assessment"]["method"], "LOCAL_RULES_V1_3")
+        self.assertEqual(correct["assessment"]["method"], "LOCAL_RULES_V1_4_CONTEXT")
 
     def test_topic_phrases_reject_scattered_words_in_unrelated_job_post(self):
         params = settings(mode="VIRAL", topic="nhận thức đúng về sự thật")
@@ -118,7 +171,7 @@ class ResearchTests(unittest.TestCase):
         missing = candidate({"url": observation("14")["url"]}, "Python", params)
         self.assertEqual(
             research_counts([matched, matched, analytical, unrelated, missing]),
-            {"candidates": 4, "evaluated": 2, "viral": 1},
+            {"candidates": 4, "evaluated": 2, "topical": 2, "viral": 1},
         )
         self.assertIn("≥ 1000", matched["assessment"]["reasons"][0])
         below = candidate(
@@ -134,15 +187,16 @@ class ResearchTests(unittest.TestCase):
             params,
         )
         self.assertFalse(below["assessment"]["viral"])
+        self.assertEqual(below["assessment"]["state"], "REJECTED")
         self.assertEqual(research_counts([below])["viral"], 0)
 
     def test_larger_budget_is_still_finite_without_changing_thresholds(self):
-        params = settings(max_queries=12, max_candidates=300, max_details=120)
+        params = settings(max_queries=12, max_candidates=100, max_details=100)
         self.assertEqual(params["thresholds"], DEFAULT_THRESHOLDS)
         for key, invalid in (
             ("max_queries", 13),
-            ("max_candidates", 301),
-            ("max_details", 121),
+            ("max_candidates", 101),
+            ("max_details", 101),
         ):
             with self.assertRaises(ValueError):
                 settings(**{key: invalid})
@@ -158,9 +212,9 @@ class ResearchTests(unittest.TestCase):
             settings(),
         )
         self.assertTrue(data["assessment"]["analysis"])
-        self.assertEqual(
+        self.assertIn(
+            "Dữ kiện: có cụm “mức giá” trong phần đọc được",
             data["assessment"]["reasons"],
-            ["Dữ kiện: có cụm “mức giá” trong phần đọc được"],
         )
         self.assertIn("199K", data["assessment"]["evidence"][0])
 
@@ -390,7 +444,7 @@ class ResearchTests(unittest.TestCase):
                 root, keyword="old", url=observation()["url"], excerpt=None
             )
             initialize(path)
-            snapshots = list(root.glob("*.pre-v8-*.sqlite3"))
+            snapshots = list(root.glob(f"*.pre-v{database.SCHEMA_VERSION}-*.sqlite3"))
             self.assertEqual(len(snapshots), 1)
             with closing(sqlite3.connect(snapshots[0])) as db:
                 db.execute("PRAGMA foreign_keys=ON")
