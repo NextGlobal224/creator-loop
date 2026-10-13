@@ -1,5 +1,20 @@
 # Sử dụng Creator Loop V1
 
+## Workflow beta mới: tư liệu, Draft và MP4 local
+
+Trong Library, chọn **Tư liệu → phân tích → Draft**. Chọn Project, mục đích, khán giả, phong cách và định dạng; đánh dấu đúng tư liệu muốn xử lý. Các ứng viên Facebook chưa chọn/lưu không tự trở thành tư liệu hoặc Evidence.
+
+- **Tự động:** bấm chạy với tập tư liệu đã chọn. App phân tích phần có dữ liệu, đề xuất hướng và lưu Draft chờ review; Draft video mở luồng render preview local.
+- **Thủ công:** phân tích riêng, đọc/sửa Evidence và Claim bằng màn hình hiện có, chọn/chỉnh hướng hoặc viết nội dung rồi tạo Draft. Sửa tạo version mới; mở lại workflow/Draft để tiếp tục. Đề xuất máy chưa là Selection hoặc Approval.
+
+Backend beta `LOCAL_STRUCTURED_RULES/1.0.0` phân tích cấu trúc text và tạo mẫu editorial local. Chưa có LLM sinh nội dung được cấu hình. Caption/URL và Evidence đã xử lý được ghi đúng phạm vi; không suy đã phân tích toàn ảnh/video. Review citation và nội dung trước khi sử dụng.
+
+Chọn **Video nháp / MP4 local** để mở exact Draft VIDEO, lập/chỉnh cảnh, thời lượng, chữ/phụ đề và audio file. Chọn **Chọn FFmpeg / ffprobe local…** với manifest component đã pin version/digest/source/license; app kiểm file và giữ cấu hình video riêng, không thay selection Whisper. Không gọi API/cloud hoặc tự tải TTS/model sinh cảnh. Preset preview mặc định dọc 360×640, tối đa 60 giây; chưa chọn voiceover thì có track âm thanh yên lặng.
+
+Bấm **Render MP4 preview**, theo dõi tiến trình hoặc **Dừng / Hủy render**. Chỉ MP4 đã kiểm thành công được preview bằng **Phát** và giữ trong lịch sử. Cùng exact Draft/input/tool/config dùng lại output hợp lệ; sửa Draft/media/cấu hình tạo render mới, giữ file cũ. Media nguồn cần tham chiếu `REUSE_MEDIA` và quyền `OWNED/LICENSED` hợp lệ; cảnh chữ do app tạo không tái sử dụng media Facebook.
+
+MP4 ở `storage/derived/render-<run>/` trong data root đã công bố; SQLite giữ Draft/run/input/digest/tool lineage. File nháp chưa là Publication Package, Approval hoặc nội dung đã đăng. Khi cần đưa vào Library/publication, nhập file MP4 thực qua luồng Library và review quyền/nội dung.
+
 Hướng dẫn này mô tả giao diện hiện có; không chứng nhận release. Xem
 [checkpoint và bản chạy](HANDOFF.md) để biết đúng commit, checksum, log và phần
 chưa kiểm chứng. Luồng thao tác đầy đủ trên artifact cuối, engine/model thật,

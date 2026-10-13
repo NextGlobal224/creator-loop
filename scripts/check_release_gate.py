@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from creator_loop.installation_stage import (
+from creator_loop.backend.runtime.installation_stage import (
     MAX_EXPANDED_BYTES,
     MAX_MANIFEST_BYTES,
     load_release_manifest,

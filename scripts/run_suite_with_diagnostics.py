@@ -112,7 +112,9 @@ def main() -> int:
     ):
         faulthandler.enable(file=traces, all_threads=True)
         try:
-            suite = unittest.defaultTestLoader.discover("tests", pattern=args.pattern)
+            suite = unittest.defaultTestLoader.discover(
+                "tests", pattern=args.pattern, top_level_dir="."
+            )
             runner = unittest.TextTestRunner(
                 verbosity=1,
                 resultclass=lambda *values: TimedResult(*values, progress=progress),

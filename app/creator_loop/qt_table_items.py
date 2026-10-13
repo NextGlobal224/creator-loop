@@ -1,10 +1,6 @@
-"""Narrow a populated table cell; a missing item is an invalid UI state."""
+"""Compatibility alias; implementation lives in frontend.qt_table_items."""
 
-from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
+import sys
+from importlib import import_module
 
-
-def table_item(table: QTableWidget, row: int, column: int) -> QTableWidgetItem:
-    item = table.item(row, column)
-    if item is None:
-        raise ValueError("Expected a populated table cell")
-    return item
+sys.modules[__name__] = import_module("creator_loop.frontend.qt_table_items")

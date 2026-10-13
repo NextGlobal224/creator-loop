@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-from creator_loop.update_backup import _digest
+from creator_loop.backend.runtime.update_backup import _digest
 
 
 def main() -> None:
@@ -274,8 +274,8 @@ def _wait_ui(app, window):
 
 def _ui_copy(root, journal, record, executable, installation):
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from creator_loop.fresh_restore_ui import FreshRestoreWindow
-    from creator_loop.maintenance_ui import MaintenanceWindow
+    from creator_loop.frontend.fresh_restore_ui import FreshRestoreWindow
+    from creator_loop.frontend.maintenance_ui import MaintenanceWindow
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
 
@@ -357,7 +357,7 @@ def _ui_copy(root, journal, record, executable, installation):
 
 
 def _ui_health(root, journal, executable, installation):
-    from creator_loop.maintenance_ui import MaintenanceWindow
+    from creator_loop.frontend.maintenance_ui import MaintenanceWindow
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication([])

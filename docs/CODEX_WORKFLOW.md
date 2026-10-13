@@ -19,6 +19,8 @@ Thứ tự contract, quyền và quy tắc bắt buộc nằm ở [AGENTS.md](..
 
 ### Chạy test Windows có timeout và log
 
+Khi chạy mypy local, dùng Python environment có đúng PySide6/stubs như CI. Nếu quality tools nằm ở Python khác, truyền `--python-executable <venv-python>`; PASS với Qt bị coi là missing import không thay typed Qt validation. UI fields/slots không che API QWidget (`style`, `render`).
+
 Full suite dùng `scripts/run_suite_with_diagnostics.py`: log START/STOP từng test,
 fatal handler và periodic Python stacks giữ tham chiếu frame/code. Native
 `faulthandler.dump_traceback_later()` đã tái hiện race trên Python3.12.10;

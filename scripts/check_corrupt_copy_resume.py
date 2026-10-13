@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-from creator_loop.update_backup import _digest
+from creator_loop.backend.runtime.update_backup import _digest
 
 
 def main() -> None:
@@ -69,7 +69,7 @@ def main() -> None:
     code = """
 import os,sys
 from pathlib import Path
-import creator_loop.corrupt_restore_copy as m
+import creator_loop.backend.runtime.corrupt_restore_copy as m
 original=m._journal
 def crash(path,record):
     original(path,record)

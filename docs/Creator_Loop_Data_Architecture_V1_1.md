@@ -162,6 +162,8 @@ V1 nhập số liệu thủ công qua PublicationRepository cho Post đã từng
 
 ## 7. Ràng buộc liên bảng và dữ liệu thiếu
 
+**Bổ sung baseline schema 9:** [Creator/render workflows](CREATOR_RENDER_WORKFLOWS.md) định nghĩa các bảng provenance bổ sung cho phân tích/Draft và MP4 local. Chúng giữ exact versions và input digest, không thay bảng lõi hay cấp review/Selection/Approval. MP4 tổng hợp giữ lineage nhiều inputs trong bảng render, không gán `parent_file_id` qua Asset.
+
 Một số bất biến cần transaction/trigger/ứng dụng vì CHECK đơn bảng không đủ:
 
 1. Evidence anchor file cùng Asset với Evidence identity; time range hợp lệ theo duration của tệp.

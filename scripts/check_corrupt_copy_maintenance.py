@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-from creator_loop.maintenance_ui import MaintenanceWindow
-from creator_loop.update_backup import _digest
+from creator_loop.backend.runtime.update_backup import _digest
+from creator_loop.frontend.maintenance_ui import MaintenanceWindow
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
