@@ -96,7 +96,9 @@ class RendererTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name) / "Đầu ra có dấu space"
+        # Hosted Windows TEMP may use an alias spelling. The service supplies
+        # canonical paths; use the same boundary before constructing fixtures.
+        self.root = Path(temporary.name).resolve(strict=True) / "Đầu ra có dấu space"
         self.root.mkdir()
         self.font = self.root / "synthetic-font.ttf"
         self.font.write_bytes(b"FAKE FONT NOT FOR NATIVE RENDER")
@@ -123,7 +125,7 @@ class RendererTests(unittest.TestCase):
     def test_complete_exact_version_mp4_has_digest_and_no_import_execution(self):
         self.assertEqual(self.tools.calls, [])
         result = self.render()
-        self.assertEqual(result.status, "SUCCEEDED")
+        self.assertEqual(result.status, "SUCCEEDED", result.error)
         self.assertEqual(result.draft_version_id, "draft-v1")
         self.assertEqual(result.duration_ms, 2000)
         self.assertEqual(result.byte_size, result.output_path.stat().st_size)
@@ -137,6 +139,7 @@ class RendererTests(unittest.TestCase):
 
     def test_new_draft_creates_new_render_keeps_old_and_same_run_cannot_overwrite(self):
         old = self.render()
+        self.assertEqual(old.status, "SUCCEEDED", old.error)
         old_bytes = old.output_path.read_bytes()
         modified = replace(
             self.request,
@@ -145,7 +148,7 @@ class RendererTests(unittest.TestCase):
             scenes=(Scene("Kiểm chứng trước khi kết luận.", 2000),),
         )
         new = self.render(modified)
-        self.assertEqual(new.status, "SUCCEEDED")
+        self.assertEqual(new.status, "SUCCEEDED", new.error)
         self.assertNotEqual(new.sha256, old.sha256)
         self.assertEqual(old.output_path.read_bytes(), old_bytes)
         duplicate = self.render()
@@ -155,6 +158,7 @@ class RendererTests(unittest.TestCase):
 
     def test_cancelled_partial_never_becomes_success_and_cleanup_preserves_old(self):
         old = self.render()
+        self.assertEqual(old.status, "SUCCEEDED", old.error)
         flag = [False]
         self.tools.cancel_after_output = lambda: flag.__setitem__(0, True)
         cancelled = self.render(
@@ -206,6 +210,11 @@ class RendererTests(unittest.TestCase):
         result = self.render()
         self.assertEqual(result.status, "FAILED")
         self.assertFalse(list(self.request.output_directory.iterdir()))
+        self.tools.bad_output = False
+        self.tools.fail_encode = True
+        result = self.render(replace(self.request, run_id="fail2"))
+        self.assertEqual(result.status, "FAILED")
+        self.assertFalse(list(self.request.output_directory.iterdir()))
 
     def test_incomplete_scene_is_rejected_before_concatenation(self):
         self.tools.output_frames = 47
@@ -214,11 +223,6 @@ class RendererTests(unittest.TestCase):
         self.assertIn("frame/track", result.error)
         self.assertFalse(any("concat" in args for _tool, args in self.tools.calls))
         self.assertIsNone(result.output_path)
-        self.tools.bad_output = False
-        self.tools.fail_encode = True
-        result = self.render(replace(self.request, run_id="fail2"))
-        self.assertEqual(result.status, "FAILED")
-        self.assertFalse(list(self.request.output_directory.iterdir()))
 
     def test_missing_reuse_rights_and_wrong_digest_fail_closed(self):
         source = self.root / "image.png"
@@ -318,6 +322,14 @@ class RendererTests(unittest.TestCase):
         self.assertEqual(result.status, "FAILED")
         result = self.render(replace(self.request, preset=RenderPreset(width=361)))
         self.assertEqual(result.status, "FAILED")
+        self.assertEqual(self.tools.calls, [])
+
+    def test_noncanonical_output_is_still_rejected_before_tool_execution(self):
+        alias = self.root / "storage" / "alias" / ".." / "derived"
+        result = self.render(replace(self.request, output_directory=alias))
+        self.assertEqual(result.status, "FAILED")
+        self.assertIn("alias", result.error)
+        self.assertIsNone(result.output_path)
         self.assertEqual(self.tools.calls, [])
 
 
