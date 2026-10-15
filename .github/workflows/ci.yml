@@ -34,6 +34,9 @@ jobs:
         run: |
           python -m compileall -q app tests packaging
           python -m unittest discover -s tests -t . -v
+      - name: B Worker source audit regressions
+        timeout-minutes: 2
+        run: timeout 45s node --test cloudflare/creator-ai/test/worker.test.js
       - name: Source smoke
         env:
           PYTHONPATH: app
