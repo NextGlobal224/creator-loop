@@ -2,16 +2,27 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import worker from "../src/index.js";
+import {compileEditedArticle,hasHypotheticalOpening} from "../src/quality.js";
+
+function fixtureDraft() {
+  const typed={hypothetical_opening:"Bạn nhận được một ảnh chụp thông báo thiếu đường dẫn gốc.",editorial_paragraphs:[
+    "Hãy hỏi người gửi về đường dẫn gốc, ngày công bố và đơn vị đăng thông báo trước khi quyết định chia sẻ.",
+    "Khi mở được bản gốc, hãy đọc phần trước và sau đoạn chụp, chú ý phạm vi áp dụng thay vì đoán theo tiêu đề.",
+    "Hãy đối chiếu nội dung cụ thể và nguồn bằng chứng; nhiều bài lặp lại cùng một tin chưa phải là nguồn độc lập.",
+    "Nếu vẫn thiếu căn cứ, hãy giữ Chưa xác nhận và nhắn người gửi: bạn có đường dẫn gốc để mình kiểm tra không?",
+  ]};
+  return {typed,body:compileEditedArticle(typed)};
+}
 
 function audit(body, issues=[]) {
   return {draft_body:body,issues,paragraphs:body.split(/\n\s*\n/u).map(p=>p.trim()).filter(Boolean).map((text,i)=>({text,kind:i===0?"HYPOTHETICAL":"ADVICE",factual_passages:[]}))};
 }
 test("GPT OSS uses Responses input with no tools and keeps reasoning out of the article",async()=>{
-  const body="Giả sử bạn đang cân nhắc gửi ảnh trong nhóm. "+"Hãy hỏi đường dẫn gốc trước khi quyết định chia sẻ. ".repeat(10);
+  const {body,typed}=fixtureDraft();
   const captured=[];
   const env={CREATOR_KEY:"fixture",CREATOR_MODEL:"@cf/openai/gpt-oss-120b",CREATOR_VERSION:{id:"pinned-version"},AI:{run:async(model,options)=>{
     captured.push(options);
-    return {output:[{type:"reasoning",summary:[{text:"private reasoning fixture"}]},{type:"message",content:[{type:"output_text",text:captured.length<3?body:JSON.stringify(captured.length===3?{draft_body:body,factual_claims:[]}:audit(body))}]}],usage:{input_tokens:12,output_tokens:30}};
+    return {output:[{type:"reasoning",summary:[{text:"private reasoning fixture"}]},{type:"message",content:[{type:"output_text",text:captured.length===1?body:JSON.stringify(captured.length===2?typed:captured.length===3?{draft_body:body,factual_claims:[]}:audit(body))}]}],usage:{input_tokens:12,output_tokens:30}};
   }}};
   const response=await worker.fetch(new Request("https://example.test/b/generate",{method:"POST",headers:{authorization:"Bearer fixture","content-type":"application/json"},body:JSON.stringify({prompt:"selected notes",writing_prompt:"writing only",schema:{type:"object",properties:{draft_body:{type:"string"}}}})}),env);
   assert.equal(response.status,200);
@@ -27,7 +38,7 @@ test("GPT OSS uses Responses input with no tools and keeps reasoning out of the 
     assert.ok(options.instructions.length>100);
   }
   assert.equal(captured[0].max_output_tokens,2200);
-  assert.equal(captured[1].max_output_tokens,2200);
+  assert.equal(captured[1].max_output_tokens,2600);
   assert.equal(captured[2].max_output_tokens,4096);
   assert.equal(captured[3].max_output_tokens,4096);
   assert.equal(captured[0].input[0].content,"writing only");
@@ -42,9 +53,9 @@ test("GPT OSS uses Responses input with no tools and keeps reasoning out of the 
 });
 test("supported structured model receives the actual schema, not json_object hint",async()=>{
   const schema={type:"object",properties:{draft_body:{type:"string"}},required:["draft_body"]};
-  const body="Giả sử bạn nhận được một ảnh. "+"Selected text stays unchanged in the annotation stage. ".repeat(10);
+  const {body,typed}=fixtureDraft();
   let actual;let calls=0;
-  const env={CREATOR_KEY:"fixture",CREATOR_MODEL:"@cf/meta/fixture",CREATOR_VERSION:{id:"version"},AI:{run:async(model,options)=>{calls++;if(calls===3)actual=options;return {response:calls<3?body:JSON.stringify(calls===3?{draft_body:body,factual_claims:[]}:audit(body))};}}};
+  const env={CREATOR_KEY:"fixture",CREATOR_MODEL:"@cf/meta/fixture",CREATOR_VERSION:{id:"version"},AI:{run:async(model,options)=>{calls++;if(calls===3)actual=options;return {response:calls===1?body:JSON.stringify(calls===2?typed:calls===3?{draft_body:body,factual_claims:[]}:audit(body))};}}};
   const response=await worker.fetch(new Request("https://example.test/b/generate",{method:"POST",headers:{authorization:"Bearer fixture","content-type":"application/json"},body:JSON.stringify({prompt:"selected",writing_prompt:"selected",schema})}),env);
   assert.equal(response.status,200);
   assert.equal(calls,4);
@@ -66,11 +77,11 @@ test("model error is finite and cannot silently retry or use template",async()=>
   assert.equal(response.status,502);assert.equal(calls,1);assert.deepEqual(await response.json(),{error:"WORKERS_AI_FAILED",retryable:false});
 });
 test("annotation cannot rewrite the edited article even when schema is only a prompt",async()=>{
-  const body="Giả sử bạn nhận được một ảnh. "+"The same text must reach the canonical Draft unchanged. ".repeat(10);
+  const {body,typed}=fixtureDraft();
   let calls=0;
   const env={CREATOR_KEY:"fixture",CREATOR_MODEL:"@cf/openai/gpt-oss-120b",AI:{run:async()=>{
     calls++;
-    return {response:calls<3?body:JSON.stringify({draft_body:body+" An unauthorized rewrite."})};
+    return {response:calls===1?body:JSON.stringify(calls===2?typed:{draft_body:body+" An unauthorized rewrite."})};
   }}};
   const response=await worker.fetch(new Request("https://example.test/b/generate",{method:"POST",headers:{authorization:"Bearer fixture","content-type":"application/json"},body:JSON.stringify({prompt:"selected",writing_prompt:"selected",schema:{type:"object",properties:{draft_body:{type:"string"}}}})}),env);
   assert.equal(response.status,502);
@@ -78,26 +89,37 @@ test("annotation cannot rewrite the edited article even when schema is only a pr
   assert.deepEqual(await response.json(),{error:"WORKERS_AI_FAILED",retryable:false});
 });
 
-test("real failed v11 pilot cannot lose its hypothetical label or trigger another model retry",async()=>{
+test("real failed v11 untyped pilot cannot be accepted or trigger another model retry",async()=>{
   const body=readFileSync(new URL("../../../tests/fixtures/workers_b_v11_failed.txt",import.meta.url),"utf8").trim();
   let calls=0;
   const env={CREATOR_KEY:"fixture",CREATOR_MODEL:"@cf/openai/gpt-oss-120b",AI:{run:async()=>{calls++;return {response:body};}}};
   const response=await worker.fetch(new Request("https://example.test/b/generate",{method:"POST",headers:{authorization:"Bearer fixture","content-type":"application/json"},body:JSON.stringify({prompt:"selected",writing_prompt:"selected",schema:{type:"object",properties:{draft_body:{type:"string"}}}})}),env);
-  assert.equal(response.status,422);
+  assert.equal(hasHypotheticalOpening(body),false);
+  assert.equal(response.status,502);
   assert.equal(calls,2);
-  assert.equal((await response.json()).reason,"HYPOTHETICAL_LABEL_MISSING");
+  assert.equal((await response.json()).error,"WORKERS_AI_FAILED");
 });
 
 test("independent audit rejects unsupported source assertions and omitted coverage without repair",async()=>{
-  const body="Giả sử bạn nhận được một ảnh. "+"Hãy hỏi đường dẫn gốc và kiểm tra ngày công bố. ".repeat(10);
+  const {body,typed}=fixtureDraft();
   for(const report of [audit(body,["Unsupported chart origin and efficacy promise"]),{...audit(body),paragraphs:[]},null]){
     let calls=0;
     const env={CREATOR_KEY:"fixture",CREATOR_MODEL:"@cf/openai/gpt-oss-120b",AI:{run:async()=>{
-      calls++;return {response:calls<3?body:JSON.stringify(calls===3?{draft_body:body,factual_claims:[]}:report)};
+      calls++;return {response:calls===1?body:JSON.stringify(calls===2?typed:calls===3?{draft_body:body,factual_claims:[]}:report)};
     }}};
     const response=await worker.fetch(new Request("https://example.test/b/generate",{method:"POST",headers:{authorization:"Bearer fixture","content-type":"application/json"},body:JSON.stringify({prompt:"selected",writing_prompt:"selected",schema:{type:"object",properties:{draft_body:{type:"string"}}}})}),env);
     assert.equal(response.status,422);
     assert.equal(calls,4);
     assert.equal((await response.json()).reason,"SOURCE_AUDIT_FAILED");
+  }
+});
+
+test("typed composition labels only the commissioned fictional opening and preserves every paragraph",()=>{
+  const {typed,body}=fixtureDraft();
+  assert.equal(body.split("\n\n")[0],"Tình huống giả định: "+typed.hypothetical_opening);
+  assert.deepEqual(body.split("\n\n").slice(1),typed.editorial_paragraphs);
+  assert.equal(hasHypotheticalOpening(body),true);
+  for(const invalid of [{draft_body:body},{...typed,editorial_paragraphs:[]},{...typed,hypothetical_opening:"line1\nline2"}]){
+    assert.throws(()=>compileEditedArticle(invalid));
   }
 });

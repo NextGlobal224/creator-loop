@@ -22,7 +22,19 @@ export function auditSchema(body) {
 }
 
 export function hasHypotheticalOpening(body) {
-  return /^Giả sử(?:\s|[.,:;!?])/iu.test(body.trim());
+  return /^(?:Giả sử(?:\s|[.,:;!?])|Tình huống giả định:)/iu.test(body.trim());
+}
+
+export function compileEditedArticle(edited) {
+  if (!edited || Object.keys(edited).sort().join(",")!=="editorial_paragraphs,hypothetical_opening" ||
+      typeof edited.hypothetical_opening!=="string" || !edited.hypothetical_opening.trim() ||
+      edited.hypothetical_opening.includes("\n") || !Array.isArray(edited.editorial_paragraphs) ||
+      edited.editorial_paragraphs.length!==4 || edited.editorial_paragraphs.some(p=>typeof p!=="string" || !p.trim() || p.includes("\n"))) {
+    throw new Error("Invalid typed editorial structure");
+  }
+  // Label the explicitly commissioned fictional scene at composition time.
+  // This does not label the four editorial paragraphs or license facts in them.
+  return ["Tình huống giả định: "+edited.hypothetical_opening.trim(),...edited.editorial_paragraphs.map(p=>p.trim())].join("\n\n");
 }
 
 export function validAudit(annotation, audit) {

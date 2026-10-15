@@ -11,13 +11,19 @@ but lost the hypothetical label, asserted an unsupported chart origin and effica
 and returned an empty factual annotation. `tests/fixtures/workers_b_v11_failed.txt`
 preserves that generated article for regression (trailing whitespace normalized). It contains no user session/data.
 
-The v12 protocol makes at most four model calls, with no retry or template fallback:
+The v13 protocol makes at most four model calls, with no retry or template fallback:
 prose, editing, exact-copy annotation, and a separate source audit. The Worker rejects
-an invented opening that loses `Giả sử`, audit issues, missing/reordered paragraphs,
+an invented opening that loses its explicit label, audit issues, missing/reordered paragraphs,
 changed article text, and audited factual passages missing a Claim annotation.
+Editing returns a typed fictional opening and exactly four separate editorial
+paragraphs. Composition labels only the commissioned fictional opening with
+`Tình huống giả định:` before annotation/audit. It does not relabel unsupported
+factual assertions elsewhere or manually repair a failed output. The audit must
+still flag unsupported facts inside any paragraph, including the invented scene.
+
 The client must also validate the four-stage envelope, exact source quotes and audit
 before committing a Workflow/Draft. An old three-stage Worker is incompatible with
-the v12 client; pin the exact deployment UUID only after an authorized deployment.
+the v13 client; pin the exact deployment UUID only after an authorized deployment.
 
 The audit is another model call and can misclassify meaning. Tests and an empty
 audit issue list are not a factuality certificate, human review, or product quality
