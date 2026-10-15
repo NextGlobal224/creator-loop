@@ -8,20 +8,28 @@ from typing import Any
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from creator_loop.backend.analysis.provider_selection import (
+    provider_name,
+    provider_ready,
+    select_component_provider,
+)
 from creator_loop.backend.creator.research_pipeline import ResearchPipeline
 from creator_loop.frontend.owned_thread import OwnedThreadExit
 from creator_loop.shared.workflow import CreatorRequest, DraftSnapshot
@@ -55,7 +63,7 @@ class ResearchCreatorWorker(QThread):
             wid = (
                 self.workflow_id
                 if self.action == "draft"
-                else self.pipeline.analyze(self.request)
+                else self.pipeline.analyze(self.request, self.isInterruptionRequested)
             )
             if self.isInterruptionRequested():
                 raise InterruptedError(
@@ -72,8 +80,7 @@ class ResearchCreatorWorker(QThread):
                 (
                     wid,
                     snapshot,
-                    self.action == "automatic"
-                    and self.request.output_format == "VIDEO",
+                    False,  # B completes at a Draft; C requires a separate action.
                 )
             )
         except Exception as exc:
@@ -94,14 +101,40 @@ class ResearchCreatorDialog(QDialog):
         self.result: Any = None
         self.error = ""
         self.close_after = False
-        self.setWindowTitle("Nghiên cứu → phân tích → hướng → Draft")
-        self.resize(1120, 900)
-        layout = QVBoxLayout(self)
+        self.setWindowTitle("B — Phân tích và tạo Draft")
+        screen = QApplication.primaryScreen()
+        available = screen.availableGeometry() if screen else None
+        self.resize(
+            min(1120, available.width() - 40) if available else 1120,
+            min(900, available.height() - 60) if available else 900,
+        )
+        outer = QVBoxLayout(self)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        content = QWidget(scroll)
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+        layout = QVBoxLayout(content)
         limit = QLabel(
-            "Backend LOCAL_STRUCTURED_RULES: cấu trúc text và mẫu editorial local; chưa có LLM sinh nội dung. Caption/URL không thay phân tích toàn ảnh/video. Kết quả máy chờ review."
+            "Backend LOCAL_LLAMA_CPP: mô hình local đã chọn; chạy khi bấm Phân tích/Chạy B."
+            if (root / "manifests/creator-llm-components.json").is_file()
+            else "Backend LOCAL_STRUCTURED_RULES: cấu trúc text và mẫu editorial local; chưa có LLM sinh nội dung. Caption/URL không thay phân tích toàn ảnh/video. Kết quả máy chờ review."
         )
         limit.setWordWrap(True)
         layout.addWidget(limit)
+        self.backend_label = limit
+        if provider_name(root) == "CODEX_CLI_TEXT":
+            limit.setText(
+                "B — Codex CLI/GPT-6.1 Sol High: gửi riêng tư liệu đã chọn tới dịch vụ model qua đăng nhập Codex trên máy. Chỉ chạy khi bấm Phân tích/Chạy B."
+            )
+        elif provider_name(root) == "CLOUDFLARE_WORKERS_AI":
+            limit.setText(
+                "B — Workers AI: gửi riêng tư liệu đã chọn tới Cloudflare. Chỉ chạy khi bấm Phân tích/Chạy B; không khởi động A/C."
+            )
+        self.model_button = QPushButton("Chọn cấu hình backend AI của B")
+        self.model_button.setObjectName("researchLocalModel")
+        self.model_button.clicked.connect(self.select_local_model)
+        layout.addWidget(self.model_button)
         form = QFormLayout()
         self.project = QComboBox()
         self.project.setObjectName("researchProject")
@@ -188,7 +221,7 @@ class ResearchCreatorDialog(QDialog):
         self.body = QPlainTextEdit()
         self.body.setObjectName("researchDraftBody")
         self.body.setPlaceholderText(
-            "Có thể tự viết/sửa Draft trong chế độ thủ công; để trống để dùng mẫu editorial local"
+            "Có thể tự viết/sửa Draft trong chế độ thủ công; bản sinh local vẫn cần kiểm căn cứ"
         )
         self.body.setMaximumHeight(150)
         layout.addWidget(self.body)
@@ -321,10 +354,16 @@ class ResearchCreatorDialog(QDialog):
         ):
             self.evidence.addItem(str(ev), ev)
         self.claim.clear()
-        for cv in value["claims"]:
+        latest_draft = (
+            self.pipeline.draft(value["drafts"][0]) if value["drafts"] else None
+        )
+        for cv in dict.fromkeys(
+            value["claims"]
+            + list(latest_draft.claim_version_ids if latest_draft else ())
+        ):
             self.claim.addItem(cv, cv)
-        if value["drafts"]:
-            self.body.setPlainText(self.pipeline.draft(value["drafts"][0]).body_text)
+        if latest_draft:
+            self.body.setPlainText(latest_draft.body_text)
         else:
             self.body.clear()
         self.body.document().setModified(False)
@@ -350,6 +389,27 @@ class ResearchCreatorDialog(QDialog):
             self.direction.toPlainText(),
         )
 
+    def select_local_model(self) -> None:
+        if self.worker is not None:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Chọn manifest backend AI của B", "", "Component manifest (*.json)"
+        )
+        if not path:
+            return
+        try:
+            chosen = select_component_provider(self.pipeline.root, Path(path))
+            self.backend_label.setText(
+                "Workers AI/Cloudflare: gửi riêng text tư liệu đã chọn khi bấm Phân tích/Chạy B; không khởi chạy A/C."
+                if chosen == "CLOUDFLARE_WORKERS_AI"
+                else "Codex CLI/GPT-6.1 Sol High: tư liệu chọn sẽ gửi tới dịch vụ model; chỉ chạy khi bấm nút."
+                if chosen == "CODEX_CLI_TEXT"
+                else "Backend LOCAL_LLAMA_CPP: chỉ chạy khi bấm Phân tích/Chạy B; digest sẽ được kiểm trong worker."
+            )
+            self.status.setText("Đã chọn backend B. Chưa chạy hoặc tạo Draft.")
+        except (ValueError, OSError) as exc:
+            self.status.setText(str(exc))
+
     def start(self, action: str) -> None:
         if self.worker is not None:
             return
@@ -357,6 +417,11 @@ class ResearchCreatorDialog(QDialog):
         if action != "draft" and (not request.project_id or not request.material_ids):
             self.status.setText(
                 "Chọn Project và ít nhất một tư liệu đã lưu trước khi chạy."
+            )
+            return
+        if action == "automatic" and not provider_ready(self.pipeline.root):
+            self.status.setText(
+                "Chưa cấu hình backend AI cho B; không thay bằng template"
             )
             return
         self.result, self.error = None, ""
@@ -375,7 +440,7 @@ class ResearchCreatorDialog(QDialog):
         worker.started.connect(self.guard.capture, Qt.ConnectionType.DirectConnection)
         worker.completed.connect(lambda result: setattr(self, "result", result))
         worker.failed.connect(lambda error: setattr(self, "error", error))
-        self.status.setText("Đang xử lý local các tư liệu đã chọn…")
+        self.status.setText("Đang xử lý các tư liệu đã chọn…")
         self.mode.setEnabled(False)
         self.project.setEnabled(False)
         self.history.setEnabled(False)

@@ -26,6 +26,10 @@ TRANSCRIPT_REVIEW_REQUESTED = 24
 
 
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--creator-workers-http":
+        from creator_loop.backend.analysis.workers_transport import run_http
+
+        return run_http(Path(sys.argv[2]))
     if len(sys.argv) == 2 and sys.argv[1] == "--install-facebook-browser":
         from creator_loop.backend.facebook.facebook_install import install_browser
 

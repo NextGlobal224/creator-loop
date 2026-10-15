@@ -1,0 +1,73 @@
+import copy
+import unittest
+from pathlib import Path
+
+from creator_loop.backend.analysis.workers_quality import validate_quality_audit
+
+
+class WorkersQualityTests(unittest.TestCase):
+    def setUp(self):
+        self.paragraphs = [
+            "Giả sử bạn nhận được một ảnh thiếu đường dẫn gốc.",
+            "Hãy hỏi người gửi về nguồn và ngày công bố.",
+            "Ghi chú COR nêu ba câu hỏi kiểm chứng.",
+        ]
+        self.content = {
+            "draft_body": "\n\n".join(self.paragraphs),
+            "factual_claims": [{"text": self.paragraphs[2]}],
+        }
+        self.audit = {
+            "draft_body": self.content["draft_body"],
+            "issues": [],
+            "paragraphs": [
+                {"text": text, "kind": kind, "factual_passages": facts}
+                for text, kind, facts in zip(
+                    self.paragraphs,
+                    ["HYPOTHETICAL", "ADVICE", "SOURCE_FACT"],
+                    [[], [], [self.paragraphs[2]]],
+                    strict=True,
+                )
+            ],
+        }
+
+    def test_real_v11_pilot_lost_label_is_rejected_without_rewriting(self):
+        path = Path(__file__).parents[1] / "fixtures/workers_b_v11_failed.txt"
+        raw = path.read_text(encoding="utf-8").strip()
+        content = {"draft_body": raw, "factual_claims": []}
+        with self.assertRaisesRegex(ValueError, "explicit label"):
+            validate_quality_audit(content, None)
+        self.assertEqual(content["draft_body"], raw)
+        self.assertIn("Biểu đồ trong ảnh thường", raw)
+
+    def test_complete_audit_and_exact_annotated_fact_can_pass_boundary(self):
+        validate_quality_audit(self.content, self.audit)
+
+    def test_audit_must_be_present_and_bound_to_all_paragraphs(self):
+        invalid = [None, {}, {**self.audit, "draft_body": "changed"}]
+        invalid.append({**self.audit, "paragraphs": self.audit["paragraphs"][:-1]})
+        changed = copy.deepcopy(self.audit)
+        changed["paragraphs"].reverse()
+        invalid.append(changed)
+        for audit in invalid:
+            with self.subTest(audit=audit), self.assertRaises(ValueError):
+                validate_quality_audit(self.content, audit)
+
+    def test_adverse_audit_and_unannotated_fact_cannot_pass(self):
+        for reason in [
+            "Unsupported chart origin",
+            "Lost note scope",
+            "Missing citation",
+        ]:
+            with (
+                self.subTest(reason=reason),
+                self.assertRaisesRegex(ValueError, "issues"),
+            ):
+                validate_quality_audit(self.content, {**self.audit, "issues": [reason]})
+        for facts in [[], ["A different assertion"]]:
+            audit = copy.deepcopy(self.audit)
+            audit["paragraphs"][2]["factual_passages"] = facts
+            with self.subTest(facts=facts), self.assertRaises(ValueError):
+                validate_quality_audit(self.content, audit)
+        self.content["factual_claims"] = []
+        with self.assertRaisesRegex(ValueError, "Claim annotation"):
+            validate_quality_audit(self.content, self.audit)

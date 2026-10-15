@@ -1,43 +1,76 @@
-# B Workers AI source audit
+# B Workers AI source-first generation
 
-Opt-in text-only provider for selected bounded research notes. The app's browser,
-SQLite and media remain local. This Worker has no Containers or R2 dependency.
-It accepts an app-scoped bearer key in the Cloudflare secret store; never put a key
-in the repository, config or request logs. Deploying source does not approve
-generation costs or switch the app's selected provider.
+Opt-in TEXT-only provider for selected bounded research notes. Browser, GUI and
+canonical SQLite remain local; this Worker has no Containers or R2 dependency.
+Keep its app-scoped bearer key in the Cloudflare secret store and local secrets
+directory with an endpoint/digest binding, never in Git, argv or request logs.
 
-The v11 real pilot returned valid JSON and preserved the editor's exact article,
-but lost the hypothetical label, asserted an unsupported chart origin and efficacy,
-and returned an empty factual annotation. `tests/fixtures/workers_b_v11_failed.txt`
-preserves that generated article for regression (trailing whitespace normalized). It contains no user session/data.
+The v21 protocol makes at most four model calls with no retry or template fallback:
 
-The v13 protocol makes at most four model calls, with no retry or template fallback:
-prose, editing, exact-copy annotation, and a separate source audit. The Worker rejects
-an invented opening that loses its explicit label, audit issues, missing/reordered paragraphs,
-changed article text, and audited factual passages missing a Claim annotation.
-Editing returns a typed fictional opening and exactly four separate editorial
-paragraphs. Composition labels only the commissioned fictional opening with
-`Tình huống giả định:` before annotation/audit. It does not relabel unsupported
-factual assertions elsewhere or manually repair a failed output. The audit must
-still flag unsupported facts inside any paragraph, including the invented scene.
+1. Analyze exact selected source notes, distinguishing direct quotes, the note
+   author's paraphrases/proposals and tentative editorial inferences.
+2. Write a complete article from that analysis. The typed fictional opening gets
+   one visible label; four editorial paragraphs and any factual Claims remain
+   distinct. Inline text segments carry a quote-catalog ID (-1 for advice/fiction); the app
+   composes the exact same text into both the article and Claim annotation, rejecting
+   invalid IDs and ambiguous repeated cited passages. Exact Unicode quotes come
+   directly from selected source lines, avoiding observed model-copy punctuation
+   drift. Choosing a catalog quote does not prove semantic support; audit and
+   complete output QA still check that separately. This fixes the
+   real v18 failure where separately generated Claims no longer appeared in the body.
+   Unsupported real-world assertions cannot be disguised as fiction.
+3. Edit the first article once against the exact notes, reviewing risky assertions
+   and removing unsupported efficacy/source claims. This declared model step is
+   automatic editing, not a manually repaired artifact or a retry loop.
+4. Audit the exact final article AND analysis against the notes, covering every paragraph.
+   Any reported issue, missing coverage, changed body or audited factual passage
+   without a Claim annotation is rejected. Audit output identifies the immutable
+   article by ASCII SHA-256 and paragraphs by index; the app reattaches original
+   Vietnamese text. The model never regenerates the article through a Unicode
+   schema `const`, which produced malformed/truncated output in a real pilot.
+   The client additionally validates exact
+   source quotes, selected material IDs, stage identity and deployment UUID before
+   committing a Workflow/Draft. These are four sequential HTTP requests, with
+   the existing socket90s/owned-process100s deadline per request. Completed model
+   steps are passed forward once; cancellation prevents the next request. Model,
+   deployment and step order are checked at every response. Requests each remain
+   capped64KiB. Old monolithic/three/four-stage protocols are incompatible.
 
-The client must also validate the four-stage envelope, exact source quotes and audit
-before committing a Workflow/Draft. An old three-stage Worker is incompatible with
-the v13 client; pin the exact deployment UUID only after an authorized deployment.
+Real v11 output lost its hypothetical label, asserted unsupported chart origins
+and efficacy, and omitted Claims. Its generated article is a regression fixture
+(trailing whitespace normalized). Later live diagnostics found prose-only writing
+instructions had been reused in a JSON editing stage. The stages now receive only
+selected Project/source JSON and their own task. The AI.run binding uses the
+documented messages/max_tokens/response_format fields, preserving system/user roles
+and accepting its JSON-object response. Earlier Responses endpoint fields are no
+longer sent to this binding. See the official model and JSON Mode documentation:
+https://developers.cloudflare.com/workers-ai/models/gpt-oss-120b/ and
+https://developers.cloudflare.com/workers-ai/features/json-mode/. Source analysis precedes writing, so unsupported prose is not used as the
+starting point for another draft. Rejected outputs remain FAIL and never become
+successful Drafts. Bounded HTTP422/502 diagnostics retain selected generated output
+and public error codes locally, with credential redaction, without raw exceptions.
 
-The audit is another model call and can misclassify meaning. Tests and an empty
-audit issue list are not a factuality certificate, human review, or product quality
-acceptance. Read the complete real pilot against the exact selected notes before
-claiming automatic quality PASS or choosing this provider by default. Retain
-UNREVIEWED and manual publication approval. A manually edited Draft does not prove
-automatic generation quality.
+The model is explicitly configured, never selected as an error fallback. GPT-OSS
+120B failed earlier source-quality pilots; SEA-LION27B also failed the documented
+trial. GPT-OSS is explicitly selected for evaluation on the new source-first,
+Vietnamese, bounded editing/audit flow; this is not a fallback. The app's native
+Codex provider remains the default until a
+real cloud quality pilot qualifies. Both model IDs and exact deployment UUIDs are
+bound into cache/provenance; no model weights or credential manifests are shipped.
 
-Run the bounded source tests from the project root:
+Automated audit can misclassify meaning. An empty issue list, a test or a successful
+JSON/save/reopen check does not certify factuality or product quality. Read the
+complete real output against exact sources before claiming automatic quality PASS
+or choosing cloud by default. A manually edited Draft does not prove automatic
+generation quality. Keep UNREVIEWED and manual publication approval.
+
+Run the bounded fixture tests from the project root:
 
 ```text
 node --test cloudflare/creator-ai/test/worker.test.js
 ```
 
-No package installation, inference or deployment is needed for those tests. Real
-inference requires checking the current plan/free allocation first and explicit
-bounded inputs. Do not enable billing, purchase or upgrade to run a pilot.
+Tests need no model call, credential or deployment. Real inference requires checking
+the existing plan/free allowance first. No billing activation, purchase or upgrade
+is authorized by this component. Pin the exact deployed UUID in the app config;
+configuration change does not require switching the default provider.

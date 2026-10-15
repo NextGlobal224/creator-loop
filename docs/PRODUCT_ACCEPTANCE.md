@@ -1,3 +1,31 @@
+<!-- B_PROVIDER_INTEGRATION_20261016_BEGIN -->
+**B provider integration checkpoint, 16/10/2026 — not beta acceptance.**
+The B app flow now explicitly selects configured Codex/local/Workers providers;
+automatic mode refuses a template substitute. Selected exact source snapshots,
+observations/inferences/direction, Claim citations and Draft assertions persist in
+canonical SQLite. Manual changes create immutable versions; cached generation and
+unmodified Save preserve edits. No ACCEPT, Selection or publication approval is added.
+
+Focused generation/persistence/provider/HTTP/UI validation passed32tests before the
+final cloud protocol changes; affected protocol/cancel/audit tests were then updated
+and passed. Required lint/format/type checks pass on the scoped B source. Cloud v21
+uses four declared sequential steps (analysis, writing, one edit, audit), each with
+bounded HTTP/owned process deadlines, exact deployment/model identity, no retry or
+fallback, and an ASCII digest/index audit of immutable Vietnamese text.
+
+Earlier real cloud outputs failed source quality; malformed JSON/Unicode and network
+deadline failures remain failures with no successful Workflow/Draft. A model audit
+does not prove quality. Read a real final output against the selected notes before
+claiming cloud automatic quality or choosing it by default. Existing local TEXT,
+IMAGE_CAPTION and VIDEO outputs have separate scoped quality/reopen evidence; manual
+revisions do not stand in for automatic generation. UNREVIEWED remains.
+
+New Facebook scans and paid Cloudflare C remain paused. This B PR does not satisfy
+the missing selected A/B repository identities, A live viral target, C listening/cloud,
+independent review, exact reviewed-main/tag Windows artifact or beta release gates.
+Required hosted CI must bind this new PR HEAD; previous green checks are historical.
+<!-- B_PROVIDER_INTEGRATION_20261016_END -->
+
 # Ma trận nghiệm thu Creator Loop V1
 
 **Native review 13/10/2026, exact local artifact `c2a5afc543eb`:** one labelled local QA TEXT original (not Facebook/viral) went through manual analysis/direction/TEXT Draft and automatic VIDEO Draft. Video edit produced exact v2; local MP4 outputs 16s/16s/34s probe H.264/AAC and match SQLite digests. In-app playback, live owned-FFmpeg cancellation (CANCELLED/no output), normal app exit0 and reopening exact Evidence/Claim/Draft/history/MP4 passed. Review/Selection/Approval/Post counts remain0. This does not accept the Facebook pipeline: the new run reached SCANNING/count1 then BROWSER_FAILED before storing candidates. Old106/11/0 remains historical. Safe exception-type/app-code-location diagnostics distinguish browser timeout/failure without retaining exception messages, URLs or credentials; new build/CI/native diagnosis remain required. Independent review/release gates and stable deferrals remain.
