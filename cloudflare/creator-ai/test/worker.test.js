@@ -322,6 +322,9 @@ test("writing rejects a declared unsupported premise before editing or audit can
     const response=await worker.fetch(request(),env);
     assert.equal(response.status,502);assert.equal(captured.length,2);
     const failed=await response.json();assert.equal(failed.stage,"writing");assert.equal(failed.retryable,false);
+    const diagnostic=JSON.parse(failed.stage_output);
+    assert.deepEqual(JSON.parse(diagnostic.selected_writing_output),written);
+    assert.equal(JSON.stringify(failed).includes("private reasoning fixture"),false);
   }
 });
 

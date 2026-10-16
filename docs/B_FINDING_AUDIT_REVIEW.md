@@ -15,7 +15,8 @@ in every declared premise's evidence IDs. Editor SUGGESTION/HYPOTHETICAL cannot
 exempt a declared factual premise; original evidence must survive in its receipt.
 REWRITE retaining identical text (including Unicode/spacing-only changes) fails
 at composition. Existing KEEP/REMOVE ownership and final coverage remain.
-Writer declarations reach the editor; replacement declarations reach final audit
+Rejected writing retains its bounded selected JSON, excluding hidden reasoning,
+so a future failed premise check remains diagnosable. Writer declarations reach the editor; replacement declarations reach final audit
 and diagnostics. V30 cache identity separates the protocol from older responses.
 
 46 related Node checks and11Python boundary checks passed with process deadlines
