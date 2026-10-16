@@ -3,7 +3,8 @@ WorkersFree0/10k was confirmed by the user immediately before this single pilot.
 Worker80759b8e-97e0-490e-83f0-a53de1eaf792 + GPT-OSS120B completed four model
 calls in52.609s through the actual app pipeline; immutable Draft44e79e48… saved and
 reopened exactly, UNREVIEWED/manual publication gates unchanged. Observed usage:
-8873input/2504output tokens,453.048324585Neurons; no retries/fallback. Full output QA
+8873 input tokens and2504 output tokens. Observed Neurons:453.048324585.
+No retries/fallback. Full output QA
 found unsupported comparative probability and absolute safety assertions, plus a
 handbook-scope concern despite an empty model audit. Keep FAIL. The first-round
 budget is now spent1/1pilot,4/4calls and persists across sessions; no second model
