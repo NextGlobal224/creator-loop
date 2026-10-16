@@ -1,3 +1,47 @@
+## Bounded native wait after actual editing timeout — 16 October 2026
+
+Exact ede13a9 CI38916939420 passed all3 required checks, including Windows
+build/exact ZIP smoke. The downloaded development ZIP matched its manifest:
+498 file digests and323 source hashes, with the CI merge tree equal to PR HEAD.
+This is development CI evidence, not cloud quality or main/tag/beta acceptance.
+
+A separate explicit3call grant was recorded without stacking unused v30 calls.
+Current same-account WorkersFree usage3.28k/10k was confirmed before deployment.
+Worker a1f9b557-babe-4ee0-a964-80698bef46e2 was deployed once fromede13a9;
+immediate health showed the old UUID, so pin/model execution stopped. Later
+latest-deployment metadata100% and one health read matched the new UUID; only
+then was the app pinned. No redeploy, model retry or default-provider change.
+
+ResearchPipeline reused the explicitly compatible original analysis and made
+two new requests. Writing returned in15.59s; editing's HTTP child timed out in
+91.35s with an empty response and stderr TimeoutError. No server quality-rejection
+was received, so the native/network cause is unknown. Audit did not run; no new
+Draft was created. Count the failed/ambiguous request conservatively:2/3used,
+1remaining, with v30history7/8 unchanged and no allowance stacked.
+
+Offline reproduction exposed a separate concrete gap: an uncooperative native
+binding stays pending after the SDK AbortSignal fires. The adapter now races its
+wait against that signal, removes its listener, rejects aborted waits without
+observing late results and preserves the single-call guard. It does not promise
+remote GPU cancellation. Existing Worker85s/HTTP90s/child100s limits, model,
+SDK versions, maxRetries0, strict JSON and source/audit guards are unchanged.
+This does not prove that this gap caused the actual cloud timeout.
+
+Full review of returned writing still FAILS: an unsupported reduced-risk benefit,
+unprovided reverse-image/URL verification advice, a premise about a handbook
+used as proxy for different public instructions, and a sender message followed
+by further prose. A selected public fixture preserves the actual writing.
+The editor now gets the observed benefit/verification sentences as leads and
+explicit wording/closing checks. Leads are not automatic bans or quality proof.
+Two abort/late-result regressions plus that input replay bring Node coverage to
+54passing tests. The latest correction is offline only until new-head CI and
+separately permitted cloud validation; no automatic prose repair or approval.
+
+The remaining old-head call does not cover a complete app repair. Preserve it;
+do not retry the failed request or reinterpret old grants. A new source must
+have exact-head CI, fresh sufficient Free quota and appropriate model authority
+before deployment/inference. A scans/paid C remain paused; independent review,
+manual publication approval and full Cloudflare/GitHub/release scope remain.
 ## Resume v31 editing failure: indexed public-copy corrections — 16 October 2026
 
 CI38899470064 passed all three required checks for62d215b, including exact ZIP

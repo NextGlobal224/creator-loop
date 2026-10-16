@@ -11,7 +11,7 @@ export function safeFailure(error, result) {
   const stage=error?.stage_diagnostic;
   const stageDiagnostic=stage && ["SDK_BEFORE_BINDING","NATIVE_BINDING","SDK_AFTER_BINDING"].includes(stage.phase) &&
     Number.isInteger(stage.binding_calls) && stage.binding_calls>=0 && stage.binding_calls<=2?
-    {phase:stage.phase,binding_calls:stage.binding_calls,native_failure:stage.native_failure &&
+    {phase:stage.phase,binding_calls:stage.binding_calls,...(stage.signal_aborted===true?{signal_aborted:true}:{}),native_failure:stage.native_failure &&
       (stage.native_failure.code===null || Number.isInteger(stage.native_failure.code) && stage.native_failure.code>=1000 && stage.native_failure.code<=99999) &&
       Array.isArray(stage.native_failure.flags) && stage.native_failure.flags.every(flag=>["SCHEMA","UNIQUE_ITEMS","MIN_ITEMS","MAX_ITEMS","CONSTRAINT","UNSUPPORTED","VALIDATION","JSON","ARRAY","INTEGER","TIMEOUT","QUOTA","RATE_LIMIT","CAPACITY","AUTH","MEMORY","MAX_TOKENS","INFERENCE","UPSTREAM","INTERNAL"].includes(flag))?
       {code:stage.native_failure.code,flags:stage.native_failure.flags}:null}:null;

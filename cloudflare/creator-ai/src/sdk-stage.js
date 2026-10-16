@@ -3,6 +3,23 @@ import {createWorkersAI} from "workers-ai-provider";
 
 export const SDK_COMPONENT = "workers-ai-provider@4.0.0/ai@7.0.142";
 
+// The native binding may ignore the SDK's abort signal. Bound our wait too;
+// this does not promise cancellation of already submitted remote inference.
+async function abortableBinding(invoke, signal) {
+  if(!signal) return invoke();
+  if(signal.aborted) throw new DOMException("SDK stage aborted", "AbortError");
+  let onAbort;
+  const aborted=new Promise((_,reject)=>{
+    onAbort=()=>reject(new DOMException("SDK stage aborted", "AbortError"));
+    signal.addEventListener("abort",onAbort,{once:true});
+  });
+  try { return await Promise.race([Promise.resolve().then(()=>{
+    if(signal.aborted) throw new DOMException("SDK stage aborted", "AbortError");
+    return invoke();
+  }),aborted]); }
+  finally { signal.removeEventListener("abort",onAbort); }
+}
+
 // Native JSON decoding rejects uniqueItems (observed native8007). Keep the full
 // schema in the SDK/prompt; app revisionIssues/bindAudit enforce uniqueness.
 // Adapt only the binding schema; no output is repaired or silently deduplicated.
@@ -28,8 +45,9 @@ export async function generateStage(env, {instructions, input, schema, budget, t
     let result;
     const nativeInputs=inputs.response_format?.type==="json_schema"?
       {...inputs,response_format:{...inputs.response_format,json_schema:nativeDecodingSchema(inputs.response_format.json_schema)}}:inputs;
-    try { result=await env.AI.run(model,nativeInputs,options); }
+    try { result=await abortableBinding(()=>env.AI.run(model,nativeInputs,options),signal); }
     catch(error) {
+      if(signal?.aborted) throw error;
       // Classify the native exception before SDK wrapping; never export its text.
       const message=String(error?.message ?? "");
       const prefix=message.match(/^(?:[A-Za-z]+Error:\s*)?(\d{4,5}):/u);
@@ -68,7 +86,7 @@ export async function generateStage(env, {instructions, input, schema, budget, t
   } catch(error) {
     // Fixed operational fields only; never include prompts, exception text or reasoning.
     const failure=error instanceof Error?error:new Error("SDK stage failed");
-    failure.stage_diagnostic={native_failure:nativeFailure,phase:calls===0?"SDK_BEFORE_BINDING":received?"SDK_AFTER_BINDING":"NATIVE_BINDING",binding_calls:calls};
+    failure.stage_diagnostic={native_failure:nativeFailure,phase:calls===0?"SDK_BEFORE_BINDING":received?"SDK_AFTER_BINDING":"NATIVE_BINDING",binding_calls:calls,...(signal?.aborted?{signal_aborted:true}:{})};
     throw failure;
   }
 }
