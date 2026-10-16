@@ -11,6 +11,38 @@ from creator_loop.backend.analysis.workers_quality import (
 
 
 class WorkersQualityTests(unittest.TestCase):
+    def test_actual_f103545_audit_needs_every_editorial_paragraph(self):
+        path = Path(__file__).parents[1] / "fixtures/workers_b_f103545_repetition.json"
+        actual = json.loads(path.read_text(encoding="utf-8"))
+        before = copy.deepcopy(actual)
+        self.assertEqual(actual["audit"]["issues"], [])
+        with self.assertRaisesRegex(ValueError, "task coverage"):
+            worker_audit_findings(actual["editing_stage"])
+        findings = ARTICLE_REQUIREMENT_IDS.copy()
+        with self.assertRaisesRegex(ValueError, "finding coverage"):
+            validate_quality_audit(actual["content"], actual["audit"], findings)
+        audit = copy.deepcopy(actual["audit"])
+        paragraphs = actual["content"]["draft_body"].split("\n\n")
+        check = {
+            "finding": "PROJECT_NONREPETITIVE_DEVELOPMENT",
+            "verdict": "ADDRESSED",
+            "reason": "Synthetic receipt coverage only, not semantic QA",
+            "segments": [{"index": 3, "text": paragraphs[3]}],
+        }
+        audit["finding_checks"].append(check)
+        with self.assertRaisesRegex(ValueError, "development check"):
+            validate_quality_audit(actual["content"], audit, findings)
+        check["segments"] = [
+            {"index": i, "text": text} for i, text in enumerate(paragraphs) if i
+        ]
+        check["verdict"] = "NOT_APPLICABLE"
+        with self.assertRaisesRegex(ValueError, "development check"):
+            validate_quality_audit(actual["content"], audit, findings)
+        check["verdict"] = "UNRESOLVED"
+        with self.assertRaisesRegex(ValueError, "unresolved"):
+            validate_quality_audit(actual["content"], audit, findings)
+        self.assertEqual(actual, before)
+
     def test_task_coverage_cannot_depend_on_empty_editor_summary(self):
         stage = {
             "stage": "editing",
@@ -38,7 +70,9 @@ class WorkersQualityTests(unittest.TestCase):
                 "edits": [{"support": "INSUFFICIENT", "note": "Unsupported rule"}],
             },
         }
-        self.assertEqual(len(worker_audit_findings(stage)), 3)
+        self.assertEqual(
+            worker_audit_findings(stage), ["Unsupported rule", *ARTICLE_REQUIREMENT_IDS]
+        )
         stage["value"]["edits"][0]["note"] = " "
         with self.assertRaisesRegex(ValueError, "explanation"):
             worker_audit_findings(stage)

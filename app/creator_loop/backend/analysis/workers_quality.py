@@ -10,6 +10,7 @@ from typing import Any
 ARTICLE_REQUIREMENT_IDS = [
     "PROJECT_NO_UNSOURCED_RULE",
     "PROJECT_CLOSING_MESSAGE",
+    "PROJECT_NONREPETITIVE_DEVELOPMENT",
 ]
 
 
@@ -94,6 +95,14 @@ def validate_quality_audit(
             ):
                 raise ValueError("Worker editorial finding lost exact passage")
             seen.add(segment["index"])
+        if finding == "PROJECT_NONREPETITIVE_DEVELOPMENT" and (
+            check["verdict"] != "ADDRESSED"
+            or any(
+                not any(segment["text"] in paragraph for segment in check["segments"])
+                for paragraph in paragraphs[1:]
+            )
+        ):
+            raise ValueError("Worker development check omitted editorial paragraphs")
     checked = audit["paragraphs"]
     if not isinstance(checked, list) or len(checked) != len(paragraphs):
         raise ValueError("Worker source audit omitted article paragraphs")

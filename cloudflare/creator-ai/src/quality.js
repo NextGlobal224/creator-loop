@@ -55,6 +55,14 @@ export function bindAudit(body,articleHash,audit,segments,editorFindings=[]) {
        !["ADDRESSED","NOT_APPLICABLE","UNRESOLVED"].includes(c.verdict) || typeof c.reason!=="string" || !c.reason.trim() ||
        !Array.isArray(c.segment_indexes) || !c.segment_indexes.length || new Set(c.segment_indexes).size!==c.segment_indexes.length ||
        c.segment_indexes.some(j=>!Number.isInteger(j) || j<0 || j>=segments.length))) return null;
+  // Non-repetition compares the article, not one convenient sentence. Require
+  // an actual disposition covering every editorial paragraph; never infer a
+  // semantic PASS from coverage or automatically rewrite the saved output.
+  const development=editorFindings.indexOf("PROJECT_NONREPETITIVE_DEVELOPMENT");
+  if(development>=0){
+    const check=audit.finding_checks[development];
+    if(check.verdict==="NOT_APPLICABLE" || paragraphs.slice(1).some((_,i)=>!check.segment_indexes.some(j=>segments[j].paragraph_index===i+1)))return null;
+  }
   const finding_checks=audit.finding_checks.map((c,i)=>({finding:editorFindings[i],verdict:c.verdict,reason:c.reason,
     segments:c.segment_indexes.map(j=>({index:j,text:segments[j].text}))}));
   return {draft_body:body,finding_checks,issues:[...audit.segments.flatMap(item=>item.issues),

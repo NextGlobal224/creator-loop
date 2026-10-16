@@ -25,7 +25,7 @@ function draft(){
     "Nếu vẫn thiếu căn cứ, hãy giữ Chưa xác nhận và nhắn người gửi: bạn có đường dẫn gốc để mình kiểm tra không?",
   ]};return {typed,body:compileEditedArticle(typed),written:{...typed,editorial_paragraphs:typed.editorial_paragraphs.map(text=>[{text,source_quote_id:-1,premise_checks:[]}])}};
 }
-function requirementReceipts(offset=0){return articleRequirements.map((_,i)=>({index:offset+i,verdict:"NOT_APPLICABLE",segment_indexes:[i===0?1:4],reason:"Synthetic task coverage only; not a semantic quality assessment."}));}
+function requirementReceipts(offset=0){return articleRequirements.map((r,i)=>({index:offset+i,verdict:r.id==="PROJECT_NONREPETITIVE_DEVELOPMENT"?"ADDRESSED":"NOT_APPLICABLE",segment_indexes:r.id==="PROJECT_NONREPETITIVE_DEVELOPMENT"?[1,2,3,4]:[i===0?1:4],reason:"Synthetic task coverage only; not a semantic quality assessment."}));}
 function audit(body,issues=[]){return {finding_checks:requirementReceipts(),article_sha256:createHash("sha256").update(body).digest("hex"),segments:body.split(/\n\s*\n/u).map((_,index)=>({index,kind:index===0?"HYPOTHETICAL":"ADVICE",issues:index===0?issues:[]}))};}
 function request(extra={}){return new Request("https://example.test/b/generate",{method:"POST",headers:{authorization:"Bearer fixture","content-type":"application/json"},body:JSON.stringify({prompt:"notes",writing_prompt:writingPrompt,schema,...extra})});}
 // Synthetic valid edit receipts for protocol fixtures, not source-quality QA.
@@ -351,7 +351,7 @@ test("task requirements are audited even when the editor claims no source issues
   const {body,written}=draft();
   const {captured,env}=environment([analysis,written,written,audit(body)]);
   const response=await worker.fetch(request(),env);assert.equal(response.status,200);
-  assert.equal(captured[3].response_format.json_schema.properties.finding_checks.minItems,2);
+  assert.equal(captured[3].response_format.json_schema.properties.finding_checks.minItems,3);
   for(const requirement of articleRequirements){
     assert.ok(captured[1].messages[1].content.includes(requirement.id));
     assert.ok(captured[2].messages[1].content.includes(requirement.id));

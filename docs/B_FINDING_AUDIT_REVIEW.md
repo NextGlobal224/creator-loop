@@ -1,3 +1,37 @@
+## All-paragraph development coverage after a real complete app run — 17 October 2026
+
+Exact f103545 passed required CI and was deployed as e391743f-2137-43fc-9908-b4b4094c1e80.
+The actual first repair reused compatible original analysis, then completed new
+writing/editing/source audit in38.453s. All three new calls were reserved before
+requests in the fixed B-repair-20261016-6 grant. Usage is3/6calls and1/2pipeline
+starts; no historical allowance was added. The automatic TEXT candidate was
+saved and reopened exactly, with sealed citations and unreviewed assertions;
+uncited spans remain NEEDS_SOURCE. No review/selection/approval/post was added.
+
+Full assistant QA remains FAIL. The sentence asking the reader to perform the
+three steps above merely repeats the preceding questions. The article gives
+general instructions without developing that paragraph into a separate useful
+idea. This is not an unsupported efficacy claim or a transport timeout. The
+observed editor kept all segments and the final audit returned issues=[] while
+checking only source-rule and closing-message requirements. The actual output,
+edit operations and audit are preserved in workers_b_f103545_repetition.json.
+
+The correction adds a mandatory NONREPETITIVE_DEVELOPMENT requirement to the
+existing typed task coverage. Its receipt must take a real disposition and bind
+at least one immutable segment from EVERY editorial paragraph. Both Worker and
+app reject missing coverage, a single convenient passage, NOT_APPLICABLE or an
+unresolved finding. Old two-check responses cannot silently qualify under the
+new client/cache version. The original failed article is never rewritten.
+
+This adds no calls, retries, fallback or keyword similarity threshold, and does
+not claim to implement semantic judgment. A model can still incorrectly mark
+all paragraphs addressed; a future output still needs full assistant QA against
+the exact sources and Project. Source support alone does not establish useful
+prose. No minimum length, invented procedure, human approval or publishing is
+introduced. New source must pass its exact CI before deployment/model checking,
+with a fresh adequate same-account Workers Free quota before another pipeline.
+Remaining grant3calls/1pipeline is preserved, not a promise of quality success.
+
 ## Bounded native wait after actual editing timeout — 16 October 2026
 
 Exact ede13a9 CI38916939420 passed all3 required checks, including Windows

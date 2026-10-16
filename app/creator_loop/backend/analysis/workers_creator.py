@@ -83,7 +83,7 @@ class WorkersCreator:
             + self.worker_version
             + "/"
             + self.model.component_id
-            + "/prompt-v31-sdk4-ai7-article-requirements/"
+            + "/prompt-v32-sdk4-ai7-development-coverage/"
             + hashlib.sha256(self.endpoint.encode()).hexdigest()[:12]
         )
 
