@@ -42,7 +42,13 @@ from creator_loop.shared.workflow import CreatorRequest, DraftSnapshot, Research
 
 
 class ResearchPipeline:
-    def __init__(self, root: Path, *, provider_override: str | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        provider_override: str | None = None,
+        workers_analysis_receipt: Path | None = None,
+    ) -> None:
         self.root = Path(root)
         if provider_override not in (
             None,
@@ -52,6 +58,12 @@ class ResearchPipeline:
         ):
             raise ValueError("Unknown B provider")
         self.provider_override = provider_override
+        if (
+            workers_analysis_receipt is not None
+            and provider_override != "CLOUDFLARE_WORKERS_AI"
+        ):
+            raise ValueError("Analysis reuse requires an explicit Workers provider")
+        self.workers_analysis_receipt = workers_analysis_receipt
         from creator_loop.backend.creator.generation_recovery import recover_generation
 
         recover_generation(self.root)

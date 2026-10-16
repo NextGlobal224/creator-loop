@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import sys
 import tempfile
@@ -108,6 +109,78 @@ class LLMPersistenceTests(unittest.TestCase):
         self.root = Path(temp.name).resolve(strict=True)
         self.request = replace(fixture(self.root), output_format="TEXT")
         self.pipeline = ResearchPipeline(self.root)
+
+    def test_explicit_workers_analysis_reuse_persists_and_uses_its_own_cache_key(self):
+        from creator_loop.backend.analysis.workers_creator import WorkersCreator
+
+        receipt = self.root / "runtime" / "analysis-receipt.json"
+        receipt.parent.mkdir(exist_ok=True)
+        receipt.write_text('{"fixture":"first"}')
+        pipeline = ResearchPipeline(
+            self.root,
+            provider_override="CLOUDFLARE_WORKERS_AI",
+            workers_analysis_receipt=receipt,
+        )
+        provider = object.__new__(WorkersCreator)
+        provider.version = "fixture-analysis-reuse"
+        provider.model = SimpleNamespace(component_id="model", version="fixture")
+        fact = "Niềm tin cần được kiểm chứng bằng sự thật."
+
+        def generated(*args, **kwargs):
+            self.assertEqual(kwargs["analysis_receipt"], receipt)
+            return {
+                "observations": [
+                    {
+                        "material_id": "source:s",
+                        "quote": fact,
+                        "observation": "Nội dung đã chọn.",
+                    }
+                ],
+                "inferences": ["Giả thuyết biên tập."],
+                "direction": "Đọc nguồn",
+                "draft_body": fact + "\nLời khuyên do mô hình fixture viết.",
+                "factual_claims": [
+                    {"text": fact, "material_ids": ["source:s"], "source_quote": fact}
+                ],
+                "provenance": {
+                    "backend": provider.name,
+                    "version": provider.version,
+                    "requests": [
+                        {
+                            "execution": "reused_analysis",
+                            "receipt_sha256": hashlib.sha256(
+                                receipt.read_bytes()
+                            ).hexdigest(),
+                        }
+                    ],
+                },
+            }
+
+        with (
+            patch(
+                "creator_loop.backend.analysis.provider_selection.provider_ready",
+                return_value=True,
+            ),
+            patch(
+                "creator_loop.backend.creator.local_generation.selected_provider",
+                return_value=provider,
+            ),
+            patch.object(provider, "generate", side_effect=generated) as generation,
+        ):
+            first = pipeline.analyze(self.request)
+            draft = pipeline.create_draft(first)
+            self.assertEqual(
+                ResearchPipeline(self.root).draft(draft.draft_version_id), draft
+            )
+            self.assertEqual(pipeline.analyze(self.request), first)
+            self.assertEqual(generation.call_count, 1)
+            receipt.write_text('{"fixture":"second"}')
+            self.assertNotEqual(pipeline.analyze(self.request), first)
+            self.assertEqual(generation.call_count, 2)
+        with closing(open_readonly(self.root / "creator_loop.sqlite3")) as db:
+            self.assertEqual(
+                db.execute("SELECT COUNT(*) FROM review_events").fetchone()[0], 0
+            )
 
     def test_zero_or_oversized_generated_scene_cannot_commit_success(self):
         (self.root / "manifests").mkdir()

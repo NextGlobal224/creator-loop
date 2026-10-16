@@ -13,6 +13,8 @@ from creator_loop.backend.analysis.workers_creator import WorkersCreator
 from creator_loop.backend.analysis.workers_quality import ARTICLE_REQUIREMENT_IDS
 from creator_loop.shared.workflow import CreatorRequest, ResearchMaterial
 
+from tests.backend.test_workers_analysis_reuse import make_analysis_receipt
+
 
 class ProviderConfigurationTests(unittest.TestCase):
     def test_cloud_client_binds_annotation_to_exact_editing_stage(self):
@@ -157,6 +159,37 @@ class ProviderConfigurationTests(unittest.TestCase):
                         ["analysis", "writing", "editing", "source_audit"][index],
                     )
                     self.assertEqual(len(uploaded["previous"]), index)
+            analysis_value = {
+                k: content[k] for k in ("observations", "inferences", "direction")
+            }
+            receipt = make_analysis_receipt(
+                root,
+                transport.call_args_list[0].args[3],
+                provider.model.component_id,
+                version,
+                "00000000-0000-4000-8000-000000000002",
+                analysis_value,
+            )
+            with patch(
+                "creator_loop.backend.analysis.workers_creator.post_owned",
+                side_effect=replies(packet)[1:],
+            ) as resumed_transport:
+                resumed = provider.generate(
+                    request, [material], analysis_receipt=receipt
+                )
+                self.assertEqual(resumed["draft_body"], body)
+                self.assertEqual(resumed_transport.call_count, 3)
+                self.assertEqual(
+                    json.loads(resumed_transport.call_args_list[0].args[3])["stage"],
+                    "writing",
+                )
+                self.assertEqual(
+                    resumed["provenance"]["requests"][0]["execution"], "reused_analysis"
+                )
+                self.assertEqual(
+                    resumed["provenance"]["requests"][0]["origin_worker_version"],
+                    "00000000-0000-4000-8000-000000000002",
+                )
             stale = replies(packet)
             old_edit = json.loads(stale[2])
             old_edit["stage_result"].pop("task_requirements")

@@ -13,6 +13,9 @@ from uuid import uuid4
 from creator_loop.backend.analysis.codex_creator import CodexCreator
 from creator_loop.backend.analysis.creator_llm import LocalCreatorLLM
 from creator_loop.backend.analysis.provider_selection import selected_provider
+from creator_loop.backend.analysis.workers_analysis_reuse import (
+    receipt_fingerprint as _analysis_receipt_fingerprint,
+)
 from creator_loop.backend.analysis.workers_creator import WorkersCreator
 from creator_loop.backend.knowledge.claims import EvidenceLink, _timestamp, create_claim
 from creator_loop.backend.runtime.database import _connect_write, open_readonly
@@ -48,6 +51,14 @@ def analyze_local(
         materials = [
             pipeline._verify(db, available[mid]) for mid in request.material_ids
         ]
+        analysis_receipt_hash = (
+            _analysis_receipt_fingerprint(
+                pipeline.root, pipeline.workers_analysis_receipt
+            )
+            if isinstance(provider, WorkersCreator)
+            and pipeline.workers_analysis_receipt is not None
+            else None
+        )
         fingerprint = hashlib.sha256(
             json.dumps(
                 {
@@ -60,6 +71,12 @@ def analyze_local(
                     ),
                     "response_schema": response_schema(
                         [m.material_id for m in materials]
+                    ),
+                    **(
+                        {"analysis_receipt_sha256": analysis_receipt_hash}
+                        if isinstance(provider, WorkersCreator)
+                        and pipeline.workers_analysis_receipt is not None
+                        else {}
                     ),
                 },
                 sort_keys=True,
@@ -106,7 +123,29 @@ def analyze_local(
             ),
         )
     try:
-        result = provider.generate(request, materials, cancelled)
+        result = (
+            provider.generate(
+                request,
+                materials,
+                cancelled,
+                analysis_receipt=pipeline.workers_analysis_receipt,
+            )
+            if isinstance(provider, WorkersCreator)
+            and pipeline.workers_analysis_receipt is not None
+            else provider.generate(request, materials, cancelled)
+        )
+        if analysis_receipt_hash is not None:
+            requests = result.get("provenance", {}).get("requests", [])
+            if (
+                not requests
+                or requests[0].get("receipt_sha256") != analysis_receipt_hash
+                or pipeline.workers_analysis_receipt is None
+                or _analysis_receipt_fingerprint(
+                    pipeline.root, pipeline.workers_analysis_receipt
+                )
+                != analysis_receipt_hash
+            ):
+                raise ValueError("Analysis reuse receipt changed during generation")
         if request.output_format == "VIDEO":
             # Pure scene contract validation; no RenderService/worker/engine starts.
             from creator_loop.backend.video.planner import _declared_scenes

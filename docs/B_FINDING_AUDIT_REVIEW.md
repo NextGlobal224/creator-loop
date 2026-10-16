@@ -1,3 +1,24 @@
+## Explicit unchanged-analysis reuse for the remaining first-case repair
+
+ResearchPipeline accepts an optional Workers analysis receipt. Without that
+explicit input, provider calls and workflow cache fingerprints are unchanged.
+With it, the app checks bounded runtime paths, exact request/response hashes,
+model/endpoint, original and target Worker identities, and an explicit source
+compatibility receipt. Only analysis can be reused; its original identity is
+retained in provenance and it is never promoted to source evidence. The writer,
+editor and final audit still run against the selected notes on the pinned Worker.
+There is no fallback or automatic retry. A stale receipt fails before upload.
+
+The receipt hash is part of this optional workflow cache key and is rechecked
+before persistence. Ordinary local/Codex/cloud calls retain their old cache keys.
+Successful completion uses the existing canonical workflow/Claim/Draft path;
+it is not a manual prose replacement. Reuse does not prove content quality.
+30scoped Python tests cover receipt identity/mutation, three actual transport
+calls with cached analysis, original identity preservation, cache/version and
+canonical persistence; all use fixtures and do not substitute cloud QA.
+Scoped Ruff/mypy pass. Worker47Node results remain valid: Worker code unchanged
+by this follow-up. Actual v31 deployment/output QA still pending.
+
 ## V30 actual app output and explicit task-check diagnosis — 16 October 2026
 
 Exact368ce68 CI38892798651 completed all3required checks including Windows

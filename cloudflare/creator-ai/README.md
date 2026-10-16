@@ -98,3 +98,8 @@ V31 candidate carries task requirements through generation and mandatory audit
 coverage, separately from factual/advice labels. V30 actual app Draft persisted
 but failed source/task quality; targeted call5 recognized both findings. Grant5/8;
 no v31 cloud claim or second source pipeline while first quality fails.
+
+Explicit analysis-only reuse can resume the actual app workflow with three new
+stage calls when its source compatibility, exact input/model/origin and target
+receipt match. Default calls/cache keys stay unchanged; no text is repaired by
+this mechanism and every final result still requires source/task QA.

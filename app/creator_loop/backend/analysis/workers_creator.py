@@ -106,6 +106,8 @@ class WorkersCreator:
         request: CreatorRequest,
         materials: Sequence[ResearchMaterial],
         cancelled: Callable[[], bool] = lambda: False,
+        *,
+        analysis_receipt: Path | None = None,
     ) -> dict[str, Any]:
         if request.output_format != "TEXT":
             raise ValueError(
@@ -165,6 +167,31 @@ class WorkersCreator:
             ).encode()
             if len(stage_payload) > 64 * 1024:
                 raise ValueError("Cloud stage request exceeds budget")
+            if stage == "analysis" and analysis_receipt is not None:
+                from creator_loop.backend.analysis.workers_analysis_reuse import (
+                    reuse_analysis,
+                )
+
+                cached_item, reused = reuse_analysis(
+                    self.root,
+                    analysis_receipt,
+                    stage_payload,
+                    endpoint=self.endpoint,
+                    model=self.model.component_id,
+                    worker_version=self.worker_version,
+                )
+                previous.append(cached_item)
+                requests.append(
+                    {
+                        "stage": stage,
+                        "run": analysis_receipt.parent.name,
+                        "elapsed_seconds": 0,
+                        "upload_bytes": 0,
+                        "download_bytes": 0,
+                        **reused,
+                    }
+                )
+                continue
             stage_workspace = (
                 self.root / "runtime" / ("creator-workers-stage-" + uuid4().hex)
             )
