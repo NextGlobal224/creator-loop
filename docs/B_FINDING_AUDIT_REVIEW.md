@@ -1,4 +1,93 @@
-# B: retain editorial findings through source audit
+# B: generation inputs, edit decisions and audit findings
+
+## v28 candidate: change writing/editing, cloud verification not authorized
+
+This is an offline candidate, not a claim that B output quality is fixed. V27
+only strengthened audit receipt validation. V28 changes generation inputs and
+editing decisions as well; it retains the existing SDK, model and connection.
+
+The original writing/editing HTTP bodies were checked against their saved
+SHA256 bindings. The exact frozen v25 index/quality source was recovered from
+historical Git content at b76b27a by matching the recorded file hashes (including
+the original CRLF bytes); the SDK source still matches its frozen hash. Native
+SDK messages were reconstructed from that source and the original input using
+a fake AI binding. They are reconstructed messages, not an archived wire capture.
+
+Observed: the quote catalog was concatenated into system instructions. Writing
+also received generated observations/inferences alongside the notes. The
+analysis proposed handbook applicability without the steps being available.
+Writing introduced unsupported comparisons and applicability; editing kept them
+despite a free-form finding about handbook scope. The exact original model's
+internal reason is unavailable; input authority confusion, inference reuse and
+pressure to fill a word target are hypotheses, not proven causal attribution.
+
+V28 addresses these concrete input/contract weaknesses:
+
+- Quote text lives in the user-data evidence pack, preserving exact snapshots,
+  catalog IDs, URLs and scope. Source content is absent from system policy.
+- Generated observation paraphrases and inferences are excluded from writer and
+  editor evidence. The proposed direction is retained only as an explicitly
+  unverified editorial plan; a user's selected angle remains separate.
+- Writing chooses a quote ID before wording a factual segment. Source scope
+  limits and missing information take priority over a word-count target; advice
+  cannot silently assert efficacy, applicability or an outcome.
+- Editing must first classify **every** original segment, including uncited
+  advice, as source-supported, suggestion, fictional opening or insufficient.
+  It identifies exact quote IDs and decides KEEP, REWRITE or REMOVE, mapping the
+  decision to the final segments. An insufficient assertion cannot be kept.
+  A declared rewrite/removal that retains the exact old passage fails closed.
+  A replacement may narrow to what an exact quote supports or explicitly leave
+  the missing information unknown. Every new segment needs a source decision.
+
+There is no keyword-list addition, fixture-specific rewrite, silent correction,
+new model call, retry, fallback, dependency, database change or approval event.
+The app cache/prompt identity is v28; original outputs and history are retained.
+
+Offline checks prove evidence placement, input filtering, decision coverage,
+exact retained/changed text and source-ID mapping. The original v25 output is
+not repaired. Analyst-labelled decision fixtures are not new model outputs;
+neither they nor a rejected legacy response prove better writing or correct
+support classification. The editor can still misclassify a factual assertion
+as a suggestion, or misunderstand a quote. General entailment, natural prose,
+ending quality and the larger editing JSON fitting its budget remain unverified.
+
+### Proposed minimum cloud verification — NOT AUTHORIZED
+
+1. Pin the reviewed candidate commit/source hashes, v28 prompt/cache identity,
+   workers-ai-provider4.0.0, AI7.0.142 and @cf/openai/gpt-oss-120b. Only after
+   explicit additional authority: verify existing Free quota, deploy the pinned
+   candidate and bind its actual Worker UUID to the app. No billing changes.
+   V27 stays historically cloud-unverified; this is a distinct v28 candidate.
+2. Reuse the same two notes (1496 characters), Project purpose/audience/style,
+   exact material versions and selected-input hash from the failed SDK pilot.
+   Send only those bounded texts; no Facebook session, full DB, scan or media.
+3. Propose **one** app-backend end-to-end attempt, **at most4 model calls**:
+   analysis, writing, editing, source audit. Existing max-output caps stay
+   2600/3000/3000/2200; no retry, fallback or token-cap increase. Four calls are
+   the minimum for the unchanged actual app flow; a three-call script reusing
+   old analysis would not prove that full flow. This proposal consumes nothing
+   and does not reset the spent first-round1/1pilot/4/4calls or hook2/2 budget.
+4. Capture inputs, model/Worker identity, all stage outputs, decisions/citations,
+   usage and exact Draft save/reopen. Read **every clause** against the notes,
+   including uncited advice and the analysis; every factual assertion needs
+   adequate exact evidence. Unsupported details must be absent or clearly
+   unresolved. No institutional endorsement, efficacy, superiority or practical
+   steps may be invented. Check coherent natural Vietnamese, no padding or
+   internal QA leakage, and an actual message asking for the original link,
+   date/context. No ACCEPT/APPROVE or publication.
+5. Stop immediately on quota/capacity/transport/schema/truncation/cancel failure,
+   an invalid edit decision or adverse source audit. The app's automated
+   failures stop before later stages; semantic review happens on the captured
+   output, without claiming an unsupported manual pause between model calls.
+   After one attempt, stop on any source/style failure, or after the four-call
+   cap even if it passes. No second round or repair call is implied.
+
+A successful future pilot would establish only this frozen case's quality and
+app persistence under its actual version. It would not certify every B input,
+enable automatic publishing or replace independent GitHub review. Until new
+authority is granted, no Cloudflare request, deployment or model call is made.
+
+## v27 historical audit-only correction
 
 16 October 2026. Offline correction only; cloud quality remains FAIL.
 

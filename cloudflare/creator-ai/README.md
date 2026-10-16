@@ -1,3 +1,5 @@
+**v28 source-first generation candidate ? OFFLINE ONLY:** source quotes moved from system instructions into user evidence, model inferences excluded from writing/editing evidence, and every edit requires a source decision with exact old/new segment mapping. See [investigation and proposed four-call cloud verification](../../docs/B_FINDING_AUDIT_REVIEW.md). No cloud call/deployment authorized or performed; original B quality FAIL and spent budgets remain.
+
 **v27 offline finding coverage,16October2026:** every editor finding requires an indexed, exact-text audit disposition; missing/unresolved findings fail closed in Worker/app. See [bounded investigation and limits](../../docs/B_FINDING_AUDIT_REVIEW.md). No new model call/deployment; original cloud quality FAIL and spent1pilot/4calls remain. This is not semantic entailment certification.
 
 **A source clarification16October2026:** the user reaffirmed microsoft/playwright-python

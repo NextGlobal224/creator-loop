@@ -1,0 +1,68 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {evidenceInput,revisionIssues} from '../src/grounding.js';
+import {compileSourcedArticle,quoteCatalog} from '../src/quality.js';
+
+test('generation evidence is exact snapshots; model inference is not promoted into the evidence pack',()=>{
+  const materials=[{material_id:'s1',source_url:'https://example.test/book',scope:'Introduction only',text:'Only a general handbook introduction is supplied.'}];
+  const data={purpose:'Explain limits',audience:'Readers',style:'Natural',direction:'User-selected angle',materials};
+  const analysis={observations:[{observation:'MODEL_OBSERVATION_NOT_A_SOURCE'}],inferences:['MODEL_EFFICACY_GUESS'],direction:'Proposed angle'};
+  const catalog=quoteCatalog(materials),pack=evidenceInput(JSON.stringify(data),catalog,analysis);
+  assert.deepEqual(pack.evidence.materials,materials);
+  assert.equal(pack.evidence.quote_catalog[0].source_quote,materials[0].text);
+  assert.equal(pack.evidence.linked_pages_are_not_retrieved,true);
+  assert.equal(pack.editorial_proposal.status,'UNVERIFIED_PROPOSAL_NOT_SOURCE_EVIDENCE');
+  assert.equal(pack.project.direction,data.direction);
+  assert.equal(JSON.stringify(pack).includes('MODEL_EFFICACY_GUESS'),false);
+  assert.equal(JSON.stringify(pack).includes('MODEL_OBSERVATION_NOT_A_SOURCE'),false);
+});
+
+const catalog=[{material_id:'s',source_quote:'The supplied note describes an introduction, without case-specific procedures.'}];
+function article(text){
+  return compileSourcedArticle({hypothetical_opening:'A reader receives an incomplete record.',editorial_paragraphs:[text,'Ask for the original document.','Read the supplied excerpt.','If information is absent, leave it unconfirmed.'].map(text=>[{text,source_quote_id:-1}])},catalog);
+}
+function checks(initial,final){
+  return initial.segments.map((s,index)=>({index,support:index===0?'HYPOTHETICAL':'SUGGESTION',quote_ids:[],decision:s.text===final.segments[index].text?'KEEP':'REWRITE',final_segment_indexes:[index],note:'Synthetic receipt for a structural check, not model quality evidence.'}));
+}
+test('an acknowledged unsupported passage cannot be kept or declared rewritten without a change',()=>{
+  const initial=article('This handbook specifies a procedure applicable to every incomplete record.');
+  const same=article(initial.segments[1].text),receipt=checks(initial,same);
+  receipt[1].support='INSUFFICIENT';
+  assert.ok(revisionIssues(initial,same,receipt,catalog).some(s=>s.includes('insufficiently supported')));
+  receipt[1].decision='REWRITE';
+  assert.ok(revisionIssues(initial,same,receipt,catalog).some(s=>s.includes('retained the original passage')));
+  receipt[1].decision='REMOVE';receipt[1].final_segment_indexes=[];
+  assert.ok(revisionIssues(initial,same,receipt,catalog).length);
+  const revised=article('The supplied introduction does not provide the procedure; ask for the relevant passage.');
+  const fixed=checks(initial,revised);fixed[1].support='INSUFFICIENT';
+  assert.deepEqual(revisionIssues(initial,revised,fixed,catalog),[]);
+  // Only verifies decisions/mappings; no semantic verdict is inferred from [].
+  const narrow=compileSourcedArticle({hypothetical_opening:'A reader receives an incomplete record.',editorial_paragraphs:[
+    [{text:catalog[0].source_quote,source_quote_id:0}],
+    ...revised.body.split('\n\n').slice(2).map(text=>[{text,source_quote_id:-1}])]},catalog);
+  const narrowed=checks(initial,narrow);narrowed[1].support='INSUFFICIENT';narrowed[1].quote_ids=[0];
+  assert.deepEqual(revisionIssues(initial,narrow,narrowed,catalog),[]);
+  narrowed[1].quote_ids=[];
+  assert.ok(revisionIssues(initial,narrow,narrowed,catalog).some(s=>s.includes('no matching evidence')));
+});
+test('edit decisions must cover original/final text and valid evidence identities',()=>{
+  const initial=article('Ask which part of the source is missing.'),receipt=checks(initial,initial);
+  assert.deepEqual(revisionIssues(initial,initial,receipt,catalog),[]);
+  const invalid=[receipt.slice(1),receipt.map(c=>({...c,index:0}))];
+  for(const change of [{quote_ids:[44],support:'SOURCE_SUPPORTED'},{quote_ids:[],support:'SOURCE_SUPPORTED'},{support:'HYPOTHETICAL'},{final_segment_indexes:[99]},{note:' '}]){
+    const c=structuredClone(receipt);Object.assign(c[1],change);invalid.push(c);
+  }
+  for(const value of invalid)assert.ok(revisionIssues(initial,initial,value,catalog).length);
+});
+test('the saved failed article has no v28 edit decisions and is not silently upgraded',()=>{
+  const saved=JSON.parse(readFileSync(new URL('../../../tests/fixtures/workers_b_v25_editor_findings.json',import.meta.url),'utf8'));
+  const before=JSON.stringify(saved);
+  const initial=compileSourcedArticle({hypothetical_opening:saved.edited.hypothetical_opening,editorial_paragraphs:saved.edited.editorial_paragraphs},saved.catalog);
+  assert.ok(revisionIssues(initial,initial,saved.edited.source_checks,saved.catalog).length);
+  // Analyst-labelled regression only: the original model supplied no decisions.
+  const receipt=checks(initial,initial),uncited=initial.segments.find(s=>s.index>0&&!s.citation);
+  receipt[uncited.index].support='INSUFFICIENT';
+  assert.ok(revisionIssues(initial,initial,receipt,saved.catalog).length);
+  assert.equal(JSON.stringify(saved),before);
+});

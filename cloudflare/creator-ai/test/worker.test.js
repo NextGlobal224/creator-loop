@@ -23,10 +23,22 @@ function draft(){
 }
 function audit(body,issues=[]){return {finding_checks:[],article_sha256:createHash("sha256").update(body).digest("hex"),segments:body.split(/\n\s*\n/u).map((_,index)=>({index,kind:index===0?"HYPOTHETICAL":"ADVICE",issues:index===0?issues:[]}))};}
 function request(extra={}){return new Request("https://example.test/b/generate",{method:"POST",headers:{authorization:"Bearer fixture","content-type":"application/json"},body:JSON.stringify({prompt:"notes",writing_prompt:writingPrompt,schema,...extra})});}
+// Synthetic valid edit receipts for protocol fixtures, not source-quality QA.
+function fixtureChecks(first, edited){
+  const catalog=quoteCatalog(data.materials);
+  const before=compileSourcedArticle(first,catalog),after=compileSourcedArticle({hypothetical_opening:edited.hypothetical_opening,editorial_paragraphs:edited.editorial_paragraphs},catalog);
+  return before.segments.map((s,index)=>{
+    const same=after.segments.find(t=>t.text===s.text);
+    const target=same??after.segments[index];
+    return {index,support:index===0?"HYPOTHETICAL":s.citation?"SOURCE_SUPPORTED":"SUGGESTION",
+      quote_ids:s.citation?[0]:[],decision:same?"KEEP":target?"REWRITE":"REMOVE",
+      final_segment_indexes:target?[target.index]:[],note:"Synthetic protocol fixture; no semantic quality claim."};
+  });
+}
 function environment(outputs,model="@cf/openai/gpt-oss-120b"){
   const captured=[];
   return {captured,env:{CREATOR_KEY:"fixture",CREATOR_MODEL:model,CREATOR_VERSION:{id:"pinned-version"},AI:{run:async(_,options)=>{
-    captured.push(options);let value=outputs[captured.length-1];if(value instanceof Error)throw value; if(captured.length===3 && value && typeof value==="object" && value.editorial_paragraphs)value={source_issues:[],...value};
+    captured.push(options);let value=outputs[captured.length-1];if(value instanceof Error)throw value; if(captured.length===3 && value && typeof value==="object" && value.editorial_paragraphs)value={source_issues:[],source_checks:fixtureChecks(outputs[1],value),...value};
     return {choices:[{message:{content:typeof value==="string"?value:JSON.stringify(value),reasoning_content:"private reasoning fixture"},finish_reason:"stop"}],usage:{prompt_tokens:12,completion_tokens:30}};
   }}}};
 }
@@ -36,9 +48,14 @@ test("source analysis precedes writing; conflicting prose instructions never ent
   for(const options of captured){
     assert.equal(options.input,undefined);assert.equal(options.instructions,undefined);assert.equal(options.reasoning_effort,"low");
     assert.equal(options.max_output_tokens,undefined);assert.equal(options.messages[0].role,"system");assert.equal(options.messages[1].role,"user");
-    assert.equal(options.messages[1].content.includes("chỉ trả prose"),false);assert.ok(options.messages[1].content.includes(JSON.stringify(data)));
+    assert.equal(options.messages[1].content.includes("chỉ trả prose"),false);assert.ok(options.messages[1].content.includes(data.materials[0].text));
   }
-  assert.ok(captured[1].messages[1].content.includes(JSON.stringify(analysis)));
+  for(const i of [1,2]){
+    assert.equal(captured[i].messages[0].content.includes(data.materials[0].text),false);
+    assert.equal(captured[i].messages[1].content.includes(analysis.inferences[0]),false);
+    assert.equal(captured[i].messages[1].content.includes(analysis.observations[0].observation),false);
+    assert.ok(captured[i].messages[1].content.includes("UNVERIFIED_PROPOSAL_NOT_SOURCE_EVIDENCE"));
+  }
   assert.deepEqual(captured.map(c=>c.max_tokens),[2600,3000,3000,2200]);
   const result=await response.json();assert.deepEqual(result.stages.map(s=>s.stage),["analysis","writing","editing","source_audit"]);
   assert.equal(result.stages[1].body,body);assert.equal(JSON.parse(result.result.response).draft_body,body);
@@ -59,7 +76,7 @@ test("explicit Qwen model keeps JSON stage contract and bounded non-thinking inp
   for(const options of captured){assert.deepEqual(options.chat_template_kwargs,{enable_thinking:false});assert.equal(options.reasoning_effort,undefined);assert.equal(options.response_format.type,"json_schema");assert.ok(options.messages[1].content.includes("Return only JSON matching this schema"));}
 });
 test("AI.run JSON mode object response keeps roles, budgets and source checks",async()=>{
-  const {body,written}=draft();const outputs=[analysis,written,{source_issues:[],...written},audit(body)];let calls=0;
+  const {body,written}=draft();const outputs=[analysis,written,{source_checks:fixtureChecks(written,written),source_issues:[],...written},audit(body)];let calls=0;
   const {env}=environment([]);env.AI.run=async(_,options)=>{
     assert.equal(options.messages[0].role,"system");assert.equal(options.response_format.type,"json_schema");
     assert.ok(options.max_tokens>0);assert.equal(options.input,undefined);
@@ -69,14 +86,14 @@ test("AI.run JSON mode object response keeps roles, budgets and source checks",a
   assert.equal(JSON.parse((await result.json()).result.response).draft_body,body);
 });
 test("unsupported direct-root results fail closed without provider fallback",async()=>{
-  const {body,written}=draft();const outputs=[analysis,written,{source_issues:[],...written},audit(body)];let calls=0;
+  const {body,written}=draft();const outputs=[analysis,written,{source_checks:fixtureChecks(written,written),source_issues:[],...written},audit(body)];let calls=0;
   const {env}=environment([]);env.AI.run=async()=>({...outputs[calls++],usage:{input_tokens:12,output_tokens:30}});
   assert.equal((await worker.fetch(request(),env)).status,502);assert.equal(calls,1);
   env.AI.run=async()=>({...analysis,unexpected_private_field:"must not be accepted"});
   assert.equal((await worker.fetch(request(),env)).status,502);
 });
 test("unsupported text-completion envelope fails closed without provider fallback",async()=>{
-  const {body,written}=draft();const outputs=[analysis,written,{source_issues:[],...written},audit(body)];let calls=0;
+  const {body,written}=draft();const outputs=[analysis,written,{source_checks:fixtureChecks(written,written),source_issues:[],...written},audit(body)];let calls=0;
   const {env}=environment([]);env.AI.run=async()=>({choices:[{index:0,text:JSON.stringify(outputs[calls++]),finish_reason:"stop"}],usage:{prompt_tokens:12,completion_tokens:30}});
   assert.equal((await worker.fetch(request(),env)).status,502);assert.equal(calls,1);
 });
