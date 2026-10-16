@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {createHash} from "node:crypto";
 import worker from "../src/index.js";
-import {auditSchema,bindAudit,validAudit,compileEditedArticle,compileSourcedArticle,quoteCatalog,hasHypotheticalOpening,publicArticleIssues,uncitedAssertionIssues} from "../src/quality.js";
+import {auditSchema,bindAudit,validAudit,compileEditedArticle,compileSourcedArticle as compilePlainArticle,quoteCatalog,hasHypotheticalOpening,publicArticleIssues,uncitedAssertionIssues} from "../src/quality.js";
+function compileSourcedArticle(value,catalog){
+  return compilePlainArticle({...value,editorial_paragraphs:value.editorial_paragraphs.map(p=>p.map(({premise_checks,...segment})=>segment))},catalog);
+}
+import {checkedWriting} from "../src/grounding.js";
 const data={format:"TEXT",purpose:"Kiểm chứng",materials:[{material_id:"m",text:"Ghi chú nguồn công khai"}]};
 test("actual v24 metadata-leak output remains rejected despite source citation and prior empty audit",()=>{
   const actual=readFileSync(new URL("../../../tests/fixtures/workers_b_v24_metadata_failed.txt",import.meta.url),"utf8");
@@ -19,14 +23,14 @@ function draft(){
     "Khi mở được bản gốc, hãy đọc phần trước và sau đoạn chụp, chú ý phạm vi áp dụng thay vì đoán theo tiêu đề.",
     "Hãy đối chiếu nội dung cụ thể và nguồn bằng chứng; nhiều bài lặp lại cùng một tin chưa phải là nguồn độc lập.",
     "Nếu vẫn thiếu căn cứ, hãy giữ Chưa xác nhận và nhắn người gửi: bạn có đường dẫn gốc để mình kiểm tra không?",
-  ]};return {typed,body:compileEditedArticle(typed),written:{...typed,editorial_paragraphs:typed.editorial_paragraphs.map(text=>[{text,source_quote_id:-1}])}};
+  ]};return {typed,body:compileEditedArticle(typed),written:{...typed,editorial_paragraphs:typed.editorial_paragraphs.map(text=>[{text,source_quote_id:-1,premise_checks:[]}])}};
 }
 function audit(body,issues=[]){return {finding_checks:[],article_sha256:createHash("sha256").update(body).digest("hex"),segments:body.split(/\n\s*\n/u).map((_,index)=>({index,kind:index===0?"HYPOTHETICAL":"ADVICE",issues:index===0?issues:[]}))};}
 function request(extra={}){return new Request("https://example.test/b/generate",{method:"POST",headers:{authorization:"Bearer fixture","content-type":"application/json"},body:JSON.stringify({prompt:"notes",writing_prompt:writingPrompt,schema,...extra})});}
 // Synthetic valid edit receipts for protocol fixtures, not source-quality QA.
 function fixtureChecks(first, edited){
   const catalog=quoteCatalog(data.materials);
-  const before=compileSourcedArticle(first,catalog),after=compileSourcedArticle({hypothetical_opening:edited.hypothetical_opening,editorial_paragraphs:edited.editorial_paragraphs},catalog);
+  const before=compileSourcedArticle(checkedWriting(first,catalog),catalog),after=compileSourcedArticle({hypothetical_opening:edited.hypothetical_opening,editorial_paragraphs:edited.editorial_paragraphs.map(p=>p.map(({premise_checks,...segment})=>segment))},catalog);
   return before.segments.map((s,index)=>{
     const same=after.segments.find(t=>t.text===s.text);
     const target=same??after.segments[index];
@@ -36,12 +40,12 @@ function fixtureChecks(first, edited){
   });
 }
 function fixtureOperations(first,edited){
-  const before=compileSourcedArticle(first,quoteCatalog(data.materials));
-  const after=compileSourcedArticle({hypothetical_opening:edited.hypothetical_opening,editorial_paragraphs:edited.editorial_paragraphs},quoteCatalog(data.materials));
+  const before=compileSourcedArticle(checkedWriting(first,quoteCatalog(data.materials)),quoteCatalog(data.materials));
+  const after=compileSourcedArticle({hypothetical_opening:edited.hypothetical_opening,editorial_paragraphs:edited.editorial_paragraphs.map(p=>p.map(({premise_checks,...segment})=>segment))},quoteCatalog(data.materials));
   const receipt=edited.source_checks??fixtureChecks(first,edited);
   return {source_issues:edited.source_issues??[],edits:receipt.map(check=>{
     const {final_segment_indexes,...rest}=check;
-    return {...rest,premise_checks:check.support==="SOURCE_SUPPORTED"?[{assertion:before.segments[check.index].text,quote_ids:check.quote_ids,supported:true}]:[],replacement:check.decision==="REWRITE"?final_segment_indexes.map(index=>({text:after.segments[index].text,source_quote_id:after.segments[index].citation?0:-1})):[]};
+    return {...rest,premise_checks:check.support==="SOURCE_SUPPORTED"?[{assertion:before.segments[check.index].text,quote_ids:check.quote_ids,supported:true}]:[],replacement:check.decision==="REWRITE"?final_segment_indexes.map(index=>({text:after.segments[index].text,source_quote_id:after.segments[index].citation?0:-1,premise_checks:after.segments[index].citation?[{assertion:after.segments[index].text,quote_ids:[0],supported:true}]:[]})):[]};
   })};
 }
 function environment(outputs,model="@cf/openai/gpt-oss-120b"){
@@ -296,7 +300,7 @@ test("saved v25 editor findings cannot be discarded by the old empty model audit
 
 test("uncited probability or absolute cannot evade audit under advice; no fourth model call",async()=>{
   for(const text of ["Nếu không rõ, khả năng sai lệch sẽ cao hơn.","Kiểm tra đa nguồn luôn là cách an toàn nhất."]){
-    const {written}=draft();written.editorial_paragraphs[0].push({text,source_quote_id:-1});
+    const {written}=draft();written.editorial_paragraphs[0].push({text,source_quote_id:-1,premise_checks:[]});
     const {env,captured}=environment([analysis,written,written]);const response=await worker.fetch(request(),env);
     assert.equal(response.status,422);assert.equal(captured.length,3);
     const failed=await response.json();assert.equal(failed.retryable,false);assert.ok(failed.candidate_body.includes(text));assert.ok(failed.audit_issues.length);
@@ -304,6 +308,20 @@ test("uncited probability or absolute cannot evade audit under advice; no fourth
     const bound=bindAudit(composed.body,createHash("sha256").update(composed.body).digest("hex"),audit(composed.body),composed.segments);
     // The old model report also has wrong segment count, which fails closed.
     assert.equal(bound,null);
+  }
+});
+
+test("writing rejects a declared unsupported premise before editing or audit can relabel it",async()=>{
+  for(const segment of [
+    {source_quote_id:-1,text:"A suggested action establishes an outcome.",premise_checks:[{assertion:"The action establishes the outcome.",quote_ids:[],supported:false}]},
+    {source_quote_id:-1,text:"Uncited empirical premise.",premise_checks:[{assertion:"An empirical premise.",quote_ids:[0],supported:true}]},
+    {source_quote_id:0,text:"A factual sentence without an assertion check.",premise_checks:[]},
+  ]){
+    const {written}=draft();written.editorial_paragraphs[0].push(segment);
+    const {env,captured}=environment([analysis,written]);
+    const response=await worker.fetch(request(),env);
+    assert.equal(response.status,502);assert.equal(captured.length,2);
+    const failed=await response.json();assert.equal(failed.stage,"writing");assert.equal(failed.retryable,false);
   }
 });
 

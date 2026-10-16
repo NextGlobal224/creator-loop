@@ -1,3 +1,33 @@
+<!-- B_V30_RESUME_BEGIN -->
+**16/10/2026 — Đã resume đúng task cũ; B vẫn FAIL, toàn dự án chưa hoàn tất.**
+PR86 prior HEAD21f8c34 / basea206a23: required CI38886742135 all3SUCCESS,
+Windows test/build/exactZIPsmokeSUCCESS; publish-releaseSKIPPED. Không rerun,
+download/rebuild/merge/tag/release. Review độc lập còn thiếu.
+
+V30 candidate đã sửa source: writing và mỗi replacement phải khai premise_checks;
+declared unsupported/factual advice không được giữ; citation phải khớp tiền đề;
+REWRITE giữ nguyên chữ (NFC/whitespace) bị chặn khi compose. Writer premises đến
+editor, replacement premises đến audit/diagnostic; cache v30 giữ lịch sử tách biệt.
+46Node/11Python boundaryPASS; scoped Ruff0.16.9PASS. Venv không có Ruff, dùng base
+Python đã có. Chỉ5file nguồn/test chiếu từ PR vào app sau khi so baseline trùng;
+WIP khác giữ nguyên. Chưa deploy hoặc tạo output mới. Model có thể bỏ sót tiền đề
+hoặc gán supported sai; offline/CI không thay chất lượng semantic/save-reopen.
+
+Taskfd0703af9f874cae8409d10bdab15836, hook2/2, grant8/8đãhết, historical15calls
+giữ nguyên.0model/deploy/pilot mới. Old28stale references giữ đúng failed/pending,
+không refresh đểPASS. Snapshot kiểm source/log ở B-resume-20261016, không lấy
+historical packets làm bằng chứng current. A mới quét/20–40gate PAUSED,
+Playwright/SentenceTransformers giữ; B SDK giữ; Cpaid/Containers/R2PAUSED, hearing
+chưa xác minh. Giữ đủ37requirements/15constraints, manual approval/UNREVIEWED,
+main/tag/exactartifact/pre-release và3stabledeferrals. Không tự APPROVE/ACCEPT.
+
+Đã chuẩn bị đề xuất CHƯA ĐƯỢC CẤP: tối đa8modelcalls mới/tối đa2pipeline,
+WorkersFree/$0, quota hiện tại đủ + CI exactHEAD trước deploy/pin; reserve từng
+call, không retry nguyên trạng/cộng grant cũ. Pipeline2 chỉ khi pipeline1đạt;
+nếu lỗi thì dừng request, chẩn đoán offline trước dùng phần còn lại. Không hứa
+grant này đủ nghiệm thuB. Chi tiết B_FINDING_AUDIT_REVIEW.
+<!-- B_V30_RESUME_END -->
+
 # Bàn giao hiện tại — Creator Loop V1
 
 **Second real topic finding12/10/2026:** twofiniteappbatches exhausted16queries/120details: dc38 57candidates +695397f 52candidates, noSave. V1_2NFCwordmatcher still falselyqualified3(longjob/pharmacy/energy/socialetiquettecaptions containingtopicwords scattered); NOT20trueviral, don'tacceptthose3. NarrowV1_3requires adjacenttopicphrases separated byprepositions; currenttopic needs“nhận thức đúng”and“sự thật”. UIreassesseshistoryinmemory, exposesassessment_stored, doesn'trewriteoldSQLite/Source/capture.30focused+lint/typePASS; finalcommit/build/nativehistoryre-evaluation/newCI pending. No additional search beyondstatedbudget; reusecapturedmetadata explicitly with originalrun/artifact; newartifact notclaimedfreshscan.695requiredCI38274750662 threeSUCCESS/watchterminal0,CIartifact11758762808 synthetic101dbd67 distinctfrom local450fileQA, notQAtransferred. Publisher/rank/viralhashtag/analysis aren'tviral-topic proof. Minimum20NOTMET; reviews/pre-release gate unchanged.

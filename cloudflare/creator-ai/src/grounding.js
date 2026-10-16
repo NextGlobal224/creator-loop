@@ -13,6 +13,35 @@ export function evidenceInput(sourceContext, catalog, analysis) {
 
 export const sourceFirstInstructions=" Work evidence-first: choose the exact quote ID before wording each factual segment. Its entire meaning, scope and attribution must be supported by the provided snapshot, not an unread linked page. The editorial proposal is an unverified plan, never evidence. Do not promote inferred efficacy or applicability into a fact. If the notes do not supply the needed steps, comparison, recommendation or result, omit that assertion or say explicitly what remains unknown, without asserting the missing detail. A voluntary suggestion may be uncited only if it contains no hidden factual premise or promised outcome. Write fluent connected Vietnamese, not a list of source checks; keep the source decisions out of public prose. The word-count target is subordinate to source limits: never invent facts or pad the article to meet it.";
 
+export function premiseSchema(catalogCount) {
+  return {type:"array",maxItems:8,items:{type:"object",properties:{assertion:{type:"string",minLength:1},quote_ids:{type:"array",uniqueItems:true,items:{type:"integer",minimum:0,maximum:catalogCount-1}},supported:{type:"boolean"}},required:["assertion","quote_ids","supported"],additionalProperties:false}};
+}
+
+export function checkPremises(premises,catalog) {
+  if(!Array.isArray(premises) || premises.length>8 || premises.some(p=>!p || Object.keys(p).sort().join(",")!=="assertion,quote_ids,supported" || typeof p.assertion!=="string" || !p.assertion.trim() || typeof p.supported!=="boolean" || !Array.isArray(p.quote_ids) || new Set(p.quote_ids).size!==p.quote_ids.length || p.quote_ids.some(q=>!Number.isInteger(q) || q<0 || q>=catalog.length) || p.supported && !p.quote_ids.length))throw new Error("Invalid factual premise checks");
+}
+
+// This validates declared support, not completeness or semantic entailment.
+// The same boundary applies before writing is accepted and to every replacement.
+export function checkedSegment(segment,catalog) {
+  if(!segment || Object.keys(segment).sort().join(",")!=="premise_checks,source_quote_id,text" || typeof segment.text!=="string" || !segment.text.trim() || segment.text.includes("\n") || !Number.isInteger(segment.source_quote_id) || segment.source_quote_id< -1 || segment.source_quote_id>=catalog.length)throw new Error("Invalid checked segment");
+  checkPremises(segment.premise_checks,catalog);
+  if(segment.premise_checks.some(p=>!p.supported))throw new Error("Generated segment retains an unsupported factual premise");
+  if(segment.source_quote_id===-1 && segment.premise_checks.length)throw new Error("Factual premises cannot be hidden in uncited advice");
+  if(segment.source_quote_id>=0 && (!segment.premise_checks.length || segment.premise_checks.some(p=>!p.quote_ids.includes(segment.source_quote_id))))throw new Error("Segment citation does not cover its declared factual premises");
+  return {source_quote_id:segment.source_quote_id,text:segment.text};
+}
+
+export const generatedPremiseInstructions=" Before wording each segment, enumerate its factual assertions AND presuppositions in premise_checks, including availability/applicability of tools and expected outcomes hidden inside advice. Exact supporting quote IDs are required for each premise. Omit a segment with any unsupported premise; do not merely label it advice. An uncited voluntary request has no factual premises and premise_checks:[]. A cited segment has at least one supported premise, each backed by its source_quote_id. These are public evidence annotations, not private reasoning. This applies separately to every replacement: support for the original does not establish a new assertion introduced by rewriting.";
+
+export function checkedWriting(value,catalog) {
+  if(!value || Object.keys(value).sort().join(",")!=="editorial_paragraphs,hypothetical_opening" || !Array.isArray(value.editorial_paragraphs))throw new Error("Invalid checked writing");
+  return {...value,editorial_paragraphs:value.editorial_paragraphs.map(p=>{
+    if(!Array.isArray(p))throw new Error("Invalid checked paragraph");
+    return p.map(segment=>checkedSegment(segment,catalog));
+  })};
+}
+
 export function revisionSchema(segmentCount,catalogCount) {
   return {type:"array",minItems:segmentCount,maxItems:segmentCount,items:{type:"object",properties:{
     index:{type:"integer"},
@@ -67,7 +96,7 @@ export function revisionIssues(initial, final, checks, catalog) {
 export function operationSchema(count,catalogCount) {
   const receipt=revisionSchema(count,catalogCount).items;
   const {final_segment_indexes,...properties}=receipt.properties;
-  return {type:"object",properties:{source_issues:{type:"array",items:{type:"string"}},edits:{type:"array",minItems:count,maxItems:count,items:{type:"object",properties:{index:properties.index,premise_checks:{type:"array",maxItems:8,items:{type:"object",properties:{assertion:{type:"string",minLength:1},quote_ids:{type:"array",uniqueItems:true,items:{type:"integer",minimum:0,maximum:catalogCount-1}},supported:{type:"boolean"}},required:["assertion","quote_ids","supported"],additionalProperties:false}},...properties,replacement:{type:"array",maxItems:12,items:{type:"object",properties:{source_quote_id:{type:"integer",minimum:-1,maximum:catalogCount-1},text:{type:"string",minLength:1}},required:["source_quote_id","text"],additionalProperties:false}}},required:[...receipt.required.filter(key=>key!=="final_segment_indexes"),"premise_checks","replacement"],additionalProperties:false}}},required:["source_issues","edits"],additionalProperties:false};
+  return {type:"object",properties:{source_issues:{type:"array",items:{type:"string"}},edits:{type:"array",minItems:count,maxItems:count,items:{type:"object",properties:{index:properties.index,premise_checks:premiseSchema(catalogCount),...properties,replacement:{type:"array",maxItems:12,items:{type:"object",properties:{premise_checks:premiseSchema(catalogCount),source_quote_id:{type:"integer",minimum:-1,maximum:catalogCount-1},text:{type:"string",minLength:1}},required:["source_quote_id","text","premise_checks"],additionalProperties:false}}},required:[...receipt.required.filter(key=>key!=="final_segment_indexes"),"premise_checks","replacement"],additionalProperties:false}}},required:["source_issues","edits"],additionalProperties:false};
 }
 
 export const operationInstructions="Return source_issues and one edit operation per original segment, in original index order. Each operation assesses the ORIGINAL segment: index, premise_checks, support, quote_ids, decision, note, replacement. Before choosing support/decision, enumerate EVERY factual assertion or presupposition in premise_checks, including implied tool availability, applicability and outcomes inside an instruction or purpose clause. For each assertion, supported:true requires quote_ids whose exact excerpts establish the entire assertion; missing evidence means supported:false, even if the source has a related topic. A general description of a manual does not establish the identity, availability or capability of a particular tool or a case-specific procedure. A pure request to read or ask is a voluntary action; instructing someone to perform an unprovided procedure to establish a result presupposes capabilities and outcomes. If ANY premise is unsupported, choose INSUFFICIENT and REMOVE. An empty premise_checks is allowed only for a pure voluntary action or fictional opening with no real-world factual premise; SOURCE_SUPPORTED requires at least one checked assertion. An editorial warning in a note is advice, not evidence of a universal impossibility. The note is one short evidence explanation, not a reasoning transcript. SOURCE_SUPPORTED needs exact quotes supporting the whole assertion. SUGGESTION is a voluntary action WITHOUT an empirical premise, claimed benefit, ranking or predicted result, including a result hidden in a purpose clause. A question in a source supplies no evidence that using it will produce a reliable answer or better decisions. HYPOTHETICAL is only the explicitly fictional opening. If the original contains an unsupported assertion, use INSUFFICIENT and REMOVE the whole segment: do not retain or paraphrase its unsupported conclusion as advice. For KEEP and REMOVE, replacement MUST be []. KEEP uses the original text/citation exactly; REMOVE emits no text. REWRITE is for a supported original or pure suggestion whose wording needs editing; replacement contains the actual final free-written segments with source_quote_id before text. Do not label an insufficient original SOURCE_SUPPORTED in order to rewrite it. Citations only support source facts, not a source note authors editorial instructions. Preserve original paragraph placement. Remove internal metadata and irrelevant quotations; avoid repeating a source quote in English when a supported Vietnamese explanation already exists. Keep a fluent article, one fictional opening and four connected paragraphs; no minimum length and at most350words. Unconfirmed information remains unconfirmed; no invented procedures or outcomes. Rewrite the ending as an actual short quoted message asking the sender for a missing original link/date/context. Do not output a second article or forecast final indexes; the application composes only the declared operations.";
@@ -78,14 +107,17 @@ export function applyEditOperations(value,initial,catalog) {
   for(let i=0;i<initial.segments.length;i++){
     const original=initial.segments[i],edit=value.edits[i];
     if(!edit || Object.keys(edit).sort().join(",")!=="decision,index,note,premise_checks,quote_ids,replacement,support" || edit.index!==i || !Array.isArray(edit.replacement) || !["KEEP","REMOVE","REWRITE"].includes(edit.decision) || !["SOURCE_SUPPORTED","SUGGESTION","HYPOTHETICAL","INSUFFICIENT"].includes(edit.support))throw new Error("Invalid edit identity");
-    if(!Array.isArray(edit.premise_checks) || edit.premise_checks.some(p=>!p || Object.keys(p).sort().join(",")!=="assertion,quote_ids,supported" || typeof p.assertion!=="string" || !p.assertion.trim() || typeof p.supported!=="boolean" || !Array.isArray(p.quote_ids) || new Set(p.quote_ids).size!==p.quote_ids.length || p.quote_ids.some(q=>!Number.isInteger(q) || q<0 || q>=catalog.length) || p.supported && !p.quote_ids.length))throw new Error("Invalid factual premise checks");
+    checkPremises(edit.premise_checks,catalog);
     if(edit.premise_checks.some(p=>!p.supported) && (edit.support!=="INSUFFICIENT" || edit.decision!=="REMOVE"))throw new Error("Unsupported factual premise cannot be kept as advice");
     if(edit.support==="SOURCE_SUPPORTED" && !edit.premise_checks.length)throw new Error("Source fact has no checked assertion");
+    if(["SUGGESTION","HYPOTHETICAL"].includes(edit.support) && edit.premise_checks.length)throw new Error("Factual premises cannot use an advice or fictional exemption");
+    if(edit.support==="SOURCE_SUPPORTED" && edit.premise_checks.some(p=>!p.quote_ids.every(q=>edit.quote_ids.includes(q))))throw new Error("Original premise evidence is missing from the edit receipt");
     if(edit.support==="INSUFFICIENT" && edit.decision!=="REMOVE")throw new Error("Insufficient assertion must be removed, not paraphrased");
     if(edit.decision!=="REWRITE" && edit.replacement.length || edit.decision==="REWRITE" && !edit.replacement.length)throw new Error("Edit replacement contradicts decision");
     const {replacement,premise_checks,...check}=edit;
     const quoteId=original.citation?catalog.findIndex(q=>q.material_id===original.citation.material_ids[0] && q.source_quote===original.citation.source_quote):-1;
-    const produced=edit.decision==="REMOVE"?[]:edit.decision==="KEEP"?[{text:original.text,source_quote_id:quoteId}]:replacement;
+    const produced=edit.decision==="REMOVE"?[]:edit.decision==="KEEP"?[{text:original.text,source_quote_id:quoteId}]:replacement.map(segment=>checkedSegment(segment,catalog));
+    if(edit.decision==="REWRITE" && produced.map(s=>s.text.trim()).join(" ").normalize("NFC").replace(/\s+/gu," ")===original.text.trim().normalize("NFC").replace(/\s+/gu," "))throw new Error("REWRITE did not change the original passage");
     for(const segment of produced){
       if(!segment || Object.keys(segment).sort().join(",")!=="source_quote_id,text" || typeof segment.text!=="string" || !segment.text.trim() || segment.text.includes("\n") || !Number.isInteger(segment.source_quote_id) || segment.source_quote_id< -1 || segment.source_quote_id>=catalog.length)throw new Error("Invalid edit replacement");
       if(i===0 && segment.source_quote_id!==-1)throw new Error("Fictional opening cannot acquire a citation");

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {evidenceInput,revisionIssues,applyEditOperations} from '../src/grounding.js';
+import {evidenceInput,revisionIssues,applyEditOperations,checkedSegment} from '../src/grounding.js';
 import {compileSourcedArticle,quoteCatalog} from '../src/quality.js';
 
 test('generation evidence is exact snapshots; model inference is not promoted into the evidence pack',()=>{
@@ -84,7 +84,7 @@ test('edit operations bind KEEP/REMOVE/REWRITE to a single text and compute shif
   const original=compileSourcedArticle(typed,catalog);
   const edits=original.segments.map((s,index)=>({index,support:index===0?'HYPOTHETICAL':'SUGGESTION',quote_ids:[],decision:'KEEP',note:'Structural test only',premise_checks:[],replacement:[]}));
   edits[1]={...edits[1],support:'INSUFFICIENT',decision:'REMOVE'};
-  edits[edits.length-1]={...edits.at(-1),decision:'REWRITE',replacement:[{source_quote_id:-1,text:'Please send the original link and date.'}]};
+  edits[edits.length-1]={...edits.at(-1),decision:'REWRITE',replacement:[{source_quote_id:-1,text:'Please send the original link and date.',premise_checks:[]}]};
   const output=applyEditOperations({source_issues:['Unsupported outcome removed'],edits},original,catalog);
   const emptySummary=applyEditOperations({source_issues:[],edits},original,catalog);
   assert.deepEqual(emptySummary.source_issues,[edits[1].note], 'The audit must receive the actual insufficient-support finding even when the summary omits it');
@@ -107,4 +107,36 @@ test('an acknowledged unsupported premise cannot survive under a suggestion labe
   assert.throws(()=>applyEditOperations({source_issues:[],edits},initial,catalog),/Unsupported factual premise/);
   edits[1].support='SOURCE_SUPPORTED';edits[1].quote_ids=[0];
   assert.throws(()=>applyEditOperations({source_issues:[],edits},initial,catalog),/Unsupported factual premise/);
+});
+
+test('affirmed factual premises cannot be exempted as advice or omitted from original edit evidence',()=>{
+  const initial=article('The excerpt describes a handbook.');
+  const edits=initial.segments.map((s,index)=>({index,support:index===0?'HYPOTHETICAL':'SUGGESTION',quote_ids:[],decision:'KEEP',note:'Protocol fixture only',premise_checks:[],replacement:[]}));
+  edits[1].premise_checks=[{assertion:initial.segments[1].text,quote_ids:[0],supported:true}];
+  assert.throws(()=>applyEditOperations({source_issues:[],edits},initial,catalog),/exemption/);
+  edits[1].support='SOURCE_SUPPORTED';
+  assert.throws(()=>applyEditOperations({source_issues:[],edits},initial,catalog),/missing from the edit receipt/);
+});
+
+test('replacement premises are checked independently from a supported original',()=>{
+  const initial=article('Ask for the original record.');
+  const edits=initial.segments.map((s,index)=>({index,support:index===0?'HYPOTHETICAL':'SUGGESTION',quote_ids:[],decision:'KEEP',note:'Protocol fixture only',premise_checks:[],replacement:[]}));
+  edits[1].decision='REWRITE';
+  edits[1].replacement=[{text:'Applying the unspecified procedure establishes a reliable result.',source_quote_id:-1,premise_checks:[{assertion:'The procedure establishes that result.',quote_ids:[],supported:false}]}];
+  assert.throws(()=>applyEditOperations({source_issues:[],edits},initial,catalog),/unsupported factual premise/);
+  edits[1].replacement=[{text:'Please send the original record and its date.',source_quote_id:-1,premise_checks:[]}];
+  assert.ok(applyEditOperations({source_issues:[],edits},initial,catalog).editorial_paragraphs[0][0].text.includes('date'));
+  edits[1].replacement=[{text:initial.segments[1].text,source_quote_id:-1,premise_checks:[]}];
+  assert.throws(()=>applyEditOperations({source_issues:[],edits},initial,catalog),/did not change/);
+});
+
+test('writer and replacement citations must cover all declared factual premises',()=>{
+  const sources=[...catalog,{material_id:'other',source_quote:'A different excerpt.'}];
+  const segment={text:'A factual passage.',source_quote_id:0,premise_checks:[{assertion:'A factual passage.',quote_ids:[1],supported:true}]};
+  assert.throws(()=>checkedSegment(segment,sources),/does not cover/);
+  segment.premise_checks[0].quote_ids=[0];
+  assert.deepEqual(checkedSegment(segment,sources),{text:segment.text,source_quote_id:0});
+  // A structurally consistent declaration is not proof the excerpt entails it.
+  segment.source_quote_id=-1;
+  assert.throws(()=>checkedSegment(segment,sources),/uncited advice/);
 });

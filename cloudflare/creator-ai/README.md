@@ -89,3 +89,7 @@ validation remains. Editing emits operations owning replacement text and factual
 premise checks; final mappings are computed, and unsupported acknowledged premises
 cannot be retained as advice. This does not provide semantic entailment guarantees.
 The final selected-operation diagnostic capture is offline tested, not redeployed.
+
+V30 offline candidate requires per-segment writing/replacement premise checks,
+rejects factual advice exemptions and unchanged REWRITE, and retains declarations
+for editor/audit. No v30 cloud output exists; exhausted8/8grant is not renewed.

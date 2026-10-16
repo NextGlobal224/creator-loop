@@ -1,3 +1,33 @@
+## Resume after account change — 16 October 2026: v30 offline candidate, B still FAIL
+
+PR86 prior HEAD21f8c34 completed all three required checks, including Windows
+tests/build/exact ZIP smoke, run38886742135. This evidence is retained for that
+HEAD; it does not validate the following candidate or automatic prose quality.
+The same task and hook2/2 remain; Cloudflare grant8/8 is exhausted. No deployment,
+model call, new Draft, human approval or publication was made in this resume.
+
+Saved calls6–8 show unsupported efficacy/applicability inside advice, editor
+premise omissions and unchanged text labelled REWRITE. V30 requires public
+premise annotations before accepting each written segment and independently for
+each replacement. Declared unsupported premises fail closed; a segment with
+declared factual premises cannot be uncited advice. The cited excerpt must occur
+in every declared premise's evidence IDs. Editor SUGGESTION/HYPOTHETICAL cannot
+exempt a declared factual premise; original evidence must survive in its receipt.
+REWRITE retaining identical text (including Unicode/spacing-only changes) fails
+at composition. Existing KEEP/REMOVE ownership and final coverage remain.
+Writer declarations reach the editor; replacement declarations reach final audit
+and diagnostics. V30 cache identity separates the protocol from older responses.
+
+46 related Node checks and11Python boundary checks passed with process deadlines
+and logs; Ruff0.16.9 check/format passed for the changed Python cache string.
+The venv lacks Ruff, so the existing base Python installation was used. Tests use
+synthetic bindings; this is evidence of protocol/guards, not semantic quality.
+The model can still omit premises or falsely mark a source as supporting them.
+No changed output has been generated or saved/reopened in the live app. V30 has
+not been deployed; existing Worker pin/default remain. Old failed outputs and
+the28checkpoint stale references are preserved, not upgraded. Paid C/new A scan
+remain paused; independent GitHub review and full beta gates remain unmet.
+
 # B: generation inputs, edit decisions and audit findings
 
 ## Continuous B repair grant — 16 October 2026: still FAIL
