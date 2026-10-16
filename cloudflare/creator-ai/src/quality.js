@@ -8,7 +8,11 @@ export function safeFailure(error, result) {
   for(const key of ["input_tokens","output_tokens","prompt_tokens","completion_tokens","total_tokens","neurons"]){
     if(Number.isFinite(result?.usage?.[key]) && result.usage[key]>=0) usage[key]=result.usage[key];
   }
-  return {provider_code:code,usage,response_received:!!result,
+  const stage=error?.stage_diagnostic;
+  const stageDiagnostic=stage && ["SDK_BEFORE_BINDING","NATIVE_BINDING","SDK_AFTER_BINDING"].includes(stage.phase) &&
+    Number.isInteger(stage.binding_calls) && stage.binding_calls>=0 && stage.binding_calls<=2?
+    {phase:stage.phase,binding_calls:stage.binding_calls}:null;
+  return {provider_code:code,usage,response_received:!!result,stage_diagnostic:stageDiagnostic,
     top_level_keys:["response","choices","output","usage","result","data","content","observations","inferences","direction","error","errors","success"].filter(key=>result && Object.hasOwn(result,key)),
     response_type:typeof result?.response,choice_content_type:typeof result?.choices?.[0]?.message?.content,
     output_types:Array.isArray(result?.output)?result.output.map(item=>item?.type).filter(t=>["message","reasoning","function_call"].includes(t)).slice(0,10):[]};

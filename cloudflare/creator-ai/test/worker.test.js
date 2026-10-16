@@ -107,6 +107,7 @@ test("remote exception cannot leak; stage failure is finite",async()=>{
   const {env,captured}=environment([new Error("private exception")]);const response=await worker.fetch(request(),env);
   assert.equal(response.status,502);assert.equal(captured.length,1);const failure=await response.json();assert.equal(failure.stage,"analysis");
   assert.equal(failure.retryable,false);assert.equal(JSON.stringify(failure).includes("private exception"),false);
+  assert.deepEqual(JSON.parse(failure.stage_output).stage_diagnostic,{phase:"NATIVE_BINDING",binding_calls:1});
 });
 test("empty or provider-failed output retains allowlisted diagnosis without secrets or reasoning",async()=>{
   for(const [output,code,received] of [[new Error("3036 daily allocation private-key"),3036,false],[null,null,true]]){

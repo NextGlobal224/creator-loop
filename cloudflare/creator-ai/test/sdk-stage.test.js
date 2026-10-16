@@ -36,3 +36,18 @@ test("abort during transport stops the stage without a second request",async()=>
   });
   await assert.rejects(generateStage(env,{...task,signal:controller.signal},()=>{}));assert.equal(count(),1);
 });
+
+
+test("failure diagnostics distinguish SDK validation, native rejection and reply parsing without another call",async()=>{
+  for(const [phase,taskOverride,reply,expectedCalls] of [
+    ["SDK_BEFORE_BINDING",{budget:-1},()=>({response:{text:"unused"}}),0],
+    ["NATIVE_BINDING",{},()=>{throw new Error("private provider exception");},1],
+    ["SDK_AFTER_BINDING",{},()=>({response:'{"text":',usage:{completion_tokens:2}}),1],
+  ]){
+    const {env,count}=setup(reply);
+    await assert.rejects(generateStage(env,{...task,...taskOverride},()=>{}),error=>{
+      assert.deepEqual(error.stage_diagnostic,{phase,binding_calls:expectedCalls});return true;
+    });
+    assert.equal(count(),expectedCalls);
+  }
+});

@@ -1,5 +1,70 @@
 # B: generation inputs, edit decisions and audit findings
 
+## Actual v28 pilot — 16 October 2026: FAIL, no retry
+
+The separate authorized grant ran once through the app ResearchPipeline with
+frozen input SHA256533f7fda2b98018013c864e164ed209ad1916036225942d84fbbfab611c033a4,
+commit bace845 and Worker0f0095ac-9155-4b5c-bcf9-8a90b22354c1. Current same-account
+user screenshots showed Workers Free Active, no payment method and today
+453.05/10000Neurons. The 24-hour chart7.18k is a different time window.
+One deployment and one health/pin succeeded; native default remained unchanged.
+
+Analysis and writing returned; editing failed HTTP502/STAGE_OUTPUT_INVALID.
+Source audit was not called and no new Draft/save-reopen was produced. The app
+stopped automatically without retry. Three stage requests are conservatively
+charged against the grant, including the failed editing request: the grant is
+closed after its sole attempt, even though its four-call maximum was not reached.
+The spent original1pilot/4calls and task/hook2 remain unchanged. Guard rows stayed
+unchanged. No publication, ACCEPT or independent approval was created.
+
+The complete returned analysis and writing were read against both exact notes:
+
+- The UNESCO observation stays within the introduction scope. The COR observation
+  broadens considering unfamiliar information into checking its truth, which
+  needs qualification. Both inference entries are explicitly unconfirmed;
+  proposed applicability or handbook steps still are not established evidence.
+- Writing copied the internal research-note header and its Codex metadata into
+  public prose. This fails natural reader-facing prose even though that quote
+  exists in the input catalog. It also used an untranslated English source quote.
+- The three COR questions are supported as questions. Writing adds the effect
+  “sẽ giúp bạn lọc thông tin một cách có hệ thống”, which the notes do not establish.
+- Its third step claims “nếu cùng một thông tin xuất hiện ở các trang uy tín,
+  khả năng đúng cao hơn”. Neither note supplies that probability/comparison.
+  The segment has no source ID. Evidence-first instructions did not prevent it.
+- Voluntary requests to inspect a link, original image or context may be offered
+  as suggestions, but the proposed practical steps and UNESCO applicability must
+  not be attributed to the institutions as proven guidance. The ending is still
+  a suggestion to ask, not the requested usable quoted message to the sender.
+
+V28 therefore has actual writing quality FAIL. There is no editing output to
+judge whether its per-segment source decisions would correct these assertions.
+The failure diagnostic says response_received=false/provider_code=null, with no
+editing usage. It does not prove token truncation, malformed JSON, a schema
+rejection or a particular provider error. No claim that audit caught the bad
+writing: the flow never reached audit.
+
+Known usage for the two successful responses is3214input/1479outputtokens,
+203.104Neurons (rounded); editing usage is unknown, not zero. Elapsed19.297s;
+three stage-body uploads33063bytes. Full network/model phase timings and final
+invoice are not established. Workers Free and the no-upgrade/no-paid-fallback
+policy retain the$0 ceiling. No additional dashboard query or model call was made.
+
+### Independent diagnostic follow-up, not a generation-quality fix
+
+The old SDK observer only records a binding result after a successful return;
+the public failure summary omits whether failure happened before binding,
+inside native binding, or during SDK parsing after a reply. A minimal offline
+follow-up adds only fixed phase and binding-call count to failure diagnostics.
+It preserves raw-error/prompt/hidden-reasoning secrecy, model/input/prompt/token
+caps/maxRetries0 and the one-call boundary. Direct offline SDK/Worker tests pass.
+It is not deployed and cannot recover the lost historical editing exception.
+The next diagnostic target, if separately authorized, is that frozen editing
+request on a version containing this instrumentation, asking which phase fails
+and whether a provider result was returned. No invocation is authorized by the
+closed grant. Source inspection cannot recover the missing provider exception;
+do not change schema/budget/model or guess a new writing prompt as its repair.
+
+
 ## v28 candidate: change writing/editing, cloud verification not authorized
 
 This is an offline candidate, not a claim that B output quality is fixed. V27
