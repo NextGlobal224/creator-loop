@@ -100,17 +100,27 @@ jobs:
         env:
           PYTHONPATH: app
         shell: powershell
-        timeout-minutes: 16
+        timeout-minutes: 26
         run: |
           $ErrorActionPreference = 'Stop'
-          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 900 -CommandArgs @('-u','scripts/run_suite_with_diagnostics.py')
-          $testExit = $LASTEXITCODE
-          $run = Get-ChildItem .local-test-logs -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'result.json') } | Sort-Object Name -Descending | Select-Object -First 1
-          if ($run) {
-            Get-Content (Join-Path $run.FullName 'result.json')
-            Get-Content (Join-Path $run.FullName 'output.log') -Tail 60
+          # CI diagnostics: 968 tests completed before the former global 900s
+          # limit. Keep all tests, durable timing/stacks and bounded processes.
+          $groups = @(
+            @{ Name = 'backend'; Timeout = 900 },
+            @{ Name = 'frontend'; Timeout = 300 },
+            @{ Name = 'integration'; Timeout = 300 }
+          )
+          foreach ($group in $groups) {
+            & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds $group.Timeout -CommandArgs @('-u','scripts/run_suite_with_diagnostics.py','--group',$group.Name)
+            $testExit = $LASTEXITCODE
+            $run = Get-ChildItem .local-test-logs -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'result.json') } | Sort-Object Name -Descending | Select-Object -First 1
+            if ($run) {
+              Get-Content (Join-Path $run.FullName 'result.json')
+              Get-Content (Join-Path $run.FullName 'output.log') -Tail 60
+            }
+            if ($testExit -ne 0) { exit $testExit }
           }
-          exit $testExit
+          exit 0
       - name: Preserve bounded test logs
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)

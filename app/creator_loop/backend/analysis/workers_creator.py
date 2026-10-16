@@ -80,7 +80,7 @@ class WorkersCreator:
             + self.worker_version
             + "/"
             + self.model.component_id
-            + "/prompt-v25-sdk4-ai7-editorial-findings/"
+            + "/prompt-v26-sdk4-ai7-uncited-assertions/"
             + hashlib.sha256(self.endpoint.encode()).hexdigest()[:12]
         )
 

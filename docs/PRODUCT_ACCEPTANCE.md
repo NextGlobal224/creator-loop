@@ -1,3 +1,19 @@
+**Actual SDK pilot16October2026: technical integration exercised, quality FAIL.**
+WorkersFree0/10k was confirmed by the user immediately before this single pilot.
+Worker80759b8e-97e0-490e-83f0-a53de1eaf792 + GPT-OSS120B completed four model
+calls in52.609s through the actual app pipeline; immutable Draft44e79e48… saved and
+reopened exactly, UNREVIEWED/manual publication gates unchanged. Observed usage:
+8873input/2504output tokens,453.048324585Neurons; no retries/fallback. Full output QA
+found unsupported comparative probability and absolute safety assertions, plus a
+handbook-scope concern despite an empty model audit. Keep FAIL. The first-round
+budget is now spent1/1pilot,4/4calls and persists across sessions; no second model
+round. New v26 offline guards reject observed uncited assertions in Worker/app,
+retain original output, and send editor findings to audit as leads. This narrow
+check does not certify general factual correctness. v26 is not cloud-validated.
+Current required CI must follow the final source; Windows b76b27a completed968
+tests before the old900s aggregate deadline. Three bounded groups retain every
+test; discovery coverage is checked. Independent review and full beta gates remain.
+
 **B SDK integration update,16October2026 — partial, not beta acceptance.**
 Newly proposed cloudflare/ai workers-ai-provider4.0.0 + AI SDK7.0.142 is wired
 into Worker B; pinned compatible peers/licenses/lock, direct binding/retry0,

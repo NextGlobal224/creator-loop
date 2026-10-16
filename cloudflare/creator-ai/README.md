@@ -1,3 +1,19 @@
+**Actual SDK pilot16October2026: technical integration exercised, quality FAIL.**
+WorkersFree0/10k was confirmed by the user immediately before this single pilot.
+Worker80759b8e-97e0-490e-83f0-a53de1eaf792 + GPT-OSS120B completed four model
+calls in52.609s through the actual app pipeline; immutable Draft44e79e48… saved and
+reopened exactly, UNREVIEWED/manual publication gates unchanged. Observed usage:
+8873input/2504output tokens,453.048324585Neurons; no retries/fallback. Full output QA
+found unsupported comparative probability and absolute safety assertions, plus a
+handbook-scope concern despite an empty model audit. Keep FAIL. The first-round
+budget is now spent1/1pilot,4/4calls and persists across sessions; no second model
+round. New v26 offline guards reject observed uncited assertions in Worker/app,
+retain original output, and send editor findings to audit as leads. This narrow
+check does not certify general factual correctness. v26 is not cloud-validated.
+Current required CI must follow the final source; Windows b76b27a completed968
+tests before the old900s aggregate deadline. Three bounded groups retain every
+test; discovery coverage is checked. Independent review and full beta gates remain.
+
 # B Workers AI provider integration
 
 The newly proposed B repository (user instruction,16October2026) is
@@ -43,8 +59,8 @@ A model audit returning HTTP200/empty issues does not prove correct Vietnamese p
 The new integration round allows at most one full cloud pilot and four model calls,
 only after direct offline checks pass and CURRENT free quota is verified. The local
 same-task budget is persisted across sessions; it is never reset on account change.
-No new pilot has run at this documentation checkpoint. If it fails, retain FAIL and
-continue offline/GitHub; no second model round is authorized. Native Codex remains
+The one pilot completed technically but failed output quality; see the result below.
+Continue offline/GitHub; no second model round is authorized. Native Codex remains
 the app default. Old cloud outputs/CI do not validate this SDK source.
 
 Run npm ci --ignore-scripts, then npm test in this directory. Required CI installs

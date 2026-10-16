@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {createHash} from "node:crypto";
 import worker from "../src/index.js";
-import {auditSchema,bindAudit,validAudit,compileEditedArticle,compileSourcedArticle,quoteCatalog,hasHypotheticalOpening,publicArticleIssues} from "../src/quality.js";
+import {auditSchema,bindAudit,validAudit,compileEditedArticle,compileSourcedArticle,quoteCatalog,hasHypotheticalOpening,publicArticleIssues,uncitedAssertionIssues} from "../src/quality.js";
 const data={format:"TEXT",purpose:"Kiểm chứng",materials:[{material_id:"m",text:"Ghi chú nguồn công khai"}]};
 test("actual v24 metadata-leak output remains rejected despite source citation and prior empty audit",()=>{
   const actual=readFileSync(new URL("../../../tests/fixtures/workers_b_v24_metadata_failed.txt",import.meta.url),"utf8");
@@ -219,4 +219,28 @@ test("every inline segment is audited once; immutable text and source Claim surv
   assert.equal(validAudit({draft_body:body,factual_claims:claims},bindAudit(body,hash,unsupported,segments)),false);
   const flagged=structuredClone(raw);flagged.segments[2].issues=["Quote does not support meaning"];
   assert.equal(validAudit({draft_body:body,factual_claims:claims},bindAudit(body,hash,flagged,segments)),false);
+});
+
+
+test("actual SDK pilot false-empty audit remains FAIL without modifying saved output",()=>{
+  const actual=JSON.parse(readFileSync(new URL("../../../tests/fixtures/workers_b_v25_uncited_assertions.json",import.meta.url),"utf8"));
+  const before=JSON.stringify(actual);assert.deepEqual(actual.audit.issues,[]);
+  assert.equal(uncitedAssertionIssues(actual.content.draft_body,actual.content.factual_claims).length,2);
+  assert.equal(JSON.stringify(actual),before);
+  const statement="Ghi chú nói khả năng sai lệch sẽ cao hơn.";
+  assert.deepEqual(uncitedAssertionIssues(statement,[{text:statement}]),[],"Citation still requires separate entailment audit");
+  assert.deepEqual(uncitedAssertionIssues("Hãy hỏi người gửi đường dẫn gốc để đối chiếu."),[]);
+});
+
+test("uncited probability or absolute cannot evade audit under advice; no fourth model call",async()=>{
+  for(const text of ["Nếu không rõ, khả năng sai lệch sẽ cao hơn.","Kiểm tra đa nguồn luôn là cách an toàn nhất."]){
+    const {written}=draft();written.editorial_paragraphs[0].push({text,source_quote_id:-1});
+    const {env,captured}=environment([analysis,written,written]);const response=await worker.fetch(request(),env);
+    assert.equal(response.status,422);assert.equal(captured.length,3);
+    const failed=await response.json();assert.equal(failed.retryable,false);assert.ok(failed.candidate_body.includes(text));assert.ok(failed.audit_issues.length);
+    const composed=compileSourcedArticle(written,quoteCatalog(data.materials));
+    const bound=bindAudit(composed.body,createHash("sha256").update(composed.body).digest("hex"),audit(composed.body),composed.segments);
+    // The old model report also has wrong segment count, which fails closed.
+    assert.equal(bound,null);
+  }
 });

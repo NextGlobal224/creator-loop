@@ -82,3 +82,22 @@ class SuiteDiagnosticsTests(unittest.TestCase):
         self.assertIn("Periodic Python stacks", output.getvalue())
         self.assertTrue(worker.is_alive())
         self.assertEqual(self.reporters(), self.existing_reporters)
+
+    def test_windows_groups_cover_exact_full_discovery_once(self):
+        # Discovery imports tests but does not execute them or invoke cloud.
+        def ids(suite):
+            for test in suite:
+                if isinstance(test, unittest.TestSuite):
+                    yield from ids(test)
+                else:
+                    yield test.id()
+
+        full = set(ids(unittest.TestLoader().discover("tests", top_level_dir=".")))
+        grouped = []
+        for group in ("backend", "frontend", "integration"):
+            grouped.extend(
+                ids(unittest.TestLoader().discover(f"tests/{group}", top_level_dir="."))
+            )
+        self.assertEqual(len(grouped), len(set(grouped)))
+        self.assertEqual(set(grouped), full)
+        self.assertGreater(len(full), 1100)

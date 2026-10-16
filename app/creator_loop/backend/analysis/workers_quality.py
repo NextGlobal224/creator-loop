@@ -27,6 +27,18 @@ def validate_quality_audit(content: dict[str, Any], audit: Any) -> None:
     if not isinstance(checked, list) or len(checked) != len(paragraphs):
         raise ValueError("Worker source audit omitted article paragraphs")
     claims = content["factual_claims"]
+    # Recheck known source-audit misses on the app boundary too, including
+    # old/cached responses. Keep immutable original output; never repair it here.
+    uncited = body
+    for claim in sorted(claims, key=lambda item: len(item["text"]), reverse=True):
+        uncited = uncited.replace(claim["text"], " ")
+    if re.search(
+        r"khả năng[^.!?\n]{0,100}(?:cao|thấp) hơn"
+        r"|luôn[^.!?\n]{0,100}(?:an toàn|tốt|hiệu quả) nhất",
+        uncited,
+        re.IGNORECASE,
+    ):
+        raise ValueError("Worker uncited comparative or absolute assertion")
     for position, (text, item) in enumerate(zip(paragraphs, checked, strict=True)):
         if (
             not isinstance(item, dict)

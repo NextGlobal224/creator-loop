@@ -1,4 +1,5 @@
 import copy
+import json
 import unittest
 from pathlib import Path
 
@@ -71,3 +72,27 @@ class WorkersQualityTests(unittest.TestCase):
         self.content["factual_claims"] = []
         with self.assertRaisesRegex(ValueError, "Claim annotation"):
             validate_quality_audit(self.content, self.audit)
+
+    def test_actual_sdk_pilot_empty_audit_cannot_hide_uncited_assertions(self):
+        path = (
+            Path(__file__).parents[1] / "fixtures/workers_b_v25_uncited_assertions.json"
+        )
+        actual = json.loads(path.read_text(encoding="utf-8"))
+        before = copy.deepcopy(actual)
+        self.assertEqual(actual["audit"]["issues"], [])
+        with self.assertRaisesRegex(ValueError, "uncited comparative or absolute"):
+            validate_quality_audit(actual["content"], actual["audit"])
+        self.assertEqual(actual, before)
+
+    def test_cited_comparative_still_needs_complete_source_audit(self):
+        text = "Ghi chú nói khả năng sai lệch sẽ cao hơn."
+        self.paragraphs[2] = text
+        self.content["draft_body"] = "\n\n".join(self.paragraphs)
+        self.content["factual_claims"] = [{"text": text}]
+        self.audit["draft_body"] = self.content["draft_body"]
+        self.audit["paragraphs"][2].update(text=text, factual_passages=[text])
+        validate_quality_audit(self.content, self.audit)
+        with self.assertRaisesRegex(ValueError, "issues"):
+            validate_quality_audit(
+                self.content, {**self.audit, "issues": ["Not supported"]}
+            )

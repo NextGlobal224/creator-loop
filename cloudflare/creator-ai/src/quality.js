@@ -34,7 +34,7 @@ export function bindAudit(body,articleHash,audit,segments) {
   // the model classifies IDs, never copies source sentences or paragraph prose.
   if(segments.some((segment,i)=>segment.index!==i || !paragraphs[segment.paragraph_index]?.includes(segment.text) || (segment.citation && audit.segments[i].kind!=="SOURCE_FACT")) ||
      paragraphs.some((text,i)=>segments.filter(s=>s.paragraph_index===i).map(s=>s.text).join(" ")!==text)) return null;
-  return {draft_body:body,issues:audit.segments.flatMap(item=>item.issues),paragraphs:paragraphs.map((text,i)=>{
+  return {draft_body:body,issues:[...audit.segments.flatMap(item=>item.issues),...uncitedAssertionIssues(body,segments.flatMap(s=>s.citation?[s.citation]:[]))],paragraphs:paragraphs.map((text,i)=>{
     const items=audit.segments.filter((_,j)=>segments[j].paragraph_index===i);
     return {text,kind:i===0?items[0]?.kind:items.some(item=>item.kind==="SOURCE_FACT")?"SOURCE_FACT":"ADVICE",
       factual_passages:audit.segments.flatMap((item,j)=>segments[j].paragraph_index===i && item.kind==="SOURCE_FACT"?[segments[j].text]:[])};
@@ -43,6 +43,17 @@ export function bindAudit(body,articleHash,audit,segments) {
 
 export function hasHypotheticalOpening(body) {
   return /^(?:Giả sử(?:\s|[.,:;!?])|Tình huống giả định:)/iu.test(body.trim());
+}
+
+// A narrow fail-closed check for actual observed audit misses. This does not
+// certify source entailment: a cited assertion still needs the separate audit/QA.
+export function uncitedAssertionIssues(body, claims=[]) {
+  let uncited=body;
+  for(const claim of [...claims].sort((a,b)=>b.text.length-a.text.length)) uncited=uncited.replaceAll(claim.text," ");
+  const issues=[];
+  if(/khả năng[^.!?\n]{0,100}(?:cao|thấp) hơn/iu.test(uncited)) issues.push("Uncited comparative probability assertion");
+  if(/luôn[^.!?\n]{0,100}(?:an toàn|tốt|hiệu quả) nhất/iu.test(uncited)) issues.push("Uncited absolute safety or efficacy assertion");
+  return issues;
 }
 
 export function publicArticleIssues(body) {
