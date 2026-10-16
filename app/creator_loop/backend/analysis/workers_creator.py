@@ -226,6 +226,8 @@ class WorkersCreator:
                     or not isinstance(item.get("value"), dict)
                 ):
                     raise ValueError("Worker stage chain is incomplete or reordered")
+                if stage == "editing":
+                    worker_audit_findings(item)
                 previous.append(item)
         if cancelled():
             raise InterruptedError(

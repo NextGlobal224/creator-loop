@@ -10,6 +10,7 @@ from creator_loop.backend.analysis.provider_selection import (
     select_component_provider,
 )
 from creator_loop.backend.analysis.workers_creator import WorkersCreator
+from creator_loop.backend.analysis.workers_quality import ARTICLE_REQUIREMENT_IDS
 from creator_loop.shared.workflow import CreatorRequest, ResearchMaterial
 
 
@@ -87,7 +88,15 @@ class ProviderConfigurationTests(unittest.TestCase):
                 "result": {"response": json.dumps(content)},
                 "stages": stages,
                 "quality_audit": {
-                    "finding_checks": [],
+                    "finding_checks": [
+                        {
+                            "finding": requirement,
+                            "verdict": "NOT_APPLICABLE",
+                            "reason": "Synthetic protocol coverage, not a quality verdict.",
+                            "segments": [{"index": 0, "text": body}],
+                        }
+                        for requirement in ARTICLE_REQUIREMENT_IDS
+                    ],
                     "draft_body": body,
                     "issues": [],
                     "paragraphs": [
@@ -116,7 +125,16 @@ class ProviderConfigurationTests(unittest.TestCase):
                             **identity,
                             "stage_result": {
                                 "stage": stage,
-                                "value": {"fixture": stage, "source_issues": []},
+                                "value": {
+                                    "fixture": stage,
+                                    "source_issues": [],
+                                    "edits": [],
+                                },
+                                **(
+                                    {"task_requirements": ARTICLE_REQUIREMENT_IDS}
+                                    if stage == "editing"
+                                    else {}
+                                ),
                                 "usage": {},
                             },
                         }
@@ -139,6 +157,17 @@ class ProviderConfigurationTests(unittest.TestCase):
                         ["analysis", "writing", "editing", "source_audit"][index],
                     )
                     self.assertEqual(len(uploaded["previous"]), index)
+            stale = replies(packet)
+            old_edit = json.loads(stale[2])
+            old_edit["stage_result"].pop("task_requirements")
+            stale[2] = json.dumps(old_edit).encode()
+            with patch(
+                "creator_loop.backend.analysis.workers_creator.post_owned",
+                side_effect=stale,
+            ) as transport:
+                with self.assertRaisesRegex(ValueError, "task coverage"):
+                    provider.generate(request, [material])
+                self.assertEqual(transport.call_count, 3)
             for invalid in (
                 [{"stage": "editing", "body": body}],
                 [stages[0], {"stage": "writing", "body": body + " changed"}, stages[2]],
