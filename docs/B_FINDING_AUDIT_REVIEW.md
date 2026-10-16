@@ -1,3 +1,38 @@
+## Resume v31 editing failure: indexed public-copy corrections — 16 October 2026
+
+CI38899470064 passed all three required checks for62d215b, including exact ZIP
+smoke; it remains evidence for that source only. The following Worker changes
+need their own CI. Actual deployment fd329ef2-37b1-440c-a970-8bdfa66655f5 used
+two more calls: writing returned, editing rejectedHTTP422. The editor retained
+an internal research-note heading as SOURCE_SUPPORTED and repeated the COR
+questions in English and Vietnamese. Audit did not run; no new Draft was saved.
+Protected domain rows and default provider stayed unchanged in the prior receipt.
+Grant v30 remains7/8, one call available; old grants and hook2/2 stay unchanged.
+
+This offline correction identifies offending original segment indexes before
+editing. Writer/editor instructions distinguish source support from suitability
+as public prose. KEEP cannot exempt these mandatory public-copy revisions;
+editor must REWRITE with separately checked premises/citations or REMOVE the
+redundant segment while retaining four nonempty paragraphs. An unchanged
+violating edit returnsHTTP422 before audit. Final public-copy checks still reject
+newly introduced leakage/repetition. Nothing strips or silently rewrites output.
+The bilingual check targets the observed repeated three-question quotation and
+Vietnamese paraphrase; it is not a general English ban or semantic quality score.
+
+The regression fixture contains only selected public source notes, typed writing
+and editor output, not credentials, full prompts, analysis, hidden reasoning or
+user DB. Replay covers actual KEEP rejection, indexed editor inputs, no audit
+after rejection, exact text/citation mapping on a synthetic repair and negative
+controls allowing English names or a standalone source quotation.51Node tests
+PASS with a45s process deadline. Synthetic repair does not prove automatic quality.
+
+No deployment or model call was made for this correction. One remaining call
+cannot cover both a new editing response and the required independent source
+audit; do not consume it on an unchanged retry or claim a completed pipeline.
+B automatic cloud quality remains FAIL. A scans and paid C remain paused;
+A Playwright/SentenceTransformers, B cloudflare/ai+AI SDK and full Cloudflare/
+GitHub review/main/tag/exact artifact/pre-release scope remain open. No human
+ACCEPT, APPROVE, merge, release or Facebook post is manufactured.
 ## Explicit unchanged-analysis reuse for the remaining first-case repair
 
 ResearchPipeline accepts an optional Workers analysis receipt. Without that

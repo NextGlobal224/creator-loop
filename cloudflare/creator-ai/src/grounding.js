@@ -1,5 +1,6 @@
 // Source-first generation inputs and explicit edit decisions. These constraints
 // do not implement semantic entailment; that still needs real output/source QA.
+import {publicCopyRevisions} from './quality.js';
 export const articleRequirements = [
   {id:"PROJECT_NO_UNSOURCED_RULE",text:"Do not invent an evidence-sufficiency rule, minimum source count, verification procedure or promised result not supplied by the selected snapshots or explicit Project instruction. This also constrains normative ADVICE, independently of factual-premise classification. Voluntary questions, reading and requests without a claimed outcome remain allowed. The model's proposed direction is not permission or source evidence."},
   {id:"PROJECT_CLOSING_MESSAGE",text:"End with an actual short message the reader could send to the original sender asking for the missing original link, date or context. A general instruction to read or verify does not satisfy this deliverable. Write the message, not a description of it."},
@@ -108,11 +109,13 @@ export const operationInstructions="Return source_issues and one edit operation 
 
 export function applyEditOperations(value,initial,catalog) {
   if(!value || Object.keys(value).sort().join(",")!=="edits,source_issues" || !Array.isArray(value.edits) || value.edits.length!==initial.segments.length || !Array.isArray(value.source_issues) || value.source_issues.some(s=>typeof s!=="string" || !s.trim())) throw new Error("Invalid edit operations");
+  const mandatory=new Set(publicCopyRevisions(initial).map(item=>item.index));
   const paragraphs=[[],[],[],[],[]],pending=[];
   for(let i=0;i<initial.segments.length;i++){
     const original=initial.segments[i],edit=value.edits[i];
     if(!edit || Object.keys(edit).sort().join(",")!=="decision,index,note,premise_checks,quote_ids,replacement,support" || edit.index!==i || !Array.isArray(edit.replacement) || !["KEEP","REMOVE","REWRITE"].includes(edit.decision) || !["SOURCE_SUPPORTED","SUGGESTION","HYPOTHETICAL","INSUFFICIENT"].includes(edit.support))throw new Error("Invalid edit identity");
     checkPremises(edit.premise_checks,catalog);
+    if(mandatory.has(i) && edit.decision==="KEEP")throw new Error("Public copy violation requires REWRITE or REMOVE regardless of source support");
     if(edit.premise_checks.some(p=>!p.supported) && (edit.support!=="INSUFFICIENT" || edit.decision!=="REMOVE"))throw new Error("Unsupported factual premise cannot be kept as advice");
     if(edit.support==="SOURCE_SUPPORTED" && !edit.premise_checks.length)throw new Error("Source fact has no checked assertion");
     if(["SUGGESTION","HYPOTHETICAL"].includes(edit.support) && edit.premise_checks.length)throw new Error("Factual premises cannot use an advice or fictional exemption");

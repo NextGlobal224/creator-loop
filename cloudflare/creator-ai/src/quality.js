@@ -84,8 +84,22 @@ export function uncitedAssertionIssues(body, claims=[]) {
 export function publicArticleIssues(body) {
   // Observed research-note headings are internal metadata, even with a quote.
   // Reject rather than strip them or relabel the saved automatic output.
-  return /(?:^|\n)\s*(?:Hướng biên tập(?: đề xuất)?|Ghi chú nghiên cứu nhập thủ công|Diễn giải phần giới thiệu đã đọc)\s*:/iu.test(body)
-    ?["Internal research-note heading remains in the public Draft"]:[];
+  const issues=[];
+  if(/(?:^|\n)\s*(?:Hướng biên tập(?: đề xuất)?|Ghi chú nghiên cứu nhập thủ công|Diễn giải phần giới thiệu đã đọc)\s*:/iu.test(body)) issues.push("Internal research-note heading remains in the public Draft");
+  if(englishQuestions.test(body) && vietnameseQuestions.test(body)) issues.push("Repeated bilingual source questions remain in the public Draft");
+  return issues;
+}
+
+// Narrow checks for the actual v31 miss, not a general language/entailment score.
+const englishQuestions=/who[’']s behind the information\?\s*what[’']s the evidence\?\s*what do other sources say\?/iu;
+const vietnameseQuestions=/ai đứng sau thông tin[^.\n]{0,100}căn cứ nào[^.\n]{0,100}nguồn khác nói gì/iu;
+export function publicCopyRevisions(initial) {
+  const repeated=englishQuestions.test(initial.body) && vietnameseQuestions.test(initial.body);
+  return initial.segments.flatMap(segment=>{
+    const issues=publicArticleIssues(segment.text);
+    if(repeated && englishQuestions.test(segment.text) && !issues.some(s=>s.includes("bilingual"))) issues.push("Repeated bilingual source questions remain in the public Draft");
+    return issues.length?[{index:segment.index,issues}]:[];
+  });
 }
 
 export function compileEditedArticle(edited) {
