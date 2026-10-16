@@ -3,3 +3,7 @@
 # Exact commit/path/rule/line only; full-history secret scanning remains required.
 eccb0bbe6ffb733f48a25de7538caa54cc19f634:cloudflare/creator-ai/README.md:generic-api-key:6
 eccb0bbe6ffb733f48a25de7538caa54cc19f634:docs/PRODUCT_ACCEPTANCE.md:generic-api-key:6
+
+# Verified public model usage metric203.104Neurons beside the word tokens in
+# the historical actual v28 pilot report; not an API key. Exact fingerprint only.
+5cf4d0a317635bd1b68d16c0341bae55670ef319:docs/B_FINDING_AUDIT_REVIEW.md:generic-api-key:46

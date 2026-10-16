@@ -43,8 +43,9 @@ editing usage. It does not prove token truncation, malformed JSON, a schema
 rejection or a particular provider error. No claim that audit caught the bad
 writing: the flow never reached audit.
 
-Known usage for the two successful responses is3214input/1479outputtokens,
-203.104Neurons (rounded); editing usage is unknown, not zero. Elapsed19.297s;
+Known usage for the two successful responses: input count3,214; output count1,479.
+Measured Neurons for completed analysis and writing: approximately203.104.
+Editing usage is unknown, not zero. Elapsed19.297s;
 three stage-body uploads33063bytes. Full network/model phase timings and final
 invoice are not established. Workers Free and the no-upgrade/no-paid-fallback
 policy retain the$0 ceiling. No additional dashboard query or model call was made.
