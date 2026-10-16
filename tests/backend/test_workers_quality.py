@@ -20,6 +20,7 @@ class WorkersQualityTests(unittest.TestCase):
         self.audit = {
             "draft_body": self.content["draft_body"],
             "issues": [],
+            "finding_checks": [],
             "paragraphs": [
                 {"text": text, "kind": kind, "factual_passages": facts}
                 for text, kind, facts in zip(
@@ -81,7 +82,9 @@ class WorkersQualityTests(unittest.TestCase):
         before = copy.deepcopy(actual)
         self.assertEqual(actual["audit"]["issues"], [])
         with self.assertRaisesRegex(ValueError, "uncited comparative or absolute"):
-            validate_quality_audit(actual["content"], actual["audit"])
+            validate_quality_audit(
+                actual["content"], {**actual["audit"], "finding_checks": []}
+            )
         self.assertEqual(actual, before)
 
     def test_cited_comparative_still_needs_complete_source_audit(self):
@@ -96,3 +99,30 @@ class WorkersQualityTests(unittest.TestCase):
             validate_quality_audit(
                 self.content, {**self.audit, "issues": ["Not supported"]}
             )
+
+    def test_empty_global_audit_cannot_drop_editor_finding_or_rename_it(self):
+        findings = ["Selected introduction does not describe these steps"]
+        with self.assertRaisesRegex(ValueError, "finding coverage"):
+            validate_quality_audit(self.content, self.audit, findings)
+        check = {
+            "finding": findings[0],
+            "verdict": "UNRESOLVED",
+            "reason": "The final passage still claims unavailable steps.",
+            "segments": [{"index": 1, "text": self.paragraphs[1]}],
+        }
+        audit = {**self.audit, "finding_checks": [check]}
+        with self.assertRaisesRegex(ValueError, "finding unresolved"):
+            validate_quality_audit(self.content, audit, findings)
+        check["verdict"] = "ADDRESSED"
+        check["reason"] = "Final text asks for the source, without claiming steps."
+        validate_quality_audit(self.content, audit, findings)
+        for change in ({"finding": "Different finding"}, {"reason": " "}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                validate_quality_audit(
+                    self.content,
+                    {**audit, "finding_checks": [{**check, **change}]},
+                    findings,
+                )
+        check["segments"][0]["text"] = "Text not present in the final article"
+        with self.assertRaisesRegex(ValueError, "exact passage"):
+            validate_quality_audit(self.content, audit, findings)

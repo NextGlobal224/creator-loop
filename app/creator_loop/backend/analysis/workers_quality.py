@@ -8,7 +8,9 @@ import re
 from typing import Any
 
 
-def validate_quality_audit(content: dict[str, Any], audit: Any) -> None:
+def validate_quality_audit(
+    content: dict[str, Any], audit: Any, editor_findings: Any = ()
+) -> None:
     body = content["draft_body"]
     # This provider explicitly commissions an invented opening, not a news report.
     # Reject a lost label; never add one after generation to disguise a real claim.
@@ -16,13 +18,49 @@ def validate_quality_audit(content: dict[str, Any], audit: Any) -> None:
         raise ValueError("Worker hypothetical opening lost its explicit label")
     if (
         not isinstance(audit, dict)
-        or set(audit) != {"draft_body", "paragraphs", "issues"}
+        or set(audit) != {"draft_body", "paragraphs", "issues", "finding_checks"}
         or audit["draft_body"] != body
         or not isinstance(audit["issues"], list)
         or audit["issues"]
     ):
         raise ValueError("Worker source audit missing, changed or reported issues")
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
+    # Bind the receipt to the actual editing stage, including false-positive
+    # leads. An empty global issues list cannot stand in for resolving them.
+    checks = audit["finding_checks"]
+    if (
+        not isinstance(editor_findings, (list, tuple))
+        or any(not isinstance(f, str) or not f.strip() for f in editor_findings)
+        or not isinstance(checks, list)
+        or len(checks) != len(editor_findings)
+    ):
+        raise ValueError("Worker editorial finding coverage missing")
+    for finding, check in zip(editor_findings, checks, strict=True):
+        if (
+            not isinstance(check, dict)
+            or set(check) != {"finding", "verdict", "reason", "segments"}
+            or check["finding"] != finding
+            or check["verdict"] not in {"ADDRESSED", "NOT_APPLICABLE"}
+            or not isinstance(check["reason"], str)
+            or not check["reason"].strip()
+            or not isinstance(check["segments"], list)
+            or not check["segments"]
+        ):
+            raise ValueError("Worker editorial finding unresolved or changed")
+        seen: set[int] = set()
+        for segment in check["segments"]:
+            if (
+                not isinstance(segment, dict)
+                or set(segment) != {"index", "text"}
+                or type(segment["index"]) is not int
+                or segment["index"] < 0
+                or segment["index"] in seen
+                or not isinstance(segment["text"], str)
+                or not segment["text"].strip()
+                or body.count(segment["text"]) != 1
+            ):
+                raise ValueError("Worker editorial finding lost exact passage")
+            seen.add(segment["index"])
     checked = audit["paragraphs"]
     if not isinstance(checked, list) or len(checked) != len(paragraphs):
         raise ValueError("Worker source audit omitted article paragraphs")

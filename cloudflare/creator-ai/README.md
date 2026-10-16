@@ -1,3 +1,5 @@
+**v27 offline finding coverage,16October2026:** every editor finding requires an indexed, exact-text audit disposition; missing/unresolved findings fail closed in Worker/app. See [bounded investigation and limits](../../docs/B_FINDING_AUDIT_REVIEW.md). No new model call/deployment; original cloud quality FAIL and spent1pilot/4calls remain. This is not semantic entailment certification.
+
 **A source clarification16October2026:** the user reaffirmed microsoft/playwright-python
 and huggingface/sentence-transformers as A. Existing Playwright1.63.0 and pinned
 multilingualMiniLM ONNX integration is reused; no additional A repository is

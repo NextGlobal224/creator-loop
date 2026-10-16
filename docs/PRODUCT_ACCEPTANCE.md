@@ -1,3 +1,5 @@
+**16October2026 v27 offline audit correction ? not cloud acceptance.** Editor findings now require complete, exact-text dispositions; missing/unresolved entries fail closed in Worker/app, with new provider cache version. Actual v25 case retained unchanged; saved-case coverage regression plus30Node/13Python boundary checks pass. Existing replay still rejects editing422 with0cloudcalls. Semantic entailment/model behavior and ending quality remain unverified; B cloud FAIL persists. Pilot1/1/calls4/4 spent; no deployment or new inference. Exact newHEAD requiredCI/review remains separate. See [investigation](B_FINDING_AUDIT_REVIEW.md).
+
 **A source clarification16October2026:** confirmed A repositories are
 microsoft/playwright-python and huggingface/sentence-transformers. Existing
 Playwright1.63.0/CDP and exact MiniLM-L12-v2 ONNX revision e8f8c211… are reused;

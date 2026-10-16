@@ -21,7 +21,7 @@ function draft(){
     "Nếu vẫn thiếu căn cứ, hãy giữ Chưa xác nhận và nhắn người gửi: bạn có đường dẫn gốc để mình kiểm tra không?",
   ]};return {typed,body:compileEditedArticle(typed),written:{...typed,editorial_paragraphs:typed.editorial_paragraphs.map(text=>[{text,source_quote_id:-1}])}};
 }
-function audit(body,issues=[]){return {article_sha256:createHash("sha256").update(body).digest("hex"),segments:body.split(/\n\s*\n/u).map((_,index)=>({index,kind:index===0?"HYPOTHETICAL":"ADVICE",issues:index===0?issues:[]}))};}
+function audit(body,issues=[]){return {finding_checks:[],article_sha256:createHash("sha256").update(body).digest("hex"),segments:body.split(/\n\s*\n/u).map((_,index)=>({index,kind:index===0?"HYPOTHETICAL":"ADVICE",issues:index===0?issues:[]}))};}
 function request(extra={}){return new Request("https://example.test/b/generate",{method:"POST",headers:{authorization:"Bearer fixture","content-type":"application/json"},body:JSON.stringify({prompt:"notes",writing_prompt:writingPrompt,schema,...extra})});}
 function environment(outputs,model="@cf/openai/gpt-oss-120b"){
   const captured=[];
@@ -178,7 +178,7 @@ test("one declared editor receives risky passages and its output is audited, nev
 test("editor receives concrete source/metadata warnings and must return findings with the revised text",async()=>{
   const {body,written}=draft();const bad={...written,editorial_paragraphs:structuredClone(written.editorial_paragraphs)};
   bad.editorial_paragraphs[0][0].text="Hướng biên tập: hãy truy cập công cụ này.";
-  const {env,captured}=environment([analysis,bad,{...written,source_issues:["Internal note and unspecified tool"]},audit(body)]);
+  const {env,captured}=environment([analysis,bad,{...written,source_issues:["Internal note and unspecified tool"]},{...audit(body),finding_checks:[{index:0,verdict:"ADDRESSED",segment_indexes:[1],reason:"The revised paragraph asks for the source link; internal heading and unspecified tool were removed."}]}]);
   const response=await worker.fetch(request(),env);assert.equal(response.status,200);
   assert.ok(captured[2].messages[1].content.includes("Internal research-note headings"));
   assert.ok(captured[2].messages[1].content.includes("ambiguous tool referents"));
@@ -207,7 +207,7 @@ test("every inline segment is audited once; immutable text and source Claim surv
   const {body,claims,segments}=compileSourcedArticle(value,quoteCatalog(data.materials));
   assert.ok(body.includes("Hãy đọc ghi chú. Ghi chú nguồn công khai"));assert.equal(segments.length,6);
   const hash=createHash("sha256").update(body).digest("hex");
-  const raw={article_sha256:hash,segments:segments.map((s,i)=>({index:i,kind:i===0?"HYPOTHETICAL":i===2?"SOURCE_FACT":"ADVICE",issues:[]}))};
+  const raw={finding_checks:[],article_sha256:hash,segments:segments.map((s,i)=>({index:i,kind:i===0?"HYPOTHETICAL":i===2?"SOURCE_FACT":"ADVICE",issues:[]}))};
   const bound=bindAudit(body,hash,raw,segments);assert.equal(validAudit({draft_body:body,factual_claims:claims},bound),true);
   assert.deepEqual(segments[2].citation,claims[0]);
   const hidden=structuredClone(raw);hidden.segments[2].kind="ADVICE";
@@ -230,6 +230,41 @@ test("actual SDK pilot false-empty audit remains FAIL without modifying saved ou
   const statement="Ghi chú nói khả năng sai lệch sẽ cao hơn.";
   assert.deepEqual(uncitedAssertionIssues(statement,[{text:statement}]),[],"Citation still requires separate entailment audit");
   assert.deepEqual(uncitedAssertionIssues("Hãy hỏi người gửi đường dẫn gốc để đối chiếu."),[]);
+});
+
+test("every editorial finding needs an explicit text-bound audit disposition",()=>{
+  const {written}=draft();const composed=compileSourcedArticle(written,quoteCatalog(data.materials));
+  const hash=createHash("sha256").update(composed.body).digest("hex");
+  const findings=["Selected introduction does not describe these steps"];
+  const raw=audit(composed.body);
+  assert.equal(bindAudit(composed.body,hash,raw,composed.segments,findings),null);
+  raw.finding_checks=[{index:0,verdict:"UNRESOLVED",segment_indexes:[1],reason:"The assertion is still present, including inside advice."}];
+  let bound=bindAudit(composed.body,hash,raw,composed.segments,findings);
+  assert.equal(validAudit({draft_body:composed.body,factual_claims:[]},bound),false);
+  assert.deepEqual(bound.issues,findings,"Empty segment issues cannot erase unresolved findings");
+  raw.finding_checks[0]={index:0,verdict:"ADDRESSED",segment_indexes:[1],reason:"Revised text asks for the missing source instead of claiming unavailable steps."};
+  bound=bindAudit(composed.body,hash,raw,composed.segments,findings);
+  assert.equal(validAudit({draft_body:composed.body,factual_claims:[]},bound),true);
+  assert.equal(bound.finding_checks[0].finding,findings[0]);
+  assert.equal(bound.finding_checks[0].segments[0].text,composed.segments[1].text);
+  for(const change of [{index:1},{reason:" "},{segment_indexes:[]},{segment_indexes:[100]},{segment_indexes:[1,1]}]){
+    const invalid=structuredClone(raw);Object.assign(invalid.finding_checks[0],change);
+    assert.equal(bindAudit(composed.body,hash,invalid,composed.segments,findings),null);
+  }
+});
+
+test("saved v25 editor findings cannot be discarded by the old empty model audit",()=>{
+  const saved=JSON.parse(readFileSync(new URL("../../../tests/fixtures/workers_b_v25_editor_findings.json",import.meta.url),"utf8"));
+  const failed=JSON.parse(readFileSync(new URL("../../../tests/fixtures/workers_b_v25_uncited_assertions.json",import.meta.url),"utf8"));
+  const before=JSON.stringify(saved);
+  const catalog=saved.catalog;
+  const composed=compileSourcedArticle({hypothetical_opening:saved.edited.hypothetical_opening,editorial_paragraphs:saved.edited.editorial_paragraphs},catalog);
+  assert.equal(composed.body,failed.content.draft_body);
+  const hash=createHash("sha256").update(composed.body).digest("hex");
+  const raw={article_sha256:hash,finding_checks:[],segments:composed.segments.map((s,index)=>({index,kind:index===0?"HYPOTHETICAL":s.citation?"SOURCE_FACT":"ADVICE",issues:[]}))};
+  assert.ok(saved.edited.source_issues.length>0);
+  assert.equal(bindAudit(composed.body,hash,raw,composed.segments,saved.edited.source_issues),null,"Missing finding coverage rejects before any keyword check");
+  assert.equal(JSON.stringify(saved),before);
 });
 
 test("uncited probability or absolute cannot evade audit under advice; no fourth model call",async()=>{

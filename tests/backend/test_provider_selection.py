@@ -87,6 +87,7 @@ class ProviderConfigurationTests(unittest.TestCase):
                 "result": {"response": json.dumps(content)},
                 "stages": stages,
                 "quality_audit": {
+                    "finding_checks": [],
                     "draft_body": body,
                     "issues": [],
                     "paragraphs": [
@@ -115,7 +116,7 @@ class ProviderConfigurationTests(unittest.TestCase):
                             **identity,
                             "stage_result": {
                                 "stage": stage,
-                                "value": {"fixture": stage},
+                                "value": {"fixture": stage, "source_issues": []},
                                 "usage": {},
                             },
                         }

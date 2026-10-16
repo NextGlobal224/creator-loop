@@ -80,7 +80,7 @@ class WorkersCreator:
             + self.worker_version
             + "/"
             + self.model.component_id
-            + "/prompt-v26-sdk4-ai7-uncited-assertions/"
+            + "/prompt-v27-sdk4-ai7-finding-coverage/"
             + hashlib.sha256(self.endpoint.encode()).hexdigest()[:12]
         )
 
@@ -261,7 +261,11 @@ class WorkersCreator:
         ):
             raise ValueError("Worker annotation changed the exact edited article")
         result = validate_response(content, materials)
-        validate_quality_audit(result, envelope.get("quality_audit"))
+        validate_quality_audit(
+            result,
+            envelope.get("quality_audit"),
+            previous[2]["value"].get("source_issues"),
+        )
         result["provenance"] = {
             "backend": self.name,
             "version": self.version,

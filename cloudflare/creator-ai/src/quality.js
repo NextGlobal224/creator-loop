@@ -14,19 +14,25 @@ export function safeFailure(error, result) {
     output_types:Array.isArray(result?.output)?result.output.map(item=>item?.type).filter(t=>["message","reasoning","function_call"].includes(t)).slice(0,10):[]};
 }
 
-export function auditSchema(articleHash, segmentCount) {
+export function auditSchema(articleHash, segmentCount, findingCount=0) {
   return {type:"object",properties:{
     article_sha256:{type:"string",const:articleHash},
+    finding_checks:{type:"array",minItems:findingCount,maxItems:findingCount,items:{
+      type:"object",properties:{index:{type:"integer"},
+        verdict:{type:"string",enum:["ADDRESSED","NOT_APPLICABLE","UNRESOLVED"]},
+        segment_indexes:{type:"array",minItems:1,uniqueItems:true,items:{type:"integer",minimum:0,maximum:segmentCount-1}},
+        reason:{type:"string",minLength:1}},
+      required:["index","verdict","segment_indexes","reason"],additionalProperties:false}},
     segments:{type:"array",minItems:segmentCount,maxItems:segmentCount,items:{
       type:"object",properties:{index:{type:"integer",enum:Array.from({length:segmentCount},(_,i)=>i)},
         kind:{type:"string",enum:["HYPOTHETICAL","ADVICE","SOURCE_FACT"]},issues:{type:"array",items:{type:"string"}}},
       required:["index","kind","issues"],additionalProperties:false}},
-  },required:["article_sha256","segments"],additionalProperties:false};
+  },required:["article_sha256","segments","finding_checks"],additionalProperties:false};
 }
 
-export function bindAudit(body,articleHash,audit,segments) {
+export function bindAudit(body,articleHash,audit,segments,editorFindings=[]) {
   const paragraphs=body.split(/\n\s*\n/u).map(p=>p.trim()).filter(Boolean);
-  if(!audit || Object.keys(audit).sort().join(",")!=="article_sha256,segments" || audit.article_sha256!==articleHash ||
+  if(!audit || Object.keys(audit).sort().join(",")!=="article_sha256,finding_checks,segments" || audit.article_sha256!==articleHash ||
      !Array.isArray(segments) || !Array.isArray(audit.segments) || audit.segments.length!==segments.length ||
      audit.segments.some((item,i)=>!item || Object.keys(item).sort().join(",")!=="index,issues,kind" || item.index!==i ||
        !["HYPOTHETICAL","ADVICE","SOURCE_FACT"].includes(item.kind) || !Array.isArray(item.issues) || item.issues.some(issue=>typeof issue!=="string" || !issue.trim()))) return null;
@@ -34,7 +40,19 @@ export function bindAudit(body,articleHash,audit,segments) {
   // the model classifies IDs, never copies source sentences or paragraph prose.
   if(segments.some((segment,i)=>segment.index!==i || !paragraphs[segment.paragraph_index]?.includes(segment.text) || (segment.citation && audit.segments[i].kind!=="SOURCE_FACT")) ||
      paragraphs.some((text,i)=>segments.filter(s=>s.paragraph_index===i).map(s=>s.text).join(" ")!==text)) return null;
-  return {draft_body:body,issues:[...audit.segments.flatMap(item=>item.issues),...uncitedAssertionIssues(body,segments.flatMap(s=>s.citation?[s.citation]:[]))],paragraphs:paragraphs.map((text,i)=>{
+  // Findings are leads, including possible false positives. Require an explicit,
+  // text-bound disposition for every lead; an empty global issues list cannot
+  // silently discard them. A model disposition is still not proof of entailment.
+  if(!Array.isArray(audit.finding_checks) || audit.finding_checks.length!==editorFindings.length ||
+     audit.finding_checks.some((c,i)=>!c || Object.keys(c).sort().join(",")!=="index,reason,segment_indexes,verdict" || c.index!==i ||
+       !["ADDRESSED","NOT_APPLICABLE","UNRESOLVED"].includes(c.verdict) || typeof c.reason!=="string" || !c.reason.trim() ||
+       !Array.isArray(c.segment_indexes) || !c.segment_indexes.length || new Set(c.segment_indexes).size!==c.segment_indexes.length ||
+       c.segment_indexes.some(j=>!Number.isInteger(j) || j<0 || j>=segments.length))) return null;
+  const finding_checks=audit.finding_checks.map((c,i)=>({finding:editorFindings[i],verdict:c.verdict,reason:c.reason,
+    segments:c.segment_indexes.map(j=>({index:j,text:segments[j].text}))}));
+  return {draft_body:body,finding_checks,issues:[...audit.segments.flatMap(item=>item.issues),
+    ...finding_checks.filter(c=>c.verdict==="UNRESOLVED").map(c=>c.finding),
+    ...uncitedAssertionIssues(body,segments.flatMap(s=>s.citation?[s.citation]:[]))],paragraphs:paragraphs.map((text,i)=>{
     const items=audit.segments.filter((_,j)=>segments[j].paragraph_index===i);
     return {text,kind:i===0?items[0]?.kind:items.some(item=>item.kind==="SOURCE_FACT")?"SOURCE_FACT":"ADVICE",
       factual_passages:audit.segments.flatMap((item,j)=>segments[j].paragraph_index===i && item.kind==="SOURCE_FACT"?[segments[j].text]:[])};
@@ -110,8 +128,9 @@ export function compileSourcedArticle(value, catalog) {
 export function validAudit(annotation, audit) {
   const body = annotation.draft_body;
   const paragraphs = body.split(/\n\s*\n/u).map(p=>p.trim()).filter(Boolean);
-  if (!audit || Object.keys(audit).sort().join(",")!=="draft_body,issues,paragraphs" ||
+  if (!audit || Object.keys(audit).sort().join(",")!=="draft_body,finding_checks,issues,paragraphs" ||
       audit.draft_body!==body || !Array.isArray(audit.issues) || audit.issues.length ||
+      !Array.isArray(audit.finding_checks) || audit.finding_checks.some(c=>c.verdict==="UNRESOLVED") ||
       !Array.isArray(audit.paragraphs) || audit.paragraphs.length!==paragraphs.length ||
       !Array.isArray(annotation.factual_claims)) return false;
   return audit.paragraphs.every((item,i)=>{
