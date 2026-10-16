@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {evidenceInput,revisionIssues} from '../src/grounding.js';
+import {evidenceInput,revisionIssues,applyEditOperations} from '../src/grounding.js';
 import {compileSourcedArticle,quoteCatalog} from '../src/quality.js';
 
 test('generation evidence is exact snapshots; model inference is not promoted into the evidence pack',()=>{
@@ -65,4 +65,46 @@ test('the saved failed article has no v28 edit decisions and is not silently upg
   receipt[uncited.index].support='INSUFFICIENT';
   assert.ok(revisionIssues(initial,initial,receipt,saved.catalog).length);
   assert.equal(JSON.stringify(saved),before);
+});
+
+test('duplicate edit evidence and final-index receipts remain rejected locally',()=>{
+  const initial=article('Ask which part of the source is missing.');
+  for(const duplicate of [{quote_ids:[0,0],support:'SOURCE_SUPPORTED'},{final_segment_indexes:[1,1]}]){
+    const receipt=checks(initial,initial);Object.assign(receipt[1],duplicate);
+    assert.ok(revisionIssues(initial,initial,receipt,catalog).length);
+  }
+});
+
+test('edit operations bind KEEP/REMOVE/REWRITE to a single text and compute shifted indexes',()=>{
+  const initial=article('A comparison gives a guaranteed result.');
+  // Add a safe action to that paragraph so removal need not invent filler.
+  const typed={hypothetical_opening:initial.segments[0].text,editorial_paragraphs:[
+    [{text:initial.segments[1].text,source_quote_id:-1},{text:'Ask for the missing record.',source_quote_id:-1}],
+    ...initial.segments.slice(2).map(s=>[{text:s.text,source_quote_id:-1}])]};
+  const original=compileSourcedArticle(typed,catalog);
+  const edits=original.segments.map((s,index)=>({index,support:index===0?'HYPOTHETICAL':'SUGGESTION',quote_ids:[],decision:'KEEP',note:'Structural test only',premise_checks:[],replacement:[]}));
+  edits[1]={...edits[1],support:'INSUFFICIENT',decision:'REMOVE'};
+  edits[edits.length-1]={...edits.at(-1),decision:'REWRITE',replacement:[{source_quote_id:-1,text:'Please send the original link and date.'}]};
+  const output=applyEditOperations({source_issues:['Unsupported outcome removed'],edits},original,catalog);
+  const emptySummary=applyEditOperations({source_issues:[],edits},original,catalog);
+  assert.deepEqual(emptySummary.source_issues,[edits[1].note], 'The audit must receive the actual insufficient-support finding even when the summary omits it');
+  const final=compileSourcedArticle({hypothetical_opening:output.hypothetical_opening,editorial_paragraphs:output.editorial_paragraphs},catalog);
+  assert.ok(!final.body.includes(original.segments[1].text));assert.ok(final.body.includes(original.segments[2].text));
+  assert.deepEqual(output.source_checks[1].final_segment_indexes,[]);assert.deepEqual(output.source_checks[2].final_segment_indexes,[1]);
+  assert.deepEqual(revisionIssues(original,final,output.source_checks,catalog),[]);
+  for(const change of [{decision:'KEEP'},{decision:'REWRITE',replacement:[{text:'The same conclusion in different words.',source_quote_id:-1}]}]){
+    const invalid=structuredClone(edits);Object.assign(invalid[1],change);
+    assert.throws(()=>applyEditOperations({source_issues:[],edits:invalid},original,catalog),/Insufficient/);
+  }
+  const invalid=structuredClone(edits);invalid[2].replacement=[{text:'Silently changed KEEP',source_quote_id:-1}];
+  assert.throws(()=>applyEditOperations({source_issues:[],edits:invalid},original,catalog),/contradicts/);
+});
+
+test('an acknowledged unsupported premise cannot survive under a suggestion label',()=>{
+  const initial=article('Run the unprovided procedure to establish the result.');
+  const edits=initial.segments.map((s,index)=>({index,support:index===0?'HYPOTHETICAL':'SUGGESTION',quote_ids:[],decision:'KEEP',note:'Structural test',premise_checks:[],replacement:[]}));
+  edits[1].premise_checks=[{assertion:'An identified procedure establishes the result.',quote_ids:[],supported:false}];
+  assert.throws(()=>applyEditOperations({source_issues:[],edits},initial,catalog),/Unsupported factual premise/);
+  edits[1].support='SOURCE_SUPPORTED';edits[1].quote_ids=[0];
+  assert.throws(()=>applyEditOperations({source_issues:[],edits},initial,catalog),/Unsupported factual premise/);
 });

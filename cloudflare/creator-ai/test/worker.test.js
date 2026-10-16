@@ -35,10 +35,19 @@ function fixtureChecks(first, edited){
       final_segment_indexes:target?[target.index]:[],note:"Synthetic protocol fixture; no semantic quality claim."};
   });
 }
+function fixtureOperations(first,edited){
+  const before=compileSourcedArticle(first,quoteCatalog(data.materials));
+  const after=compileSourcedArticle({hypothetical_opening:edited.hypothetical_opening,editorial_paragraphs:edited.editorial_paragraphs},quoteCatalog(data.materials));
+  const receipt=edited.source_checks??fixtureChecks(first,edited);
+  return {source_issues:edited.source_issues??[],edits:receipt.map(check=>{
+    const {final_segment_indexes,...rest}=check;
+    return {...rest,premise_checks:check.support==="SOURCE_SUPPORTED"?[{assertion:before.segments[check.index].text,quote_ids:check.quote_ids,supported:true}]:[],replacement:check.decision==="REWRITE"?final_segment_indexes.map(index=>({text:after.segments[index].text,source_quote_id:after.segments[index].citation?0:-1})):[]};
+  })};
+}
 function environment(outputs,model="@cf/openai/gpt-oss-120b"){
   const captured=[];
   return {captured,env:{CREATOR_KEY:"fixture",CREATOR_MODEL:model,CREATOR_VERSION:{id:"pinned-version"},AI:{run:async(_,options)=>{
-    captured.push(options);let value=outputs[captured.length-1];if(value instanceof Error)throw value; if(captured.length===3 && value && typeof value==="object" && value.editorial_paragraphs)value={source_issues:[],source_checks:fixtureChecks(outputs[1],value),...value};
+    captured.push(options);let value=outputs[captured.length-1];if(value instanceof Error)throw value; if(captured.length===3 && value && typeof value==="object" && value.editorial_paragraphs)value=fixtureOperations(outputs[1],value);
     return {choices:[{message:{content:typeof value==="string"?value:JSON.stringify(value),reasoning_content:"private reasoning fixture"},finish_reason:"stop"}],usage:{prompt_tokens:12,completion_tokens:30}};
   }}}};
 }
@@ -80,7 +89,7 @@ test("AI.run JSON mode object response keeps roles, budgets and source checks",a
   const {env}=environment([]);env.AI.run=async(_,options)=>{
     assert.equal(options.messages[0].role,"system");assert.equal(options.response_format.type,"json_schema");
     assert.ok(options.max_tokens>0);assert.equal(options.input,undefined);
-    return {response:outputs[calls++],usage:{input_tokens:12,output_tokens:30}};
+    const value=outputs[calls++];return {response:calls===3?fixtureOperations(written,value):value,usage:{input_tokens:12,output_tokens:30}};
   };
   const result=await worker.fetch(request(),env);assert.equal(result.status,200);assert.equal(calls,4);
   assert.equal(JSON.parse((await result.json()).result.response).draft_body,body);
@@ -107,7 +116,7 @@ test("remote exception cannot leak; stage failure is finite",async()=>{
   const {env,captured}=environment([new Error("private exception")]);const response=await worker.fetch(request(),env);
   assert.equal(response.status,502);assert.equal(captured.length,1);const failure=await response.json();assert.equal(failure.stage,"analysis");
   assert.equal(failure.retryable,false);assert.equal(JSON.stringify(failure).includes("private exception"),false);
-  assert.deepEqual(JSON.parse(failure.stage_output).stage_diagnostic,{phase:"NATIVE_BINDING",binding_calls:1});
+  assert.deepEqual(JSON.parse(failure.stage_output).stage_diagnostic,{phase:"NATIVE_BINDING",binding_calls:1,native_failure:{code:null,flags:[]}});
 });
 test("empty or provider-failed output retains allowlisted diagnosis without secrets or reasoning",async()=>{
   for(const [output,code,received] of [[new Error("3036 daily allocation private-key"),3036,false],[null,null,true]]){
@@ -296,4 +305,22 @@ test("uncited probability or absolute cannot evade audit under advice; no fourth
     // The old model report also has wrong segment count, which fails closed.
     assert.equal(bound,null);
   }
+});
+
+test("duplicate audit finding mappings remain rejected after native schema adaptation",()=>{
+  const {body,written}=draft();const composed=compileSourcedArticle(written,quoteCatalog(data.materials));
+  const hash=createHash("sha256").update(body).digest("hex");const raw=audit(body);
+  raw.finding_checks=[{index:0,verdict:"ADDRESSED",segment_indexes:[1,1],reason:"Duplicate structural mapping"}];
+  assert.equal(bindAudit(body,hash,raw,composed.segments,["Check a passage"]),null);
+});
+
+test("generation has no source-conflicting minimum length; editing owns each replacement",async()=>{
+  const {body,written}=draft();const {captured,env}=environment([analysis,written,written,audit(body)]);
+  assert.equal((await worker.fetch(request(),env)).status,200);
+  for(const index of [1,2]){
+    assert.ok(captured[index].messages[0].content.includes("no minimum length"));
+    assert.ok(!captured[index].messages[0].content.includes("250–350"));
+  }
+  assert.deepEqual(Object.keys(captured[2].response_format.json_schema.properties),["source_issues","edits"]);
+  assert.ok(captured[2].messages[0].content.includes("Do not output a second article"));
 });

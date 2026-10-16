@@ -80,7 +80,7 @@ class WorkersCreator:
             + self.worker_version
             + "/"
             + self.model.component_id
-            + "/prompt-v28-sdk4-ai7-source-first-edit/"
+            + "/prompt-v29-sdk4-ai7-source-limits-edit/"
             + hashlib.sha256(self.endpoint.encode()).hexdigest()[:12]
         )
 

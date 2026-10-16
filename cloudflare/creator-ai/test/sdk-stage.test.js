@@ -46,8 +46,30 @@ test("failure diagnostics distinguish SDK validation, native rejection and reply
   ]){
     const {env,count}=setup(reply);
     await assert.rejects(generateStage(env,{...task,...taskOverride},()=>{}),error=>{
-      assert.deepEqual(error.stage_diagnostic,{phase,binding_calls:expectedCalls});return true;
+      assert.equal(error.stage_diagnostic.phase,phase);assert.equal(error.stage_diagnostic.binding_calls,expectedCalls);return true;
     });
     assert.equal(count(),expectedCalls);
+  }
+});
+
+test("native diagnostic exports fixed classifications only, before SDK wrapping",async()=>{
+  const {env,count}=setup(()=>{throw new Error('4001: JSON schema uniqueItems unsupported private-secret-value');});
+  await assert.rejects(generateStage(env,task,()=>{}),error=>{
+    assert.deepEqual(error.stage_diagnostic.native_failure,{code:4001,flags:["SCHEMA","UNIQUE_ITEMS","UNSUPPORTED","JSON"]});
+    assert.ok(!JSON.stringify(error.stage_diagnostic).includes("private-secret-value"));return true;
+  });assert.equal(count(),1);
+});
+
+test("native decoding omits unsupported uniqueness without mutating the full schema",async()=>{
+  const schema={type:"object",properties:{ids:{type:"array",uniqueItems:true,items:{type:"integer"}}},required:["ids"],additionalProperties:false};
+  const before=JSON.stringify(schema);
+  for(const ids of [[1,2]]){
+    const {env,count}=setup((_model,input)=>{
+      assert.equal(input.response_format.json_schema.properties.ids.uniqueItems,undefined);
+      assert.ok(input.messages[1].content.includes('"uniqueItems":true'));
+      return {response:{ids},usage:{completion_tokens:10}};
+    });
+    assert.deepEqual((await generateStage(env,{...task,schema},()=>{})).value,{ids});
+    assert.equal(count(),1);assert.equal(JSON.stringify(schema),before);
   }
 });

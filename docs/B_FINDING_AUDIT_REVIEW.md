@@ -1,5 +1,65 @@
 # B: generation inputs, edit decisions and audit findings
 
+## Continuous B repair grant — 16 October 2026: still FAIL
+
+The latest user grant replaced per-pilot approval with a non-stacking cap of eight
+additional Cloudflare model calls, including diagnostics, on Workers Free with a
+$0 incremental-charge ceiling. All eight were reserved before sending and are now
+spent. Earlier closed grants remain historical; their unused allowance was not
+added. Same task and hook budget remain. No billing change, automatic retry,
+second agent, new A scan, paid C action, approval or publication occurred.
+
+| Call | Purpose and actual result |
+| --- | --- |
+| 1 | Saved v28 editing payload on diagnostic-only source: native binding rejected before returning a result. |
+| 2 | Fixed native classifications exposed code8007 and a uniqueItems reference; no raw exception was disclosed. |
+| 3 | Adapt only native decoding schema by omitting uniqueItems: editing returned a result, then failed exact edit/mapping checks. |
+| 4 | Remove minimum word count and output final fields before mappings: editor still paraphrased an unsupported probability while claiming removal. FAIL. |
+| 5 | Bind each edit decision to its only replacement text, compute mappings: recognized unsupported efficacy was removed, but probability was misclassified as advice and retained. FAIL. |
+| 6 | Fresh writing with the source-limited prompt and unchanged saved analysis: unsupported applicability/outcome assertions remain. Writing quality FAIL. |
+| 7 | Edit fresh writing through operation-based editor: structurally valid response, but unsupported premises still treated as advice. Semantic quality FAIL. |
+| 8 | Check factual premises before edit classification: final candidate still contains unsupported claims; two declared rewrites retain the original text. FAIL before audit. |
+
+The native compatibility repair is supported by a returned editing result after
+the isolated adapter change. Full schemas remain in the SDK/prompt, and existing
+app checks still reject duplicate evidence IDs and audit mappings. The installed
+SDK default jsonSchema wrapper was observed not to enforce uniqueness by itself;
+we do not claim otherwise. No output is repaired or silently deduplicated.
+
+Editing now emits one operation per original segment. KEEP copies the original
+text/citation exactly, REMOVE emits none, and REWRITE owns the replacement text.
+The app computes final indexes and retains the existing coverage/citation checks.
+An acknowledged insufficient assertion must be removed; an acknowledged unsupported
+factual premise cannot survive under an advice label. This changes generation and
+editing, rather than only adding a later audit guard. It does not prove that the
+model recognizes every factual premise correctly. Actual calls5/7/8 show that gap.
+
+The word minimum was removed from writing and editing to resolve source/length
+pressure, but call6 proves that this alone did not fix writing. Exact quote IDs
+still permit semantic additions: a note containing questions does not establish
+their effectiveness, and a handbook introduction does not supply a case-specific
+procedure or outcome. The editor also attributed a note author's editorial warning
+to UNESCO in its private evidence note. No claim is made that all such assertions
+are universally false; they are unsupported by the selected snapshots.
+
+Call8's diagnostic saved normalized text/receipts, not the original premise_checks;
+we cannot distinguish omitted premises from incorrectly supported premises in that
+response. The final offline follow-up preserves actual edit operations in bounded
+selected-output diagnostics and carries each actual INSUFFICIENT operation note
+into audit findings even if the model summary is empty. It does not invent a new
+finding or approval. Both follow-ups have not been redeployed or cloud tested.
+
+Offline validation:42 relevant SDK/Worker/grounding tests passed; the final capture/finding-carry changes passed35 Worker/grounding tests.13 relevant Python provider/quality/transport tests
+passed. These verify structure, inputs, decision binding and failure handling, not
+semantic output quality. Source, payloads, per-call objectives/versions/results,
+usage and rejected articles remain in the existing local evidence directory.
+Known usage counts only each new stage; reused analysis/writing usage is not counted
+again. Native failures1/2 have unknown usage. No new audit, Workflow, Draft or
+save/reopen was produced; native default stayed unchanged. This is not fresh E2E,
+cloud quality PASS, beta acceptance or whole-B completion. V28 remains FAIL and
+v27 remains unverified cloud. Required CI for the new published HEAD and legitimate
+independent review remain separate. Previous sections below are historical.
+
 ## Actual v28 pilot — 16 October 2026: FAIL, no retry
 
 The separate authorized grant ran once through the app ResearchPipeline with

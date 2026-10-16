@@ -79,3 +79,13 @@ locked dependencies under Node22, runs SDK/source regressions, audits production
 packages and dry-builds the Worker. Dry-build is not deploy/cloud acceptance. Local
 dry-build measured749.18KiB, gzip147.39KiB. Paid C and new A scans stay paused;
 the paused A live gate, independent review and full beta gates remain open.
+
+
+Current follow-up: the user authorized eight additional non-stacking model calls
+for continuous B repair; all are spent and quality still FAIL. Do not reuse unused
+old allowances. See docs/B_FINDING_AUDIT_REVIEW.md for exact scope and limitations.
+The native decoding adapter omits unsupported uniqueItems while app uniqueness
+validation remains. Editing emits operations owning replacement text and factual
+premise checks; final mappings are computed, and unsupported acknowledged premises
+cannot be retained as advice. This does not provide semantic entailment guarantees.
+The final selected-operation diagnostic capture is offline tested, not redeployed.
