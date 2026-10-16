@@ -42,8 +42,16 @@ Runner ưu tiên Python/test native; encoded PowerShell có vấn đề stderr C
 
 ### Budget full suite
 
-Full Windows dùng process timeout900s/CI step16 phút; product deadlines từng test,
-playback heartbeat8s, RAM512MiB, health60s và recovery180s không đổi. Không bỏ test/assertion.
+Windows full discovery chạy đủ ba nhóm backend/frontend/integration, mỗi nhóm
+trong process có timeout900/300/300s; CI step26 phút. Reporter giữ START/STOP và
+Python stacks riêng cho mỗi process. Test discovery regression xác minh hợp ba
+nhóm bằng đúng full suite, không trùng hoặc bỏ test. Product deadlines từng test,
+playback heartbeat8s, RAM512MiB, health60s và recovery180s không đổi.
+Lượt SDK B16/10/run38839723317 đạt968STOP trước global900s; backend572.359s,
+frontend204.313s, integration48ca115.812s vẫn tiến triển khi hết hạn. Log/stacks
+cho thấy migration/fsync/decode chứ chưa chứng minh một test treo. Tách nhóm giữ
+đủ kiểm tra và timeout hữu hạn, không retry hoặc suy PASS từ scoped tests.
+Đây là thay đổi runner CI, không tăng deadline hay RAM của app.
 Căn cứ measured coverage, FAIL420/600, timing/projection và phạm vi từng checkpoint
 tra [HANDOFF/lịch sử](HANDOFF.md) cùng `corrupt-recovery-full-timeout-timings.json`
 và `fresh-full-timeout-profile.json`, `installation-long-path-full-timeout-profile.json`

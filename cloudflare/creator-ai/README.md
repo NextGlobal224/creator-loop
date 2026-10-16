@@ -1,3 +1,9 @@
+**A source clarification16October2026:** the user reaffirmed microsoft/playwright-python
+and huggingface/sentence-transformers as A. Existing Playwright1.63.0 and pinned
+multilingualMiniLM ONNX integration is reused; no additional A repository is
+required. The saved35candidates yield0topic/time/viral-qualified posts; the live
+20–40gate remains paused. This B-only projection does not publish unrelated A/CWIP.
+
 **Actual SDK pilot16October2026: technical integration exercised, quality FAIL.**
 WorkersFree0/10k was confirmed by the user immediately before this single pilot.
 Worker80759b8e-97e0-490e-83f0-a53de1eaf792 + GPT-OSS120B completed four model
@@ -68,4 +74,4 @@ Run npm ci --ignore-scripts, then npm test in this directory. Required CI instal
 locked dependencies under Node22, runs SDK/source regressions, audits production
 packages and dry-builds the Worker. Dry-build is not deploy/cloud acceptance. Local
 dry-build measured749.18KiB, gzip147.39KiB. Paid C and new A scans stay paused;
-selected A repository identity, independent review and full beta gates remain open.
+the paused A live gate, independent review and full beta gates remain open.

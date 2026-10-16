@@ -1,3 +1,10 @@
+**A source clarification16October2026:** confirmed A repositories are
+microsoft/playwright-python and huggingface/sentence-transformers. Existing
+Playwright1.63.0/CDP and exact MiniLM-L12-v2 ONNX revision e8f8c211… are reused;
+model/tokenizer/runtime/source bindings and cached reopen were verified. No
+additional A repository is required. Saved35/qualified0 is preserved; live scan
+and20–40acceptance remain paused. SDK B quality remains FAIL with spent1pilot/4calls.
+
 **Actual SDK pilot16October2026: technical integration exercised, quality FAIL.**
 WorkersFree0/10k was confirmed by the user immediately before this single pilot.
 Worker80759b8e-97e0-490e-83f0-a53de1eaf792 + GPT-OSS120B completed four model
