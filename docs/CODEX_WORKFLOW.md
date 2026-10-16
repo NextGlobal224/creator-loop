@@ -43,7 +43,7 @@ Runner ưu tiên Python/test native; encoded PowerShell có vấn đề stderr C
 ### Budget full suite
 
 Windows full discovery chạy đủ ba nhóm backend/frontend/integration, mỗi nhóm
-trong process có timeout900/300/600s; CI step31 phút. Reporter giữ START/STOP và
+trong process có timeout900/300/720s; CI step33 phút. Reporter giữ START/STOP và
 Python stacks riêng cho mỗi process. Test discovery regression xác minh hợp ba
 nhóm bằng đúng full suite, không trùng hoặc bỏ test. Product deadlines từng test,
 playback heartbeat8s, RAM512MiB, health60s và recovery180s không đổi.
@@ -245,3 +245,19 @@ Hướng dẫn chi tiết cho kiểm tra/cập nhật skill và tích hợp dị
 
 Ba file nền tảng, cách giao việc và bảng đo là lựa chọn thiết kế của bộ này; không phải yêu cầu bắt buộc hoặc cam kết tiết kiệm của OpenAI.
 Các liên kết trên được chuyển từ bộ nguồn; nội dung trang và menu `/` chưa được kiểm lại trong phiên A2.
+
+### Integration process budget after PR86 v30 CI
+
+Run38889820337 on28e01ab reached206of209integrationSTOP in597.515s before the
+600sprocess deadline. Same test/runtime/reporter source as successful21f8c34:
+the same206cases previously took326.485s (aggregate1.830x); the remaining3cases
+previously took4.938s. Projection at the observed aggregate rate is606.552s,
+an estimate rather than completed evidence. Backend762cases slowed1.865x and
+frontend162cases1.725x too. Stacks moved across SQLite migration/backup work;
+this does not prove a single hung test or a B semantic failure.
+
+Only the integration-group process budget increases600→720s; the enclosing step
+increases31→33minutes for900+300+720s plus logging. All209integration cases,
+assertions, product deadlines and process logs remain. No rerun of unchangedHEAD,
+no product budget increase, no skipped checks and no inferred CI/cloudPASS.
+Prior600s evidence remains historical; new exactHEAD must pass requiredCI.
