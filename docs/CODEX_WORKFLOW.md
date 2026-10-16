@@ -180,7 +180,7 @@ Skill cá nhân đọc từ file trong HOME. Theo cơ chế này, khi chỉ đ�
 
 Code và tài liệu cần được mang sang bằng repo hoặc bản sao có kiểm soát. Skill user-scope ngoài repo phải được chuyển/cài và kiểm tra riêng. Không giả định chat, connector, memories, cấu hình global hay credential tự đi cùng repo.
 
-Skill cá nhân trên máy bạn từng được xác nhận tại `C:/Users/Admin/.agents/skills/start-project/SKILL.md`; đây là mốc quan sát, cần kiểm tra lại nếu đổi môi trường.
+Skill cá nhân nằm tại `%USERPROFILE%/.agents/skills/start-project/SKILL.md`; cần kiểm tra lại đường dẫn thực nếu đổi môi trường.
 
 ## 7. Chọn model và công cụ
 
