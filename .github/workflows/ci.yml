@@ -100,7 +100,7 @@ jobs:
         env:
           PYTHONPATH: app
         shell: powershell
-        timeout-minutes: 26
+        timeout-minutes: 31
         run: |
           $ErrorActionPreference = 'Stop'
           # CI diagnostics: 968 tests completed before the former global 900s
@@ -108,7 +108,7 @@ jobs:
           $groups = @(
             @{ Name = 'backend'; Timeout = 900 },
             @{ Name = 'frontend'; Timeout = 300 },
-            @{ Name = 'integration'; Timeout = 300 }
+            @{ Name = 'integration'; Timeout = 600 }
           )
           foreach ($group in $groups) {
             & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds $group.Timeout -CommandArgs @('-u','scripts/run_suite_with_diagnostics.py','--group',$group.Name)
