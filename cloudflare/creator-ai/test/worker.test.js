@@ -7,7 +7,7 @@ import {auditSchema,bindAudit,validAudit,compileEditedArticle,compileSourcedArti
 function compileSourcedArticle(value,catalog){
   return compilePlainArticle({...value,editorial_paragraphs:value.editorial_paragraphs.map(p=>p.map(({premise_checks,...segment})=>segment))},catalog);
 }
-import {checkedWriting} from "../src/grounding.js";
+import {checkedWriting,articleRequirements} from "../src/grounding.js";
 const data={format:"TEXT",purpose:"Kiểm chứng",materials:[{material_id:"m",text:"Ghi chú nguồn công khai"}]};
 test("actual v24 metadata-leak output remains rejected despite source citation and prior empty audit",()=>{
   const actual=readFileSync(new URL("../../../tests/fixtures/workers_b_v24_metadata_failed.txt",import.meta.url),"utf8");
@@ -25,7 +25,8 @@ function draft(){
     "Nếu vẫn thiếu căn cứ, hãy giữ Chưa xác nhận và nhắn người gửi: bạn có đường dẫn gốc để mình kiểm tra không?",
   ]};return {typed,body:compileEditedArticle(typed),written:{...typed,editorial_paragraphs:typed.editorial_paragraphs.map(text=>[{text,source_quote_id:-1,premise_checks:[]}])}};
 }
-function audit(body,issues=[]){return {finding_checks:[],article_sha256:createHash("sha256").update(body).digest("hex"),segments:body.split(/\n\s*\n/u).map((_,index)=>({index,kind:index===0?"HYPOTHETICAL":"ADVICE",issues:index===0?issues:[]}))};}
+function requirementReceipts(offset=0){return articleRequirements.map((_,i)=>({index:offset+i,verdict:"NOT_APPLICABLE",segment_indexes:[i===0?1:4],reason:"Synthetic task coverage only; not a semantic quality assessment."}));}
+function audit(body,issues=[]){return {finding_checks:requirementReceipts(),article_sha256:createHash("sha256").update(body).digest("hex"),segments:body.split(/\n\s*\n/u).map((_,index)=>({index,kind:index===0?"HYPOTHETICAL":"ADVICE",issues:index===0?issues:[]}))};}
 function request(extra={}){return new Request("https://example.test/b/generate",{method:"POST",headers:{authorization:"Bearer fixture","content-type":"application/json"},body:JSON.stringify({prompt:"notes",writing_prompt:writingPrompt,schema,...extra})});}
 // Synthetic valid edit receipts for protocol fixtures, not source-quality QA.
 function fixtureChecks(first, edited){
@@ -209,7 +210,7 @@ test("one declared editor receives risky passages and its output is audited, nev
 test("editor receives concrete source/metadata warnings and must return findings with the revised text",async()=>{
   const {body,written}=draft();const bad={...written,editorial_paragraphs:structuredClone(written.editorial_paragraphs)};
   bad.editorial_paragraphs[0][0].text="Hướng biên tập: hãy truy cập công cụ này.";
-  const {env,captured}=environment([analysis,bad,{...written,source_issues:["Internal note and unspecified tool"]},{...audit(body),finding_checks:[{index:0,verdict:"ADDRESSED",segment_indexes:[1],reason:"The revised paragraph asks for the source link; internal heading and unspecified tool were removed."}]}]);
+  const {env,captured}=environment([analysis,bad,{...written,source_issues:["Internal note and unspecified tool"]},{...audit(body),finding_checks:[{index:0,verdict:"ADDRESSED",segment_indexes:[1],reason:"The revised paragraph asks for the source link; internal heading and unspecified tool were removed."},...requirementReceipts(1)]}]);
   const response=await worker.fetch(request(),env);assert.equal(response.status,200);
   assert.ok(captured[2].messages[1].content.includes("Internal research-note headings"));
   assert.ok(captured[2].messages[1].content.includes("ambiguous tool referents"));
@@ -344,4 +345,24 @@ test("generation has no source-conflicting minimum length; editing owns each rep
   }
   assert.deepEqual(Object.keys(captured[2].response_format.json_schema.properties),["source_issues","edits"]);
   assert.ok(captured[2].messages[0].content.includes("Do not output a second article"));
+});
+
+test("task requirements are audited even when the editor claims no source issues",async()=>{
+  const {body,written}=draft();
+  const {captured,env}=environment([analysis,written,written,audit(body)]);
+  const response=await worker.fetch(request(),env);assert.equal(response.status,200);
+  assert.equal(captured[3].response_format.json_schema.properties.finding_checks.minItems,2);
+  for(const requirement of articleRequirements){
+    assert.ok(captured[1].messages[1].content.includes(requirement.id));
+    assert.ok(captured[2].messages[1].content.includes(requirement.id));
+    assert.ok(captured[3].messages[1].content.includes(requirement.id));
+  }
+  const result=await response.json();
+  assert.deepEqual(result.stages[2].source_issues,[]);
+  assert.deepEqual(result.stages[2].task_requirements,articleRequirements.map(r=>r.id));
+  assert.deepEqual(result.quality_audit.finding_checks.map(c=>c.finding),articleRequirements.map(r=>r.id));
+  const omitted={...audit(body),finding_checks:[]};
+  const rejected=environment([analysis,written,written,omitted]);
+  const failed=await worker.fetch(request(),rejected.env);
+  assert.ok([422,502].includes(failed.status));assert.equal(rejected.captured.length,4);
 });

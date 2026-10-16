@@ -1,3 +1,39 @@
+## V30 actual app output and explicit task-check diagnosis — 16 October 2026
+
+Exact368ce68 CI38892798651 completed all3required checks including Windows
+test/build/exactZIPsmoke after the measured integration720s correction.
+V30 deployed once, UUID36d10f6c-751d-46ff-9d42-168a50a9b1dc. Immediate health
+identity check failed before pin/model; its response was not retained, so cause
+is unknown. A later bounded health observation matched expectedUUID/model;
+pin completed without redeploy or default change.
+
+Actual ResearchPipeline completed4modelcalls and saved/reopened a new UNREVIEWED
+Draft. Full review still FAIL: it invented a minimum two-independent-source
+verification policy not supplied by notes or Project, and ended with general
+advice rather than the required sender message. All edits were KEEP, factual
+premises for those advice segments were empty and model audit returned issues[].
+This is a real false-negative audit, not automatic quality acceptance.
+
+Call5 was diagnostic only: same article, sources and operations, with two explicit
+analyst findings supplied to audit. It rejected both as UNRESOLVED withHTTP422.
+No new Draft or content change was made. This supports a task-coverage gap:
+requirements need checking even when editor findings are empty and the passage
+is advice. It does not prove a general semantic fix or certify future outputs.
+
+V31 supplies shared article requirements to writer/editor/audit and always
+includes their IDs in the final audit checklist, independently of factual labels
+or editor summary. The app requires the exact task receipt and also carries
+INSUFFICIENT notes omitted from the summary, matching Worker composition.
+No lexical ban, hardcoded fixture rewrite, new model/SDK/effort/retry or manual
+prose repair is used. Cache identity becomesv31.47Node and17Python boundary/
+module tests, scopedRuff andmypy2.3.1 pass; v31 is not yet deployed or cloud-verified.
+
+V30grant is5/8spent with3remaining, distinct from the exhausted old8/8grant and
+15historical calls. Pipeline2 with another source set is not allowed while
+pipeline1qualityFAIL. Reuse valid analysis for any justified repair of the first
+case; count each remaining request before sending. A/Cpauses, full scope,
+independent review, manual approval and all release gates remain.
+
 ## Resume after account change — 16 October 2026: v30 offline candidate, B still FAIL
 
 PR86 prior HEAD21f8c34 completed all three required checks, including Windows

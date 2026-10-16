@@ -1,9 +1,14 @@
 // Source-first generation inputs and explicit edit decisions. These constraints
 // do not implement semantic entailment; that still needs real output/source QA.
+export const articleRequirements = [
+  {id:"PROJECT_NO_UNSOURCED_RULE",text:"Do not invent an evidence-sufficiency rule, minimum source count, verification procedure or promised result not supplied by the selected snapshots or explicit Project instruction. This also constrains normative ADVICE, independently of factual-premise classification. Voluntary questions, reading and requests without a claimed outcome remain allowed. The model's proposed direction is not permission or source evidence."},
+  {id:"PROJECT_CLOSING_MESSAGE",text:"End with an actual short message the reader could send to the original sender asking for the missing original link, date or context. A general instruction to read or verify does not satisfy this deliverable. Write the message, not a description of it."},
+];
 export function evidenceInput(sourceContext, catalog, analysis) {
   const data=JSON.parse(sourceContext);
   return {
     project:{purpose:data.purpose,audience:data.audience,style:data.style,direction:data.direction},
+    article_requirements:articleRequirements,
     evidence:{authority:"PROVIDED_SNAPSHOT_ONLY",linked_pages_are_not_retrieved:true,
       materials:data.materials.map(m=>({material_id:m.material_id,source_url:m.source_url,scope:m.scope,text:m.text})),
       quote_catalog:catalog.map((quote,id)=>({id,...quote}))},

@@ -93,3 +93,8 @@ The final selected-operation diagnostic capture is offline tested, not redeploye
 V30 offline candidate requires per-segment writing/replacement premise checks,
 rejects factual advice exemptions and unchanged REWRITE, and retains declarations
 for editor/audit. No v30 cloud output exists; exhausted8/8grant is not renewed.
+
+V31 candidate carries task requirements through generation and mandatory audit
+coverage, separately from factual/advice labels. V30 actual app Draft persisted
+but failed source/task quality; targeted call5 recognized both findings. Grant5/8;
+no v31 cloud claim or second source pipeline while first quality fails.

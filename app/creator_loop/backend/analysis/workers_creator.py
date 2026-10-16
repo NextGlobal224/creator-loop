@@ -17,7 +17,10 @@ from creator_loop.backend.analysis.creator_llm import (
     validate_response,
 )
 from creator_loop.backend.analysis.generation_prompt import generation_prompt
-from creator_loop.backend.analysis.workers_quality import validate_quality_audit
+from creator_loop.backend.analysis.workers_quality import (
+    validate_quality_audit,
+    worker_audit_findings,
+)
 from creator_loop.backend.analysis.workers_transport import post_owned
 from creator_loop.backend.runtime.runtime_ownership import create_workspace_marker
 from creator_loop.shared.workflow import CreatorRequest, ResearchMaterial
@@ -80,7 +83,7 @@ class WorkersCreator:
             + self.worker_version
             + "/"
             + self.model.component_id
-            + "/prompt-v30-sdk4-ai7-segment-premises/"
+            + "/prompt-v31-sdk4-ai7-article-requirements/"
             + hashlib.sha256(self.endpoint.encode()).hexdigest()[:12]
         )
 
@@ -264,7 +267,7 @@ class WorkersCreator:
         validate_quality_audit(
             result,
             envelope.get("quality_audit"),
-            previous[2]["value"].get("source_issues"),
+            worker_audit_findings(previous[2]),
         )
         result["provenance"] = {
             "backend": self.name,

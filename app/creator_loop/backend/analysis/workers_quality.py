@@ -7,6 +7,39 @@ Every paragraph must be classified; factual passages still need exact citations.
 import re
 from typing import Any
 
+ARTICLE_REQUIREMENT_IDS = [
+    "PROJECT_NO_UNSOURCED_RULE",
+    "PROJECT_CLOSING_MESSAGE",
+]
+
+
+def worker_audit_findings(edit_stage: Any) -> list[str]:
+    """Bind app checks to original edit operations and mandatory task coverage.
+
+    These are checklist leads, not a declaration that every article violates them.
+    Keep model findings, including insufficient notes omitted from its summary.
+    """
+    if (
+        not isinstance(edit_stage, dict)
+        or edit_stage.get("stage") != "editing"
+        or edit_stage.get("task_requirements") != ARTICLE_REQUIREMENT_IDS
+        or not isinstance(edit_stage.get("value"), dict)
+    ):
+        raise ValueError("Worker article task coverage missing or changed")
+    value = edit_stage["value"]
+    findings, edits = value.get("source_issues"), value.get("edits")
+    if (
+        not isinstance(findings, list)
+        or any(not isinstance(f, str) or not f.strip() for f in findings)
+        or not isinstance(edits, list)
+        or any(not isinstance(e, dict) for e in edits)
+    ):
+        raise ValueError("Worker original edit findings missing")
+    notes = [e.get("note") for e in edits if e.get("support") == "INSUFFICIENT"]
+    if any(not isinstance(note, str) or not note.strip() for note in notes):
+        raise ValueError("Worker insufficient-support explanation missing")
+    return list(dict.fromkeys([*findings, *notes, *ARTICLE_REQUIREMENT_IDS]))
+
 
 def validate_quality_audit(
     content: dict[str, Any], audit: Any, editor_findings: Any = ()

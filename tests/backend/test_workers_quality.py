@@ -3,10 +3,46 @@ import json
 import unittest
 from pathlib import Path
 
-from creator_loop.backend.analysis.workers_quality import validate_quality_audit
+from creator_loop.backend.analysis.workers_quality import (
+    ARTICLE_REQUIREMENT_IDS,
+    validate_quality_audit,
+    worker_audit_findings,
+)
 
 
 class WorkersQualityTests(unittest.TestCase):
+    def test_task_coverage_cannot_depend_on_empty_editor_summary(self):
+        stage = {
+            "stage": "editing",
+            "task_requirements": ARTICLE_REQUIREMENT_IDS.copy(),
+            "value": {
+                "source_issues": [],
+                "edits": [{"support": "INSUFFICIENT", "note": "Unsupported rule"}],
+            },
+        }
+        self.assertEqual(
+            worker_audit_findings(stage),
+            ["Unsupported rule", *ARTICLE_REQUIREMENT_IDS],
+        )
+        for coverage in (None, [], list(reversed(ARTICLE_REQUIREMENT_IDS))):
+            invalid = {**stage, "task_requirements": coverage}
+            with self.assertRaisesRegex(ValueError, "task coverage"):
+                worker_audit_findings(invalid)
+
+    def test_original_insufficient_findings_are_deduplicated_and_cannot_disappear(self):
+        stage = {
+            "stage": "editing",
+            "task_requirements": ARTICLE_REQUIREMENT_IDS.copy(),
+            "value": {
+                "source_issues": ["Unsupported rule"],
+                "edits": [{"support": "INSUFFICIENT", "note": "Unsupported rule"}],
+            },
+        }
+        self.assertEqual(len(worker_audit_findings(stage)), 3)
+        stage["value"]["edits"][0]["note"] = " "
+        with self.assertRaisesRegex(ValueError, "explanation"):
+            worker_audit_findings(stage)
+
     def setUp(self):
         self.paragraphs = [
             "Giả sử bạn nhận được một ảnh thiếu đường dẫn gốc.",
