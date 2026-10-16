@@ -2,6 +2,7 @@
 
 import ctypes
 import json
+import math
 import os
 import sys
 import tempfile
@@ -75,6 +76,35 @@ def save_quality_rejection(workspace: Path, status: int, raw: bytes, key: str) -
         and all(isinstance(s, str) for s in issues)
     ):
         report["audit_issues"] = [s[:500] for s in issues]
+    stages = value.get("stages")
+    if isinstance(stages, list) and len(stages) <= 4:
+        measured = []
+        for item in stages:
+            if (
+                not isinstance(item, dict)
+                or item.get("stage")
+                not in ("analysis", "writing", "editing", "source_audit")
+                or not isinstance(item.get("usage"), dict)
+            ):
+                continue
+            usage = {
+                name: number
+                for name, number in item["usage"].items()
+                if name
+                in (
+                    "input_tokens",
+                    "output_tokens",
+                    "prompt_tokens",
+                    "completion_tokens",
+                    "total_tokens",
+                    "neurons",
+                )
+                and type(number) in (int, float)
+                and math.isfinite(number)
+                and number >= 0
+            }
+            measured.append({"stage": item["stage"], "usage": usage})
+        report["stages"] = measured
     # The app credential is never model input, but redact it defensively in diagnostics.
     text = json.dumps(report, ensure_ascii=False)
     if key:

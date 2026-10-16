@@ -19,7 +19,8 @@ from creator_loop.backend.runtime.runtime_ownership import (
 class SourceWorkerIdentityTests(unittest.TestCase):
     def test_source_a_request_passes_exact_child_guard_without_chrome_or_scan(self):
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            # _request deliberately requires the canonical ownership path.
+            root = Path(temp).resolve(strict=True)
             run = uuid4().hex
             workspace = root / "runtime" / ("facebook-" + run)
             workspace.mkdir(parents=True)

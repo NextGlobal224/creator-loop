@@ -1,36 +1,55 @@
 // Model audit is evidence for review, never human approval or proof of truth.
-export function auditSchema(articleHash, paragraphCount) {
-  return {
-    type: "object",
-    properties: {
-      article_sha256: {type: "string", const: articleHash},
-      issues: {type: "array", items: {type: "string"}},
-      paragraphs: {type: "array", minItems:paragraphCount,maxItems:paragraphCount,items: {
-        type: "object",
-        properties: {
-          index: {type: "integer",enum:Array.from({length:paragraphCount},(_,i)=>i)},
-          kind: {type: "string", enum: ["HYPOTHETICAL", "ADVICE", "SOURCE_FACT"]},
-          factual_passages: {type: "array", items: {type: "string"}},
-        },
-        required: ["index", "kind", "factual_passages"],
-        additionalProperties: false,
-      }},
-    },
-    required: ["article_sha256", "issues", "paragraphs"],
-    additionalProperties: false,
-  };
+export function safeFailure(error, result) {
+  // Never return exception messages, request data, hidden reasoning or headers.
+  const codes=new Set([3003,3006,3007,3008,3023,3036,3040,3041,3042,5004,5005,5007,5016,5018,5019,5035]);
+  const found=String(error?.message ?? "").match(/\b(?:30\d\d|50\d\d)\b/u);
+  const code=found && codes.has(Number(found[0]))?Number(found[0]):null;
+  const usage={};
+  for(const key of ["input_tokens","output_tokens","prompt_tokens","completion_tokens","total_tokens","neurons"]){
+    if(Number.isFinite(result?.usage?.[key]) && result.usage[key]>=0) usage[key]=result.usage[key];
+  }
+  return {provider_code:code,usage,response_received:!!result,
+    top_level_keys:["response","choices","output","usage","result","data","content","observations","inferences","direction","error","errors","success"].filter(key=>result && Object.hasOwn(result,key)),
+    response_type:typeof result?.response,choice_content_type:typeof result?.choices?.[0]?.message?.content,
+    output_types:Array.isArray(result?.output)?result.output.map(item=>item?.type).filter(t=>["message","reasoning","function_call"].includes(t)).slice(0,10):[]};
 }
 
-export function bindAudit(body,articleHash,audit) {
+export function auditSchema(articleHash, segmentCount) {
+  return {type:"object",properties:{
+    article_sha256:{type:"string",const:articleHash},
+    segments:{type:"array",minItems:segmentCount,maxItems:segmentCount,items:{
+      type:"object",properties:{index:{type:"integer",enum:Array.from({length:segmentCount},(_,i)=>i)},
+        kind:{type:"string",enum:["HYPOTHETICAL","ADVICE","SOURCE_FACT"]},issues:{type:"array",items:{type:"string"}}},
+      required:["index","kind","issues"],additionalProperties:false}},
+  },required:["article_sha256","segments"],additionalProperties:false};
+}
+
+export function bindAudit(body,articleHash,audit,segments) {
   const paragraphs=body.split(/\n\s*\n/u).map(p=>p.trim()).filter(Boolean);
-  if(!audit || Object.keys(audit).sort().join(",")!=="article_sha256,issues,paragraphs" || audit.article_sha256!==articleHash || !Array.isArray(audit.issues) || !Array.isArray(audit.paragraphs) || audit.paragraphs.length!==paragraphs.length) return null;
-  if(audit.paragraphs.some((item,i)=>!item || Object.keys(item).sort().join(",")!=="factual_passages,index,kind" || item.index!==i)) return null;
-  // Reattach the immutable original text; the model never rewrites/copies it.
-  return {draft_body:body,issues:audit.issues,paragraphs:audit.paragraphs.map((item,i)=>({text:paragraphs[i],kind:item.kind,factual_passages:item.factual_passages}))};
+  if(!audit || Object.keys(audit).sort().join(",")!=="article_sha256,segments" || audit.article_sha256!==articleHash ||
+     !Array.isArray(segments) || !Array.isArray(audit.segments) || audit.segments.length!==segments.length ||
+     audit.segments.some((item,i)=>!item || Object.keys(item).sort().join(",")!=="index,issues,kind" || item.index!==i ||
+       !["HYPOTHETICAL","ADVICE","SOURCE_FACT"].includes(item.kind) || !Array.isArray(item.issues) || item.issues.some(issue=>typeof issue!=="string" || !issue.trim()))) return null;
+  // Every composed segment is audited once. Reattach its exact original text;
+  // the model classifies IDs, never copies source sentences or paragraph prose.
+  if(segments.some((segment,i)=>segment.index!==i || !paragraphs[segment.paragraph_index]?.includes(segment.text) || (segment.citation && audit.segments[i].kind!=="SOURCE_FACT")) ||
+     paragraphs.some((text,i)=>segments.filter(s=>s.paragraph_index===i).map(s=>s.text).join(" ")!==text)) return null;
+  return {draft_body:body,issues:audit.segments.flatMap(item=>item.issues),paragraphs:paragraphs.map((text,i)=>{
+    const items=audit.segments.filter((_,j)=>segments[j].paragraph_index===i);
+    return {text,kind:i===0?items[0]?.kind:items.some(item=>item.kind==="SOURCE_FACT")?"SOURCE_FACT":"ADVICE",
+      factual_passages:audit.segments.flatMap((item,j)=>segments[j].paragraph_index===i && item.kind==="SOURCE_FACT"?[segments[j].text]:[])};
+  })};
 }
 
 export function hasHypotheticalOpening(body) {
   return /^(?:Giả sử(?:\s|[.,:;!?])|Tình huống giả định:)/iu.test(body.trim());
+}
+
+export function publicArticleIssues(body) {
+  // Observed research-note headings are internal metadata, even with a quote.
+  // Reject rather than strip them or relabel the saved automatic output.
+  return /(?:^|\n)\s*(?:Hướng biên tập(?: đề xuất)?|Ghi chú nghiên cứu nhập thủ công|Diễn giải phần giới thiệu đã đọc)\s*:/iu.test(body)
+    ?["Internal research-note heading remains in the public Draft"]:[];
 }
 
 export function compileEditedArticle(edited) {
@@ -55,24 +74,26 @@ export function quoteCatalog(materials) {
 export function compileSourcedArticle(value, catalog) {
   if (!value || Object.keys(value).sort().join(",")!=="editorial_paragraphs,hypothetical_opening" ||
       !Array.isArray(value.editorial_paragraphs) || value.editorial_paragraphs.length!==4) throw new Error("Invalid sourced article");
-  const claims=[];
-  const paragraphs=value.editorial_paragraphs.map(segments=>{
+  const claims=[],auditable=[];
+  const paragraphs=value.editorial_paragraphs.map((segments,paragraphIndex)=>{
     if (!Array.isArray(segments) || !segments.length || segments.length>12) throw new Error("Invalid segments");
     return segments.map(segment=>{
       if (!segment || Object.keys(segment).sort().join(",")!=="source_quote_id,text" ||
           typeof segment.text!=="string" || !segment.text.trim() || segment.text.includes("\n") ||
           !Number.isInteger(segment.source_quote_id) || segment.source_quote_id < -1 ||
           segment.source_quote_id>=catalog.length) throw new Error("Invalid source segment");
+      const text=segment.text.trim();
+      const citation=segment.source_quote_id>=0?{text,material_ids:[catalog[segment.source_quote_id].material_id],source_quote:catalog[segment.source_quote_id].source_quote}:null;
+      auditable.push({paragraph_index:paragraphIndex+1,text,citation});
       if (segment.source_quote_id>=0) {
-        const quote=catalog[segment.source_quote_id];
-        claims.push({text:segment.text,material_ids:[quote.material_id],source_quote:quote.source_quote});
+        claims.push(citation);
       }
-      return segment.text;
-    }).join("");
+      return text;
+    }).join(" ");
   });
   const body=compileEditedArticle({hypothetical_opening:value.hypothetical_opening,editorial_paragraphs:paragraphs});
   if (claims.length>30 || claims.some(c=>body.split(c.text).length!==2)) throw new Error("Ambiguous cited passage");
-  return {body,claims};
+  return {body,claims,segments:[{paragraph_index:0,text:body.split("\n\n")[0]},...auditable].map((segment,index)=>({index,...segment}))};
 }
 
 export function validAudit(annotation, audit) {

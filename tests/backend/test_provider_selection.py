@@ -214,6 +214,9 @@ class ProviderConfigurationTests(unittest.TestCase):
             selected.write_text(json.dumps({**config, "model": sea}))
             alternative = WorkersCreator(root, selected)
             self.assertEqual(alternative.model.component_id, sea)
+            qwen = "@cf/qwen/qwen3-30b-a3b-fp8"
+            selected.write_text(json.dumps({**config, "model": qwen}))
+            self.assertEqual(WorkersCreator(root, selected).model.component_id, qwen)
             self.assertIn(sea, alternative.version)
             # Constructing a different explicit config never changes selection
             # or silently falls back when a generation fails.

@@ -1,76 +1,54 @@
-# B Workers AI source-first generation
+# B Workers AI provider integration
 
-Opt-in TEXT-only provider for selected bounded research notes. Browser, GUI and
-canonical SQLite remain local; this Worker has no Containers or R2 dependency.
-Keep its app-scoped bearer key in the Cloudflare secret store and local secrets
-directory with an endpoint/digest binding, never in Git, argv or request logs.
+The newly proposed B repository (user instruction,16October2026) is
+https://github.com/cloudflare/ai. This was not an identified B choice at the old
+checkpoint. The selected package is workers-ai-provider4.0.0(MIT), matched across
+all33TypeScript source files to upstream commit0e5bc3b2f489e4b8215905812a36fe69d37afb8d.
+Pinned AI SDK7.0.142(Apache2), @ai-sdk/provider4.0.28(Apache2) and zod4.4.3(MIT)
+satisfy its peer ranges. Node>=22 is a build/test prerequisite; npm lock/integrity
+and copied license texts are included. No upstream demo or other-cloud provider is
+imported. Official usage: https://developers.cloudflare.com/workers-ai/configuration/ai-sdk/.
 
-The v21 protocol makes at most four model calls with no retry or template fallback:
+The app path remains ResearchPipeline → WorkersCreator → owned HTTP child →
+Worker /b/generate → generateStage → AI SDK generateText → workers-ai-provider →
+env.AI.run. Only model-stage transport/normalization is replaced; four stages,
+exact deployment/model checks, source snapshots, canonical SQLite, immutable Drafts,
+UNREVIEWED, manual publication approval, cancellation and existing90sHTTP/100schild
+caps remain. An85sWorker abort is passed through the SDK to its binding. GUI/DB and
+A browser/semantic engine stay local. Containers/R2 are not B dependencies.
 
-1. Analyze exact selected source notes, distinguishing direct quotes, the note
-   author's paraphrases/proposals and tentative editorial inferences.
-2. Write a complete article from that analysis. The typed fictional opening gets
-   one visible label; four editorial paragraphs and any factual Claims remain
-   distinct. Inline text segments carry a quote-catalog ID (-1 for advice/fiction); the app
-   composes the exact same text into both the article and Claim annotation, rejecting
-   invalid IDs and ambiguous repeated cited passages. Exact Unicode quotes come
-   directly from selected source lines, avoiding observed model-copy punctuation
-   drift. Choosing a catalog quote does not prove semantic support; audit and
-   complete output QA still check that separately. This fixes the
-   real v18 failure where separately generated Claims no longer appeared in the body.
-   Unsupported real-world assertions cannot be disguised as fiction.
-3. Edit the first article once against the exact notes, reviewing risky assertions
-   and removing unsupported efficacy/source claims. This declared model step is
-   automatic editing, not a manually repaired artifact or a retry loop.
-4. Audit the exact final article AND analysis against the notes, covering every paragraph.
-   Any reported issue, missing coverage, changed body or audited factual passage
-   without a Claim annotation is rejected. Audit output identifies the immutable
-   article by ASCII SHA-256 and paragraphs by index; the app reattaches original
-   Vietnamese text. The model never regenerates the article through a Unicode
-   schema `const`, which produced malformed/truncated output in a real pilot.
-   The client additionally validates exact
-   source quotes, selected material IDs, stage identity and deployment UUID before
-   committing a Workflow/Draft. These are four sequential HTTP requests, with
-   the existing socket90s/owned-process100s deadline per request. Completed model
-   steps are passed forward once; cancellation prevents the next request. Model,
-   deployment and step order are checked at every response. Requests each remain
-   capped64KiB. Old monolithic/three/four-stage protocols are incompatible.
+SDK invocation is direct binding/nonstreaming with maxRetries:0, one-step stopping,
+no tools/Gateway/REST shim/fallback. An additional counter rejects more than one
+AI.run per stage. Upstream doGenerate calls binding.run once; its separate REST
+stream-recovery path is not selected. 429/5xx/cancel/malformed/fenced/truncated JSON
+offline tests verify exactly one call. Strict JSON parsing and unchanged Claim/source
+validation prevent extraction/repair from disguising invalid output. Failed replies
+retain only selected public output/allowlisted numeric usage/error diagnostics;
+no raw exception, request credential or hidden reasoning is returned.
 
-Real v11 output lost its hypothetical label, asserted unsupported chart origins
-and efficacy, and omitted Claims. Its generated article is a regression fixture
-(trailing whitespace normalized). Later live diagnostics found prose-only writing
-instructions had been reused in a JSON editing stage. The stages now receive only
-selected Project/source JSON and their own task. The AI.run binding uses the
-documented messages/max_tokens/response_format fields, preserving system/user roles
-and accepting its JSON-object response. Earlier Responses endpoint fields are no
-longer sent to this binding. See the official model and JSON Mode documentation:
-https://developers.cloudflare.com/workers-ai/models/gpt-oss-120b/ and
-https://developers.cloudflare.com/workers-ai/features/json-mode/. Source analysis precedes writing, so unsupported prose is not used as the
-starting point for another draft. Rejected outputs remain FAIL and never become
-successful Drafts. Bounded HTTP422/502 diagnostics retain selected generated output
-and public error codes locally, with credential redaction, without raw exceptions.
+Source-first analysis → writing → one edit → source audit is retained. Inline
+quote-catalog IDs compose the same immutable text into article and Claim; source
+quotes are loaded verbatim from selected notes. Audit covers every original segment
+by ID with its paired exact quote; cited assertions must be checked as source facts.
+Internal research-note headings in an edited public article are rejected before
+an unnecessary audit call. No text is stripped to turn a failure into a success.
 
-The model is explicitly configured, never selected as an error fallback. GPT-OSS
-120B failed earlier source-quality pilots; SEA-LION27B also failed the documented
-trial. GPT-OSS is explicitly selected for evaluation on the new source-first,
-Vietnamese, bounded editing/audit flow; this is not a fallback. The app's native
-Codex provider remains the default until a
-real cloud quality pilot qualifies. Both model IDs and exact deployment UUIDs are
-bound into cache/provenance; no model weights or credential manifests are shipped.
+Offline replay preserved JSON/Unicode for three actual v24 stages, then rejected
+its retained research-note leakage. This validates codec/guards only. Previous
+GPT/SEA cloud quality failures and Qwen output-envelope failures remain failures.
+The actual v24 Draft8078e7d5 saved/reopened, but full output QA found internal note
+language and an ambiguous handbook-as-tool claim: it is not quality acceptance.
+A model audit returning HTTP200/empty issues does not prove correct Vietnamese prose.
 
-Automated audit can misclassify meaning. An empty issue list, a test or a successful
-JSON/save/reopen check does not certify factuality or product quality. Read the
-complete real output against exact sources before claiming automatic quality PASS
-or choosing cloud by default. A manually edited Draft does not prove automatic
-generation quality. Keep UNREVIEWED and manual publication approval.
+The new integration round allows at most one full cloud pilot and four model calls,
+only after direct offline checks pass and CURRENT free quota is verified. The local
+same-task budget is persisted across sessions; it is never reset on account change.
+No new pilot has run at this documentation checkpoint. If it fails, retain FAIL and
+continue offline/GitHub; no second model round is authorized. Native Codex remains
+the app default. Old cloud outputs/CI do not validate this SDK source.
 
-Run the bounded fixture tests from the project root:
-
-```text
-node --test cloudflare/creator-ai/test/worker.test.js
-```
-
-Tests need no model call, credential or deployment. Real inference requires checking
-the existing plan/free allowance first. No billing activation, purchase or upgrade
-is authorized by this component. Pin the exact deployed UUID in the app config;
-configuration change does not require switching the default provider.
+Run npm ci --ignore-scripts, then npm test in this directory. Required CI installs
+locked dependencies under Node22, runs SDK/source regressions, audits production
+packages and dry-builds the Worker. Dry-build is not deploy/cloud acceptance. Local
+dry-build measured749.18KiB, gzip147.39KiB. Paid C and new A scans stay paused;
+selected A repository identity, independent review and full beta gates remain open.

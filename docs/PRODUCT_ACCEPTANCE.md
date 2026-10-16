@@ -1,3 +1,13 @@
+**B SDK integration update,16October2026 — partial, not beta acceptance.**
+Newly proposed cloudflare/ai workers-ai-provider4.0.0 + AI SDK7.0.142 is wired
+into Worker B; pinned compatible peers/licenses/lock, direct binding/retry0,
+source/Unicode/Claim/audit and real-output replay checks pass offline. No new
+SDK cloud pilot has run; budget1pilot/4calls is persisted pending currentFreequota.
+Oldv24cloud output remains qualityFAIL; nativeCodex/UNREVIEWED unchanged.
+PR86 a2cdd64 CIWindows2fixturefailures were reproduced under8.3TEMP and fixed
+with canonical fixture paths. New source requires new-head CI/review. A scan and
+paidC stay paused, existing full-beta/artifact/release requirements remain.
+
 <!-- B_PROVIDER_INTEGRATION_20261016_BEGIN -->
 **B provider integration checkpoint, 16/10/2026 — not beta acceptance.**
 The B app flow now explicitly selects configured Codex/local/Workers providers;
@@ -8,7 +18,7 @@ unmodified Save preserve edits. No ACCEPT, Selection or publication approval is 
 
 Focused generation/persistence/provider/HTTP/UI validation passed32tests before the
 final cloud protocol changes; affected protocol/cancel/audit tests were then updated
-and passed. Required lint/format/type checks pass on the scoped B source. Cloud v21
+and passed. Required lint/format/type checks pass on the scoped B source. Cloud v23
 uses four declared sequential steps (analysis, writing, one edit, audit), each with
 bounded HTTP/owned process deadlines, exact deployment/model identity, no retry or
 fallback, and an ASCII digest/index audit of immutable Vietnamese text.

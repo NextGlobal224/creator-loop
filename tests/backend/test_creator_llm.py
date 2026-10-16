@@ -104,7 +104,8 @@ class LLMPersistenceTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        # Hosted Windows TEMP can use an 8.3 alias. Ownership paths are canonical.
+        self.root = Path(temp.name).resolve(strict=True)
         self.request = replace(fixture(self.root), output_format="TEXT")
         self.pipeline = ResearchPipeline(self.root)
 

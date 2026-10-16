@@ -42,6 +42,7 @@ class WorkersCreator:
         allowed_models = {
             "@cf/openai/gpt-oss-120b",
             "@cf/aisingapore/gemma-sea-lion-v4-27b-it",
+            "@cf/qwen/qwen3-30b-a3b-fp8",
         }
         if (
             not isinstance(config, dict)
@@ -79,7 +80,7 @@ class WorkersCreator:
             + self.worker_version
             + "/"
             + self.model.component_id
-            + "/prompt-v21-binding-source-catalog/"
+            + "/prompt-v25-sdk4-ai7-editorial-findings/"
             + hashlib.sha256(self.endpoint.encode()).hexdigest()[:12]
         )
 

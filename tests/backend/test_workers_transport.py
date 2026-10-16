@@ -27,6 +27,20 @@ class WorkersBoundaryTests(unittest.TestCase):
                 "stage_output": "generated text " + key,
                 "retryable": False,
                 "private_exception": "do not keep",
+                "stages": [
+                    {
+                        "stage": "editing",
+                        "usage": {
+                            "neurons": 12.5,
+                            "completion_tokens": 2200,
+                            "private_key": key,
+                            "input_tokens": True,
+                            "output_tokens": float("inf"),
+                            "total_tokens": -1,
+                        },
+                    },
+                    {"stage": key, "usage": {"neurons": 4}},
+                ],
             }
             save_quality_rejection(root, 502, json.dumps(packet).encode(), key)
             value = json.loads(
@@ -35,6 +49,15 @@ class WorkersBoundaryTests(unittest.TestCase):
             self.assertEqual(value["stage"], "editing")
             self.assertEqual(value["stage_output"], "generated text [REDACTED]")
             self.assertNotIn("private_exception", value)
+            self.assertEqual(
+                value["stages"],
+                [
+                    {
+                        "stage": "editing",
+                        "usage": {"neurons": 12.5, "completion_tokens": 2200},
+                    }
+                ],
+            )
 
     def test_only_bounded_known_quality_diagnostic_is_retained_without_credential(self):
         with tempfile.TemporaryDirectory() as temp:
