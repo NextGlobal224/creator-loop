@@ -1,0 +1,129 @@
+{
+  "catalog": [
+    {
+      "id": 0,
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra."
+    },
+    {
+      "id": 1,
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Source: UNESCO"
+    },
+    {
+      "id": 2,
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "URL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course"
+    },
+    {
+      "id": 3,
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Diễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể."
+    },
+    {
+      "id": 4,
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Hướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này."
+    },
+    {
+      "id": 5,
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra."
+    },
+    {
+      "id": 6,
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Source: Digital Inquiry Group / Civic Online Reasoning"
+    },
+    {
+      "id": 7,
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "URL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/"
+    },
+    {
+      "id": 8,
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Trích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”"
+    },
+    {
+      "id": 9,
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Diễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì."
+    },
+    {
+      "id": 10,
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Hướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral."
+    }
+  ],
+  "writing": {
+    "hypothetical_opening": "Bạn vừa nhận được một ảnh chụp màn hình của một bài viết trên Facebook, nhưng không có đường link gốc.",
+    "editorial_paragraphs": [
+      [
+        {
+          "premise_checks": [
+            {
+              "assertion": "COR đề xuất hỏi “Ai là người đứng sau thông tin?” khi xem ảnh chụp màn hình.",
+              "quote_ids": [
+                8
+              ],
+              "supported": true
+            }
+          ],
+          "source_quote_id": 8,
+          "text": "Khi nhận được ảnh chụp màn hình, bước đầu tiên nên hỏi “Ai là người đứng sau thông tin?”"
+        }
+      ],
+      [
+        {
+          "premise_checks": [
+            {
+              "assertion": "UNESCO giới thiệu một giáo trình có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội.",
+              "quote_ids": [
+                3
+              ],
+              "supported": true
+            }
+          ],
+          "source_quote_id": 3,
+          "text": "Sau đó, kiểm tra bằng chứng được đưa ra; UNESCO đã giới thiệu một giáo trình có công cụ thực hành kiểm tra dữ kiện trên mạng xã hội."
+        }
+      ],
+      [
+        {
+          "premise_checks": [
+            {
+              "assertion": "COR khuyến cáo hỏi “Nguồn khác nói gì?” để so sánh thông tin.",
+              "quote_ids": [
+                8
+              ],
+              "supported": true
+            },
+            {
+              "assertion": "Hướng biên tập nhấn mạnh cần đọc nguồn và ngữ cảnh trước khi đưa kết luận.",
+              "quote_ids": [
+                4
+              ],
+              "supported": true
+            }
+          ],
+          "source_quote_id": 8,
+          "text": "Cuối cùng, so sánh với các nguồn khác để xem “Nguồn khác nói gì?”; hướng biên tập nhấn mạnh cần đọc nguồn và ngữ cảnh trước khi đưa kết luận."
+        }
+      ],
+      [
+        {
+          "premise_checks": [],
+          "source_quote_id": -1,
+          "text": "Nếu vẫn chưa rõ, bạn có thể nhắn lại cho người gửi: “Bạn có thể chia sẻ link gốc, ngày đăng và nguồn gốc của bài viết không?”"
+        }
+      ]
+    ]
+  },
+  "origin": {
+    "head": "1725b015df292c12bfa393d9f2ce2abee24d0afc",
+    "worker_version": "cf88ccfc-214f-4e56-85ac-bf44ea79bb5b",
+    "quality": "FAIL",
+    "unchanged_selected_model_output": true
+  }
+}

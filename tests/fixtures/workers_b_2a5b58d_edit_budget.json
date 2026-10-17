@@ -1,0 +1,42 @@
+{
+  "origin_head": "2a5b58d4646256303a81b2839d6c55d9ba879cb6",
+  "worker_version": "e4f0b49d-6013-4b67-882f-7d7531367353",
+  "rejection": {
+    "error": "WORKERS_AI_FAILED",
+    "reason": "STAGE_OUTPUT_INVALID",
+    "retryable": false,
+    "http_status": 502,
+    "stage": "editing",
+    "stage_output": "{\"format\":\"WORKERS_AI_DIAGNOSTIC_V1\",\"provider_code\":null,\"usage\":{\"prompt_tokens\":5816,\"completion_tokens\":3000,\"total_tokens\":8816,\"neurons\":389.598876953125},\"response_received\":true,\"stage_diagnostic\":{\"phase\":\"SDK_AFTER_BINDING\",\"binding_calls\":1,\"native_failure\":null},\"top_level_keys\":[\"choices\",\"usage\"],\"response_type\":\"undefined\",\"choice_content_type\":\"object\",\"output_types\":[]}",
+    "stages": [
+      {
+        "stage": "analysis",
+        "usage": {
+          "prompt_tokens": 1034,
+          "completion_tokens": 840,
+          "total_tokens": 1874,
+          "neurons": 90.17251586914062
+        }
+      },
+      {
+        "stage": "writing",
+        "usage": {
+          "prompt_tokens": 5538,
+          "completion_tokens": 1818,
+          "total_tokens": 7356,
+          "neurons": 300.16259765625
+        }
+      },
+      {
+        "stage": "editing",
+        "usage": {
+          "prompt_tokens": 5816,
+          "completion_tokens": 3000,
+          "total_tokens": 8816,
+          "neurons": 389.598876953125
+        }
+      }
+    ]
+  },
+  "scope": "Actual sanitized diagnostic. Raw finish_reason was not recorded; budget exhaustion observed, exact hidden reasoning/content unavailable. No repair or quality PASS."
+}

@@ -1,0 +1,205 @@
+{
+  "origin_head": "39b6ac0d86b16be2eb1aac256db107bbd3077df4",
+  "origin_worker_version": "dcc76f00-ab18-4b42-90a0-5dd09ec53acf",
+  "materials": [
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_id": null,
+      "asset_id": "02dde26a0828436fa24c468fa6f44d34",
+      "file_id": "1da0c5ef932840d9befe5a61d11adce9",
+      "sha256": "ec6b7c2b9c40394a2824651daa818a0db73575275b1380b9751b834a8f8da60f",
+      "media_type": "TEXT",
+      "text": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra.\nSource: UNESCO\nURL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course\nDiễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể.\nHướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này.\n",
+      "source_url": null,
+      "evidence_version_ids": [],
+      "scope": "TEXT_PASSAGE"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_id": null,
+      "asset_id": "fb7cc0a93386491da0501c111d0c7d58",
+      "file_id": "e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "sha256": "b4870ab706628ca1eb4a3ea0121da60db2fb1e54af22bab0e8c84fe40212cf48",
+      "media_type": "TEXT",
+      "text": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra.\nSource: Digital Inquiry Group / Civic Online Reasoning\nURL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/\nTrích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”\nDiễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.\nHướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral.\n",
+      "source_url": null,
+      "evidence_version_ids": [],
+      "scope": "TEXT_PASSAGE"
+    }
+  ],
+  "written": {
+    "hypothetical_opening": "Tình huống giả định: Bạn nhận được một ảnh chụp màn hình từ một người bạn trên Facebook, trong đó có một tiêu đề gây sốc nhưng không kèm theo đường link hoặc thông tin nguồn gốc.",
+    "editorial_paragraphs": [
+      [
+        {
+          "source_quote_id": 3,
+          "text": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội.",
+          "premise_checks": [
+            {
+              "assertion": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội.",
+              "quote_ids": [
+                3
+              ],
+              "supported": true
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "source_quote_id": 8,
+          "text": "Digital Inquiry Group đề xuất ba câu hỏi cơ bản khi gặp nội dung chưa quen: “Who’s behind the information? What’s the evidence? What do other sources say?”.",
+          "premise_checks": [
+            {
+              "assertion": "Digital Inquiry Group đề xuất ba câu hỏi cơ bản khi gặp nội dung chưa quen: “Who’s behind the information? What’s the evidence? What do other sources say?”.",
+              "quote_ids": [
+                8
+              ],
+              "supported": true
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "source_quote_id": 9,
+          "text": "Ba câu hỏi này được dịch sang tiếng Việt là: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì, giúp người dùng đánh giá độ tin cậy của ảnh chụp màn hình.",
+          "premise_checks": [
+            {
+              "assertion": "Ba câu hỏi này được dịch sang tiếng Việt là: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì, giúp người dùng đánh giá độ tin cậy của ảnh chụp màn hình.",
+              "quote_ids": [
+                9
+              ],
+              "supported": true
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "source_quote_id": -1,
+          "text": "Nếu sau khi trả lời ba câu hỏi vẫn chưa có thông tin rõ ràng, bạn nên ghi lại kết quả và quyết định không chia sẻ, hoặc yêu cầu người gửi cung cấp đường link gốc, ngày đăng và ngữ cảnh đầy đủ.",
+          "premise_checks": []
+        }
+      ]
+    ]
+  },
+  "operations": {
+    "source_issues": [
+      "Repeated bilingual source questions remain in the public Draft"
+    ],
+    "edits": [
+      {
+        "index": 0,
+        "premise_checks": [],
+        "support": "HYPOTHETICAL",
+        "quote_ids": [],
+        "decision": "KEEP",
+        "note": "Giữ đoạn mở đầu giả định",
+        "replacement": []
+      },
+      {
+        "index": 1,
+        "premise_checks": [
+          {
+            "assertion": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội.",
+            "quote_ids": [
+              3
+            ],
+            "supported": true
+          }
+        ],
+        "support": "SOURCE_SUPPORTED",
+        "quote_ids": [
+          3
+        ],
+        "decision": "KEEP",
+        "note": "Câu khẳng định được chứng minh bởi trích đoạn 3",
+        "replacement": []
+      },
+      {
+        "index": 2,
+        "premise_checks": [
+          {
+            "assertion": "Digital Inquiry Group đề xuất ba câu hỏi cơ bản khi gặp nội dung chưa quen: “Who’s behind the information? What’s the evidence? What do other sources say?”.",
+            "quote_ids": [
+              8
+            ],
+            "supported": true
+          }
+        ],
+        "support": "SOURCE_SUPPORTED",
+        "quote_ids": [
+          8
+        ],
+        "decision": "REMOVE",
+        "note": "Xóa đoạn trùng lặp câu hỏi tiếng Anh",
+        "replacement": []
+      },
+      {
+        "index": 3,
+        "premise_checks": [
+          {
+            "assertion": "Ba câu hỏi này được dịch sang tiếng Việt là: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì, giúp người dùng đánh giá độ tin cậy của ảnh chụp màn hình.",
+            "quote_ids": [
+              9
+            ],
+            "supported": true
+          }
+        ],
+        "support": "SOURCE_SUPPORTED",
+        "quote_ids": [
+          9
+        ],
+        "decision": "KEEP",
+        "note": "Giữ phần dịch tiếng Việt của ba câu hỏi",
+        "replacement": []
+      },
+      {
+        "index": 4,
+        "premise_checks": [],
+        "support": "SUGGESTION",
+        "quote_ids": [],
+        "decision": "REWRITE",
+        "note": "Thay đoạn lời khuyên bằng tin nhắn yêu cầu thông tin gốc",
+        "replacement": [
+          {
+            "source_quote_id": -1,
+            "text": "Bạn có thể cung cấp link gốc, ngày đăng và ngữ cảnh đầy đủ của bài viết không? Cảm ơn!",
+            "premise_checks": []
+          }
+        ]
+      }
+    ]
+  },
+  "failure": "editing removed the only segment in required paragraph2; retained unsupported reliability benefit in paragraph3",
+  "stage_usage": [
+    {
+      "stage": "analysis",
+      "usage": {
+        "prompt_tokens": 1034,
+        "completion_tokens": 840,
+        "total_tokens": 1874,
+        "neurons": 90.17251586914062
+      }
+    },
+    {
+      "stage": "writing",
+      "usage": {
+        "prompt_tokens": 3686,
+        "completion_tokens": 1359,
+        "total_tokens": 5045,
+        "neurons": 209.94021606445312
+      }
+    },
+    {
+      "stage": "editing",
+      "usage": {
+        "prompt_tokens": 5063,
+        "completion_tokens": 2541,
+        "total_tokens": 7604,
+        "neurons": 334.344482421875
+      }
+    }
+  ]
+}

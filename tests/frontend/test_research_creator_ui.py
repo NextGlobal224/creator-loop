@@ -79,16 +79,22 @@ class ResearchCreatorUiTests(unittest.TestCase):
         self.assertNotEqual(first, second)
         self.assertEqual(self.dialog.pipeline.draft(second).version_no, 2)
 
-    def test_automatic_video_only_selected_material_and_reopen_history(self):
+    def test_automatic_without_llm_refuses_template_and_never_starts_c(self):
         self.select()
         self.dialog.mode.setCurrentIndex(self.dialog.mode.findData("AUTOMATIC"))
         self.dialog.format.setCurrentIndex(self.dialog.format.findData("VIDEO"))
         result = []
         self.dialog.draft_ready.connect(lambda vid, auto: result.append((vid, auto)))
         self.dialog.start("automatic")
+        self.assertIsNone(self.dialog.worker)
+        self.assertEqual(result, [])
+        self.assertIn("không thay bằng template", self.dialog.status.text())
+        self.dialog.mode.setCurrentIndex(self.dialog.mode.findData("MANUAL"))
+        self.dialog.start("analyze")
         self.wait()
-        self.assertEqual(len(result), 1)
-        self.assertTrue(result[0][1])
+        self.dialog.start("draft")
+        self.wait()
+        self.assertFalse(result[0][1], "B must never request rendering C")
         wid = self.dialog.workflow_id
         old = self.dialog.pipeline.load(wid)
         self.assertEqual({m["source_id"] for m in old["materials"]}, {"s"})

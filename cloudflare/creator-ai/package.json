@@ -1,0 +1,20 @@
+{
+  "name": "creator-loop-ai-beta",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "wrangler": "4.150.0"
+  },
+  "dependencies": {
+    "@ai-sdk/provider": "4.0.28",
+    "ai": "7.0.142",
+    "workers-ai-provider": "4.0.0",
+    "zod": "4.4.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

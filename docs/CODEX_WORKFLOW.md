@@ -42,8 +42,22 @@ Runner ưu tiên Python/test native; encoded PowerShell có vấn đề stderr C
 
 ### Budget full suite
 
-Full Windows dùng process timeout900s/CI step16 phút; product deadlines từng test,
-playback heartbeat8s, RAM512MiB, health60s và recovery180s không đổi. Không bỏ test/assertion.
+Windows full discovery chạy đủ ba nhóm backend/frontend/integration, mỗi nhóm
+trong process có timeout900/300/720s; CI step33 phút. Reporter giữ START/STOP và
+Python stacks riêng cho mỗi process. Test discovery regression xác minh hợp ba
+nhóm bằng đúng full suite, không trùng hoặc bỏ test. Product deadlines từng test,
+playback heartbeat8s, RAM512MiB, health60s và recovery180s không đổi.
+Lượt SDK B16/10/run38839723317 đạt968STOP trước global900s; backend572.359s,
+frontend204.313s, integration48ca115.812s vẫn tiến triển khi hết hạn. Log/stacks
+cho thấy migration/fsync/decode chứ chưa chứng minh một test treo. Tách nhóm giữ
+đủ kiểm tra và timeout hữu hạn, không retry hoặc suy PASS từ scoped tests.
+Đây là thay đổi runner CI, không tăng deadline hay RAM của app.
+Lượt2964cc8/run38844298376: backend761PASS270.954s, frontend162PASS110.525s;
+integration175/209STOP298.673s trước cap300, longestcompleted26.765s, stacks
+vẫn đổi qua migration/filesystem. Cùng functional source ở640d393 từng đạt
+209integration252.454s. Capintegration600s cung cấp khoảng cho observedI/O
+variance, giữ đủ209tests và mọi deadline sản phẩm; không suy speedup hoặc
+PASS cho HEAD mới trước requiredCI thật.
 Căn cứ measured coverage, FAIL420/600, timing/projection và phạm vi từng checkpoint
 tra [HANDOFF/lịch sử](HANDOFF.md) cùng `corrupt-recovery-full-timeout-timings.json`
 và `fresh-full-timeout-profile.json`, `installation-long-path-full-timeout-profile.json`
@@ -172,7 +186,7 @@ Skill cá nhân đọc từ file trong HOME. Theo cơ chế này, khi chỉ đ�
 
 Code và tài liệu cần được mang sang bằng repo hoặc bản sao có kiểm soát. Skill user-scope ngoài repo phải được chuyển/cài và kiểm tra riêng. Không giả định chat, connector, memories, cấu hình global hay credential tự đi cùng repo.
 
-Skill cá nhân trên máy bạn từng được xác nhận tại `C:/Users/Admin/.agents/skills/start-project/SKILL.md`; đây là mốc quan sát, cần kiểm tra lại nếu đổi môi trường.
+Skill cá nhân nằm tại `%USERPROFILE%/.agents/skills/start-project/SKILL.md`; cần kiểm tra lại đường dẫn thực nếu đổi môi trường.
 
 ## 7. Chọn model và công cụ
 
@@ -231,3 +245,19 @@ Hướng dẫn chi tiết cho kiểm tra/cập nhật skill và tích hợp dị
 
 Ba file nền tảng, cách giao việc và bảng đo là lựa chọn thiết kế của bộ này; không phải yêu cầu bắt buộc hoặc cam kết tiết kiệm của OpenAI.
 Các liên kết trên được chuyển từ bộ nguồn; nội dung trang và menu `/` chưa được kiểm lại trong phiên A2.
+
+### Integration process budget after PR86 v30 CI
+
+Run38889820337 on28e01ab reached206of209integrationSTOP in597.515s before the
+600sprocess deadline. Same test/runtime/reporter source as successful21f8c34:
+the same206cases previously took326.485s (aggregate1.830x); the remaining3cases
+previously took4.938s. Projection at the observed aggregate rate is606.552s,
+an estimate rather than completed evidence. Backend762cases slowed1.865x and
+frontend162cases1.725x too. Stacks moved across SQLite migration/backup work;
+this does not prove a single hung test or a B semantic failure.
+
+Only the integration-group process budget increases600→720s; the enclosing step
+increases31→33minutes for900+300+720s plus logging. All209integration cases,
+assertions, product deadlines and process logs remain. No rerun of unchangedHEAD,
+no product budget increase, no skipped checks and no inferred CI/cloudPASS.
+Prior600s evidence remains historical; new exactHEAD must pass requiredCI.

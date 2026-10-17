@@ -1,0 +1,251 @@
+{
+  "provenance": {
+    "head": "62d215b0cca29e4aedb5a30736a763a798217b0a",
+    "worker": "fd329ef2-37b1-440c-a970-8bdfa66655f5",
+    "stage": "editing",
+    "status": 422,
+    "scope": "Selected public source excerpts, writing and selected editor JSON only; no request credentials or private reasoning. Recorded failed output; never quality PASS."
+  },
+  "materials": [
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "text": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra.\nSource: UNESCO\nURL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course\nDiễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể.\nHướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này.\n"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "text": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra.\nSource: Digital Inquiry Group / Civic Online Reasoning\nURL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/\nTrích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”\nDiễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.\nHướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral.\n"
+    }
+  ],
+  "written": {
+    "hypothetical_opening": "Bạn vừa nhận được một ảnh chụp màn hình của một bài viết trên Facebook, nhưng không có đường link gốc. Trước khi nhấn nút chia sẻ, hãy dừng lại một chút để kiểm tra thật kỹ.",
+    "editorial_paragraphs": [
+      [
+        {
+          "premise_checks": [
+            {
+              "assertion": "Cần đọc nguồn và ngữ cảnh trước khi đưa kết luận",
+              "quote_ids": [
+                4
+              ],
+              "supported": true
+            }
+          ],
+          "source_quote_id": 4,
+          "text": "Hướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả."
+        },
+        {
+          "premise_checks": [],
+          "source_quote_id": -1,
+          "text": "Vì vậy, đừng vội tin rằng một thao tác nào đó luôn đưa ra kết quả chắc chắn."
+        }
+      ],
+      [
+        {
+          "premise_checks": [
+            {
+              "assertion": "Ba câu hỏi: ai đứng sau thông tin, bằng chứng gì, nguồn khác nói gì",
+              "quote_ids": [
+                8
+              ],
+              "supported": true
+            }
+          ],
+          "source_quote_id": 8,
+          "text": "“Who’s behind the information? What’s the evidence? What do other sources say?”"
+        },
+        {
+          "premise_checks": [
+            {
+              "assertion": "Ba câu hỏi giúp xem xét nội dung trực tuyến chưa quen thuộc",
+              "quote_ids": [
+                9
+              ],
+              "supported": true
+            }
+          ],
+          "source_quote_id": 9,
+          "text": "COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì."
+        },
+        {
+          "premise_checks": [],
+          "source_quote_id": -1,
+          "text": "Hãy áp dụng ba bước này ngay khi gặp một ảnh chụp màn hình chưa có link."
+        }
+      ],
+      [
+        {
+          "premise_checks": [
+            {
+              "assertion": "UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội",
+              "quote_ids": [
+                3
+              ],
+              "supported": true
+            }
+          ],
+          "source_quote_id": 3,
+          "text": "UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội."
+        },
+        {
+          "premise_checks": [],
+          "source_quote_id": -1,
+          "text": "Bạn có thể dùng công cụ tìm kiếm với tiêu đề, ngày tháng, hoặc tên tác giả để cố gắng tìm lại bài gốc."
+        }
+      ],
+      [
+        {
+          "premise_checks": [],
+          "source_quote_id": -1,
+          "text": "Nếu không tìm thấy nguồn gốc, tốt nhất là không chia sẻ hoặc kèm theo lời nhắc rằng thông tin chưa được xác minh."
+        },
+        {
+          "premise_checks": [],
+          "source_quote_id": -1,
+          "text": "Bạn có thể gửi tin nhắn: “Bạn có thể chia sẻ link gốc của bài viết này được không?”"
+        }
+      ]
+    ]
+  },
+  "operations": {
+    "source_issues": [],
+    "edits": [
+      {
+        "index": 0,
+        "premise_checks": [],
+        "support": "SUGGESTION",
+        "quote_ids": [],
+        "decision": "KEEP",
+        "note": "Giới thiệu tình huống giả định, không có khẳng định thực tế cần bằng chứng.",
+        "replacement": []
+      },
+      {
+        "index": 1,
+        "premise_checks": [
+          {
+            "assertion": "Cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả.",
+            "quote_ids": [
+              4
+            ],
+            "supported": true
+          }
+        ],
+        "support": "SOURCE_SUPPORTED",
+        "quote_ids": [
+          4
+        ],
+        "decision": "KEEP",
+        "note": "Câu trích nguyên từ ghi chú UNESCO, đáp ứng yêu cầu.",
+        "replacement": []
+      },
+      {
+        "index": 2,
+        "premise_checks": [
+          {
+            "assertion": "Một thao tác nào đó luôn đưa ra kết quả chắc chắn.",
+            "quote_ids": [],
+            "supported": false
+          }
+        ],
+        "support": "INSUFFICIENT",
+        "quote_ids": [],
+        "decision": "REMOVE",
+        "note": "Khẳng định không có bằng chứng trong snapshot.",
+        "replacement": []
+      },
+      {
+        "index": 3,
+        "premise_checks": [
+          {
+            "assertion": "Trích nguyên văn: “Who’s behind the information? What’s the evidence? What do other sources say?”",
+            "quote_ids": [
+              8
+            ],
+            "supported": true
+          }
+        ],
+        "support": "SOURCE_SUPPORTED",
+        "quote_ids": [
+          8
+        ],
+        "decision": "KEEP",
+        "note": "Câu trích dẫn được cung cấp trong snapshot COR.",
+        "replacement": []
+      },
+      {
+        "index": 4,
+        "premise_checks": [
+          {
+            "assertion": "COR giới thiệu ba câu hỏi: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.",
+            "quote_ids": [
+              9
+            ],
+            "supported": true
+          }
+        ],
+        "support": "SOURCE_SUPPORTED",
+        "quote_ids": [
+          9
+        ],
+        "decision": "KEEP",
+        "note": "Diễn giải câu hỏi COR có trong snapshot.",
+        "replacement": []
+      },
+      {
+        "index": 5,
+        "premise_checks": [],
+        "support": "SUGGESTION",
+        "quote_ids": [],
+        "decision": "KEEP",
+        "note": "Khuyến khích áp dụng ba bước, không có khẳng định thực tế.",
+        "replacement": []
+      },
+      {
+        "index": 6,
+        "premise_checks": [
+          {
+            "assertion": "UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội.",
+            "quote_ids": [
+              3
+            ],
+            "supported": true
+          }
+        ],
+        "support": "SOURCE_SUPPORTED",
+        "quote_ids": [
+          3
+        ],
+        "decision": "KEEP",
+        "note": "Thông tin được trích từ snapshot UNESCO.",
+        "replacement": []
+      },
+      {
+        "index": 7,
+        "premise_checks": [],
+        "support": "SUGGESTION",
+        "quote_ids": [],
+        "decision": "KEEP",
+        "note": "Gợi ý sử dụng công cụ tìm kiếm, không yêu cầu bằng chứng.",
+        "replacement": []
+      },
+      {
+        "index": 8,
+        "premise_checks": [],
+        "support": "SUGGESTION",
+        "quote_ids": [],
+        "decision": "KEEP",
+        "note": "Lời khuyên không chia sẻ khi không tìm nguồn, không có khẳng định thực tế.",
+        "replacement": []
+      },
+      {
+        "index": 9,
+        "premise_checks": [],
+        "support": "SUGGESTION",
+        "quote_ids": [],
+        "decision": "KEEP",
+        "note": "Tin nhắn ngắn yêu cầu link gốc, đáp ứng yêu cầu đóng bài.",
+        "replacement": []
+      }
+    ]
+  },
+  "candidate_body": "Tình huống giả định: Bạn vừa nhận được một ảnh chụp màn hình của một bài viết trên Facebook, nhưng không có đường link gốc. Trước khi nhấn nút chia sẻ, hãy dừng lại một chút để kiểm tra thật kỹ.\n\nHướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả.\n\n“Who’s behind the information? What’s the evidence? What do other sources say?” COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì. Hãy áp dụng ba bước này ngay khi gặp một ảnh chụp màn hình chưa có link.\n\nUNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Bạn có thể dùng công cụ tìm kiếm với tiêu đề, ngày tháng, hoặc tên tác giả để cố gắng tìm lại bài gốc.\n\nNếu không tìm thấy nguồn gốc, tốt nhất là không chia sẻ hoặc kèm theo lời nhắc rằng thông tin chưa được xác minh. Bạn có thể gửi tin nhắn: “Bạn có thể chia sẻ link gốc của bài viết này được không?”"
+}
