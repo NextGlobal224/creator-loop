@@ -81,6 +81,7 @@ test("structured model gets the actual stage schemas",async()=>{
   assert.equal((await worker.fetch(request(),env)).status,200);
   assert.deepEqual(captured[0].response_format.json_schema.required,["observations","inferences","direction"]);
   assert.equal(captured[1].response_format.json_schema.properties.editorial_paragraphs.minItems,4);
+  assert.equal(captured[1].response_format.json_schema.properties.hypothetical_opening.minLength,1);
   assert.equal(captured[3].response_format.json_schema.properties.article_sha256.const,createHash("sha256").update(body).digest("hex"));
 });
 test("explicit Qwen model keeps JSON stage contract and bounded non-thinking input",async()=>{
@@ -141,6 +142,21 @@ test("observed prose-only editor failure is rejected with exact stage and no rep
   const {env,captured}=environment([analysis,failed]);const response=await worker.fetch(request(),env);
   assert.equal(response.status,502);assert.equal(captured.length,2);const failure=await response.json();
   assert.equal(failure.stage,"writing");assert.equal(failure.stage_output.includes("private reasoning fixture"),false);assert.equal(hasHypotheticalOpening(failed),false);
+});
+
+test("actual bdf3d07 empty opening is rejected without relocating prose or calling later stages",async()=>{
+  const actual=JSON.parse(readFileSync(new URL("../../../tests/fixtures/workers_b_bdf3d07_empty_opening.json",import.meta.url),"utf8"));
+  const before=JSON.stringify(actual.written);
+  assert.equal(actual.written.hypothetical_opening,"");
+  assert.ok(actual.written.editorial_paragraphs[0][0].text.startsWith("Giả sử"));
+  const {env,captured}=environment([analysis,actual.written]);
+  const response=await worker.fetch(request({writing_prompt:"notes\n"+JSON.stringify({...data,materials:actual.materials})}),env);
+  assert.equal(response.status,502);assert.equal(captured.length,2);
+  const failure=await response.json();
+  assert.equal(failure.stage,"writing");assert.equal(failure.retryable,false);
+  assert.equal(failure.reason,"STAGE_OUTPUT_INVALID");
+  assert.deepEqual(JSON.parse(JSON.parse(failure.stage_output).selected_writing_output),actual.written);
+  assert.equal(JSON.stringify(actual.written),before,"No synthetic repair or first-paragraph extraction");
 });
 test("audit cannot rewrite article or omit paragraphs",async()=>{
   const {body,written}=draft();for(const report of [{...audit(body),draft_body:body+" changed"},{...audit(body),segments:[]}]){

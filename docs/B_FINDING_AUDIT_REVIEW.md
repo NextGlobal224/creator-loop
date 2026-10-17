@@ -1,3 +1,35 @@
+## Empty opening returned by the second repair — 17 October 2026
+
+Exact bdf3d07 passed all three checks (run39000124767) and was deployed/pinned
+as f06f1d48-2a48-4c7f-a655-46a1201b92e4 after fresh same-account Free/$0 and
+Today0/10k dashboard observations. The normal app pipeline reused compatible
+original analysis and reserved its writing request before sending. Writing
+returned an empty hypothetical_opening and placed its fictional scene inside
+the first editorial paragraph. The existing composition guard rejected it;
+editing/audit were never called and no new Draft was committed. The immutable
+returned prose also proposes checking a profile to determine authenticity,
+which the selected notes do not establish, and attaches an editorial-context
+quote to a different comparison instruction. This output is not quality PASS.
+
+The advertised writing schema allowed an empty string even though composition
+requires a nonempty dedicated opening. Add minLength:1 to that field and retain
+the original rejection/diagnostics. The actual selected model JSON and source
+snapshots are a regression fixture; a test checks rejection before later calls,
+the native schema and unchanged diagnostic output. Do not relocate the first
+paragraph into the opening, synthesize prose or drop the factuality guard.
+
+This is a schema/guard consistency correction, not evidence that native
+generation will comply or that other prose is source-grounded. Cloudflare
+documents that JSON mode cannot guarantee every requested schema:
+https://developers.cloudflare.com/workers-ai/features/json-mode/
+No new inference/deployment validates this correction. The fixed grant remains
+4/6 calls and2/2 pipeline starts; two unused calls cannot fund a new three-call
+app pipeline and do not authorize a third start. No retries or old allowances.
+
+Validation:56Node checks and dryWorkerbuild PASS; scoped secret scan must pass
+before publishing. Required CI must validate the new head. Local/CI checks do
+not replace full output QA, exact save/reopen or independent review.
+
 ## All-paragraph development coverage after a real complete app run — 17 October 2026
 
 Exact f103545 passed required CI and was deployed as e391743f-2137-43fc-9908-b4b4094c1e80.
