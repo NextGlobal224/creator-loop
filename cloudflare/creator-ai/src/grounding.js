@@ -1,6 +1,21 @@
 // Source-first generation inputs and explicit edit decisions. These constraints
 // do not implement semantic entailment; that still needs real output/source QA.
 import {publicCopyRevisions} from './quality.js';
+
+// Keep original catalog indexes stable. Explicit note metadata/editorial
+// proposals remain visible as context, but cannot supply a public factual cite.
+function factualQuote(quote) {return !/^(?:Ghi chú nghiên cứu nhập thủ công\b|Source\s*:|URL\s*:|Hướng biên tập(?: đề xuất)?\s*:)/iu.test(quote.source_quote.trim());}
+export function factualQuoteIds(catalog) {return catalog.flatMap((quote,id)=>factualQuote(quote)?[id]:[]);}
+
+export function sourcedSegmentSchema(catalog) {
+  const ids=factualQuoteIds(catalog);
+  const branch=id=>({type:"object",properties:{
+    source_quote_id:{type:"integer",const:id},text:{type:"string",minLength:1},
+    premise_checks:id===-1?{type:"array",maxItems:0,items:{type:"object"}}:
+      {type:"array",minItems:1,maxItems:8,items:{type:"object",properties:{assertion:{type:"string",minLength:1},quote_ids:{type:"array",minItems:1,maxItems:1,items:{type:"integer",const:id}},supported:{type:"boolean"}},required:["assertion","quote_ids","supported"],additionalProperties:false}},
+  },required:["text","source_quote_id","premise_checks"],additionalProperties:false});
+  return {oneOf:[branch(-1),...ids.map(branch)]};
+}
 export const articleRequirements = [
   {id:"PROJECT_NO_UNSOURCED_RULE",text:"Do not invent an evidence-sufficiency rule, minimum source count, verification procedure or promised result not supplied by the selected snapshots or explicit Project instruction. This also constrains normative ADVICE, independently of factual-premise classification. Voluntary questions, reading and requests without a claimed outcome remain allowed. The model's proposed direction is not permission or source evidence."},
   {id:"PROJECT_CLOSING_MESSAGE",text:"End with an actual short message the reader could send to the original sender asking for the missing original link, date or context. A general instruction to read or verify does not satisfy this deliverable. Write the message, not a description of it."},
@@ -13,7 +28,8 @@ export function evidenceInput(sourceContext, catalog, analysis) {
     article_requirements:articleRequirements,
     evidence:{authority:"PROVIDED_SNAPSHOT_ONLY",linked_pages_are_not_retrieved:true,
       materials:data.materials.map(m=>({material_id:m.material_id,source_url:m.source_url,scope:m.scope,text:m.text})),
-      quote_catalog:catalog.map((quote,id)=>({id,...quote}))},
+      quote_catalog:catalog.map((quote,id)=>({id,...quote,citation_role:factualQuote(quote)?"SOURCE_EXCERPT":"CONTEXT_NOT_FACTUAL_EVIDENCE"})),
+      factual_quote_ids:factualQuoteIds(catalog)},
     editorial_proposal:{direction:analysis.direction,status:"UNVERIFIED_PROPOSAL_NOT_SOURCE_EVIDENCE"},
   };
 }
@@ -36,6 +52,7 @@ export function checkedSegment(segment,catalog) {
   if(segment.premise_checks.some(p=>!p.supported))throw new Error("Generated segment retains an unsupported factual premise");
   if(segment.source_quote_id===-1 && segment.premise_checks.length)throw new Error("Factual premises cannot be hidden in uncited advice");
   if(segment.source_quote_id>=0 && (!segment.premise_checks.length || segment.premise_checks.some(p=>!p.quote_ids.includes(segment.source_quote_id))))throw new Error("Segment citation does not cover its declared factual premises");
+  if(segment.source_quote_id>=0 && (!factualQuote(catalog[segment.source_quote_id]) || segment.premise_checks.some(p=>p.quote_ids.length!==1)))throw new Error("Factual segment must use one eligible source excerpt; note metadata/editorial proposals are context only");
   return {source_quote_id:segment.source_quote_id,text:segment.text};
 }
 
@@ -100,10 +117,11 @@ export function revisionIssues(initial, final, checks, catalog) {
 
 // The edit decision owns its replacement text. No second article/mapping copy
 // can contradict KEEP/REMOVE or claim that a retained assertion was deleted.
-export function operationSchema(count,catalogCount) {
+export function operationSchema(count,catalog) {
+  const catalogCount=catalog.length;
   const receipt=revisionSchema(count,catalogCount).items;
   const {final_segment_indexes,...properties}=receipt.properties;
-  return {type:"object",properties:{source_issues:{type:"array",items:{type:"string"}},edits:{type:"array",minItems:count,maxItems:count,items:{type:"object",properties:{index:properties.index,premise_checks:premiseSchema(catalogCount),...properties,replacement:{type:"array",maxItems:12,items:{type:"object",properties:{premise_checks:premiseSchema(catalogCount),source_quote_id:{type:"integer",minimum:-1,maximum:catalogCount-1},text:{type:"string",minLength:1}},required:["source_quote_id","text","premise_checks"],additionalProperties:false}}},required:[...receipt.required.filter(key=>key!=="final_segment_indexes"),"premise_checks","replacement"],additionalProperties:false}}},required:["source_issues","edits"],additionalProperties:false};
+  return {type:"object",properties:{source_issues:{type:"array",items:{type:"string"}},edits:{type:"array",minItems:count,maxItems:count,items:{type:"object",properties:{index:properties.index,premise_checks:premiseSchema(catalogCount),...properties,replacement:{type:"array",maxItems:12,items:sourcedSegmentSchema(catalog)}},required:[...receipt.required.filter(key=>key!=="final_segment_indexes"),"premise_checks","replacement"],additionalProperties:false}}},required:["source_issues","edits"],additionalProperties:false};
 }
 
 export const operationInstructions="Return source_issues and one edit operation per original segment, in original index order. Each operation assesses the ORIGINAL segment: index, premise_checks, support, quote_ids, decision, note, replacement. Before choosing support/decision, enumerate EVERY factual assertion or presupposition in premise_checks, including implied tool availability, applicability and outcomes inside an instruction or purpose clause. For each assertion, supported:true requires quote_ids whose exact excerpts establish the entire assertion; missing evidence means supported:false, even if the source has a related topic. A general description of a manual does not establish the identity, availability or capability of a particular tool or a case-specific procedure. A pure request to read or ask is a voluntary action; instructing someone to perform an unprovided procedure to establish a result presupposes capabilities and outcomes. If ANY premise is unsupported, choose INSUFFICIENT and REMOVE. An empty premise_checks is allowed only for a pure voluntary action or fictional opening with no real-world factual premise; SOURCE_SUPPORTED requires at least one checked assertion. An editorial warning in a note is advice, not evidence of a universal impossibility. The note is one short evidence explanation, not a reasoning transcript. SOURCE_SUPPORTED needs exact quotes supporting the whole assertion. SUGGESTION is a voluntary action WITHOUT an empirical premise, claimed benefit, ranking or predicted result, including a result hidden in a purpose clause. A question in a source supplies no evidence that using it will produce a reliable answer or better decisions. HYPOTHETICAL is only the explicitly fictional opening. If the original contains an unsupported assertion, use INSUFFICIENT and REMOVE the whole segment: do not retain or paraphrase its unsupported conclusion as advice. For KEEP and REMOVE, replacement MUST be []. KEEP uses the original text/citation exactly; REMOVE emits no text. REWRITE is for a supported original or pure suggestion whose wording needs editing; replacement contains the actual final free-written segments with source_quote_id before text. Do not label an insufficient original SOURCE_SUPPORTED in order to rewrite it. Citations only support source facts, not a source note authors editorial instructions. Preserve original paragraph placement. Remove internal metadata and irrelevant quotations; avoid repeating a source quote in English when a supported Vietnamese explanation already exists. Keep a fluent article, one fictional opening and four connected paragraphs; no minimum length and at most350words. Unconfirmed information remains unconfirmed; no invented procedures or outcomes. Rewrite the ending as an actual short quoted message asking the sender for a missing original link/date/context. Do not output a second article or forecast final indexes; the application composes only the declared operations.";
@@ -130,6 +148,7 @@ export function applyEditOperations(value,initial,catalog) {
     for(const segment of produced){
       if(!segment || Object.keys(segment).sort().join(",")!=="source_quote_id,text" || typeof segment.text!=="string" || !segment.text.trim() || segment.text.includes("\n") || !Number.isInteger(segment.source_quote_id) || segment.source_quote_id< -1 || segment.source_quote_id>=catalog.length)throw new Error("Invalid edit replacement");
       if(i===0 && segment.source_quote_id!==-1)throw new Error("Fictional opening cannot acquire a citation");
+      if(segment.source_quote_id>=0 && !factualQuote(catalog[segment.source_quote_id]))throw new Error("Edited factual citation cannot use note metadata/editorial context");
       paragraphs[original.paragraph_index].push({segment,original_index:i});
     }
     pending.push(check);

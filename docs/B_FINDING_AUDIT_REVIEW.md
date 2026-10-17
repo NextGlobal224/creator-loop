@@ -1,3 +1,41 @@
+## Correlated source schema and explicit note roles — 17 October 2026
+
+d7315a2 passed all three required checks in run39006421655, deployed/pinned as
+8f15dbfc-4466-4bb2-aa14-e8b14e8a203e. Actual medium writing returned mixed quote
+premises again and inferred that COR questions help establish authenticity.
+Writing was rejected before editing/audit/Draft. One call18.5s/223.99940490722656
+Neurons; no retry. The full selected model JSON remains an immutable fixture.
+
+After low and medium both missed these interactions, change the structural
+contract rather than increase effort again. A disjoint oneOf segment schema
+binds each factual branch's source_quote_id to the same single premise quote ID;
+uncited suggestions have empty premises. The same typed contract applies to
+editor replacements. Existing application guards still reject malformed output
+even if native JSON mode ignores the schema. Schema compliance is not entailment.
+
+Original quote catalog indexes/text remain unchanged. Explicit research-note
+headers, Source/URL metadata and Hướng biên tập proposals remain in the source
+packet as context but are ineligible as public factual citation authority. For
+this exact input, only original IDs3/8/9 are eligible excerpts. A guard enforces
+this in writing/replacements/KEEP. This is an explicit-label policy, not a general
+semantic classifier; all original source/audit and full prose QA remain required.
+Legacy fixtures now rejected earlier retain independent public-copy, development
+coverage and benefit-lead regressions using declared synthetic protocol inputs.
+Actual model outputs are never repaired into a quality PASS.
+
+65Node checks, dry build and scoped secret scan PASS. Analysis block, SDK/model,
+low-effort analysis input and original receipt remain unchanged; prior exact
+SDK payload compatibility evidence is reused. Post-analysis remains medium.
+Native oneOf acceptance and actual source-grounded complete prose still require
+exact newHEAD CI, fresh sufficient same-account WorkersFreequota, deploy/pin and
+a full app pilot. Cloudflare warns JSON mode does not guarantee every schema:
+https://developers.cloudflare.com/workers-ai/features/json-mode/
+
+GrantB-finish-20261017-free4calls/3starts including failures, conditional actual
+Freequota/$0, no arbitrarysmallcap. All previous grants/task/hook2/2 retained.
+Continuous B ordinarypush/PR86/deploy/pin/pilot authority is directly confirmed
+in chat; no forcepush/merge/release/protection change/selfAPPROVE/Facebook publish.
+
 ## B post-analysis reasoning configuration — 17 October 2026
 
 340006b passed all three required checks in run39004613823 and was deployed/pinned

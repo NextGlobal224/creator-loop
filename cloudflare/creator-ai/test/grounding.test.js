@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {evidenceInput,revisionIssues,applyEditOperations,checkedSegment,checkedWriting} from '../src/grounding.js';
+import {evidenceInput,revisionIssues,applyEditOperations,checkedSegment,checkedWriting,factualQuoteIds,sourcedSegmentSchema} from '../src/grounding.js';
 import {compileSourcedArticle,quoteCatalog} from '../src/quality.js';
 
 test('generation evidence is exact snapshots; model inference is not promoted into the evidence pack',()=>{
@@ -153,8 +153,48 @@ test('actual 1725b01 output cannot bind two different premises to a single quote
 
 test('actual340006b unsupported paragraph removal cannot become an incomplete article',()=>{
   const actual=JSON.parse(readFileSync(new URL('../../../tests/fixtures/workers_b_340006b_removed_paragraph.json',import.meta.url),'utf8'));
-  const before=JSON.stringify(actual),initial=compileSourcedArticle(checkedWriting(actual.writing,actual.catalog),actual.catalog);
+  const before=JSON.stringify(actual);
+  assert.throws(()=>checkedWriting(actual.writing,actual.catalog),/eligible source excerpt/);
+  const initial=compileSourcedArticle({...actual.writing,editorial_paragraphs:actual.writing.editorial_paragraphs.map(p=>p.map(({premise_checks,...segment})=>segment))},actual.catalog);
   assert.equal(actual.edits.edits[3].support,'INSUFFICIENT');assert.equal(actual.edits.edits[3].decision,'REMOVE');
-  assert.throws(()=>applyEditOperations(actual.edits,initial,actual.catalog),/Editing omitted a required paragraph/);
+  assert.throws(()=>applyEditOperations(actual.edits,initial,actual.catalog),/note metadata\/editorial context/);
   assert.equal(JSON.stringify(actual),before,'Keep both actual model outputs unchanged');
+});
+
+test('selected note metadata and editorial proposals stay visible but cannot become factual citations',()=>{
+  const actual=JSON.parse(readFileSync(new URL('../../../tests/fixtures/workers_b_d7315a2_mixed_context.json',import.meta.url),'utf8'));
+  assert.deepEqual(factualQuoteIds(actual.catalog),[3,8,9]);
+  const body=JSON.stringify(actual);
+  assert.throws(()=>checkedWriting(actual.writing,actual.catalog),/does not cover/);
+  for(const id of [0,1,2,4,5,6,7,10]){
+    const segment={source_quote_id:id,text:'A claimed institutional fact.',premise_checks:[{assertion:'A claimed institutional fact.',quote_ids:[id],supported:true}]};
+    assert.throws(()=>checkedSegment(segment,actual.catalog),/eligible source excerpt/);
+  }
+  assert.equal(JSON.stringify(actual),body,'Neither catalog IDs nor actual text are repaired');
+  const materials=[{material_id:'s',text:'Hướng biên tập: a suggestion.\nA source excerpt.'}];
+  const pack=evidenceInput(JSON.stringify({materials}),quoteCatalog(materials),{direction:'Unverified'});
+  assert.equal(pack.evidence.materials[0].text,materials[0].text);
+  assert.equal(pack.evidence.quote_catalog[0].citation_role,'CONTEXT_NOT_FACTUAL_EVIDENCE');
+  assert.deepEqual(pack.evidence.factual_quote_ids,[1]);
+});
+
+test('disjoint segment schema binds every premise to exactly its selected eligible excerpt',()=>{
+  const catalog=[{material_id:'s',source_quote:'Source: identity only'},{material_id:'s',source_quote:'A public source statement.'}];
+  const schema=sourcedSegmentSchema(catalog);
+  assert.deepEqual(schema.oneOf.map(b=>b.properties.source_quote_id.const),[-1,1]);
+  assert.equal(schema.oneOf[0].properties.premise_checks.maxItems,0);
+  const premises=schema.oneOf[1].properties.premise_checks;
+  assert.equal(premises.minItems,1);assert.equal(premises.items.properties.quote_ids.maxItems,1);
+  assert.equal(premises.items.properties.quote_ids.items.const,1);
+  const segment={source_quote_id:1,text:'A public source statement.',premise_checks:[{assertion:'A public source statement.',quote_ids:[1],supported:true}]};
+  assert.equal(checkedSegment(segment,catalog).text,segment.text);
+  segment.premise_checks[0].quote_ids=[0,1];assert.throws(()=>checkedSegment(segment,catalog),/one eligible/);
+  segment.premise_checks[0].quote_ids=[1];segment.premise_checks[0].supported=false;assert.throws(()=>checkedSegment(segment,catalog),/unsupported factual premise/);
+});
+
+test('removing a whole required paragraph still fails after adding citation roles',()=>{
+  const initial=article('An unsupported procedure.');
+  const edits=initial.segments.map((segment,index)=>({index,support:index===0?'HYPOTHETICAL':'SUGGESTION',quote_ids:[],decision:'KEEP',premise_checks:[],replacement:[],note:'Synthetic protocol case only'}));
+  edits[3].support='INSUFFICIENT';edits[3].decision='REMOVE';
+  assert.throws(()=>applyEditOperations({source_issues:[],edits},initial,catalog),/Editing omitted a required paragraph/);
 });

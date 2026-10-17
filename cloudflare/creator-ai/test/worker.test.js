@@ -389,3 +389,27 @@ test('native effort is unchanged for analysis and medium for all three generativ
   assert.deepEqual(captured.map(c=>c.reasoning_effort),['low','medium','medium','medium']);
   assert.deepEqual(captured.map(c=>c.max_tokens),[2600,3000,3000,2200]);
 });
+
+test('native writing and replacement schemas correlate selected quotes and premise IDs',async()=>{
+  const {body,written}=draft();const {captured,env}=environment([analysis,written,written,audit(body)]);
+  assert.equal((await worker.fetch(request(),env)).status,200);
+  const writing=captured[1].response_format.json_schema.properties.editorial_paragraphs.items.items.oneOf;
+  const replacement=captured[2].response_format.json_schema.properties.edits.items.properties.replacement.items.oneOf;
+  for(const branches of [writing,replacement]){
+    assert.deepEqual(branches.map(b=>b.properties.source_quote_id.const),[-1,0]);
+    assert.equal(branches[0].properties.premise_checks.maxItems,0);
+    assert.equal(branches[1].properties.premise_checks.items.properties.quote_ids.items.const,0);
+  }
+});
+
+test('actual medium mixed-quote output still stops before editing when native schema is ignored',async()=>{
+  const actual=JSON.parse(readFileSync(new URL('../../../tests/fixtures/workers_b_d7315a2_mixed_context.json',import.meta.url),'utf8'));
+  const groups=new Map();for(const q of actual.catalog)groups.set(q.material_id,[...(groups.get(q.material_id)??[]),q.source_quote]);
+  const materials=[...groups].map(([material_id,lines])=>({material_id,text:lines.join('\n')}));
+  const {env,captured}=environment([actual.writing]);
+  const response=await worker.fetch(request({stage:'writing',previous:[{stage:'analysis',value:analysis,usage:{}}],writing_prompt:'Selected data:\n'+JSON.stringify({format:'TEXT',materials})}),env);
+  assert.equal(response.status,502);assert.equal(captured.length,1);
+  const failure=await response.json();assert.equal(failure.stage,'writing');assert.equal(failure.retryable,false);
+  const branches=captured[0].response_format.json_schema.properties.editorial_paragraphs.items.items.oneOf;
+  assert.deepEqual(branches.map(b=>b.properties.source_quote_id.const),[-1,3,8,9]);
+});

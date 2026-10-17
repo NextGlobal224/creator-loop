@@ -8,7 +8,10 @@ const actual=JSON.parse(readFileSync(new URL('../../../tests/fixtures/workers_b_
 
 test('actual f103545 empty audit cannot substitute for all-paragraph development coverage',()=>{
   const catalog=quoteCatalog(actual.materials);
-  const composed=compileSourcedArticle(checkedWriting(actual.written,catalog),catalog);
+  assert.throws(()=>checkedWriting(actual.written,catalog),/eligible source excerpt/);
+  // Recompose immutable legacy text only to exercise the independent audit
+  // coverage guard. This is not an accepted current writing proposal.
+  const composed=compileSourcedArticle({...actual.written,editorial_paragraphs:actual.written.editorial_paragraphs.map(p=>p.map(({premise_checks,...s})=>s))},catalog);
   assert.equal(composed.body,actual.content.draft_body);
   assert.deepEqual(actual.audit.issues,[]);
   assert.ok(composed.segments[3].text.includes('ba bước trên'));

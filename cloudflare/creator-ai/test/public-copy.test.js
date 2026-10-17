@@ -7,9 +7,12 @@ import worker from '../src/index.js';
 
 const actual=JSON.parse(readFileSync(new URL('../../../tests/fixtures/workers_b_v31_editing_failed.json',import.meta.url),'utf8'));
 const catalog=quoteCatalog(actual.materials);
-const initial=compileSourcedArticle(checkedWriting(actual.written,catalog),catalog);
+// Historical text is still useful for public-copy regression after the new
+// citation-role guard rejects it earlier in the current generation route.
+const initial=compileSourcedArticle({...actual.written,editorial_paragraphs:actual.written.editorial_paragraphs.map(p=>p.map(({premise_checks,...s})=>s))},catalog);
 
 test('actual v31 citation receipts cannot exempt internal metadata or duplicate bilingual prose from revision',()=>{
+  assert.throws(()=>checkedWriting(actual.written,catalog),/eligible source excerpt/);
   const revisions=publicCopyRevisions(initial);
   assert.deepEqual(revisions.map(r=>r.index),[1,3]);
   assert.ok(revisions[0].issues.some(s=>s.includes('research-note')));
@@ -38,7 +41,7 @@ test('public copy constraints never silently rewrite the recorded automatic outp
   assert.equal(actual.operations.edits[1].decision,'KEEP');
 });
 
-test('actual rejected editor is given indexed mandatory revisions and stops before audit with HTTP422',async()=>{
+test('actual legacy metadata citation cannot enter editing through a supplied predecessor',async()=>{
   let calls=0;
   const analysis={observations:[{material_id:actual.materials[0].material_id,quote:catalog[0].source_quote,observation:'Synthetic analysis for protocol replay only.'}],inferences:[],direction:'Protocol replay only.'};
   const packet={prompt:'Protocol replay',writing_prompt:'Selected public notes\n'+JSON.stringify({format:'TEXT',materials:actual.materials}),schema:{properties:{observations:{type:'array'},inferences:{type:'array'},direction:{type:'string'}}},stage:'editing',previous:[{stage:'analysis',value:analysis,usage:{}},{stage:'writing',value:actual.written,usage:{}}]};
@@ -51,10 +54,9 @@ test('actual rejected editor is given indexed mandatory revisions and stops befo
     assert.ok(options.messages[0].content.includes('KEEP is invalid even when SOURCE_SUPPORTED'));
     return {response:actual.operations,usage:{prompt_tokens:1,completion_tokens:1}};
   }}});
-  assert.equal(response.status,422);
+  assert.equal(response.status,502);
   const rejection=await response.json();
   assert.equal(rejection.retryable,false);
-  assert.equal(rejection.stage,'editing');
-  assert.ok(rejection.audit_issues.some(s=>s.includes('bilingual')));
-  assert.equal(calls,1);
+  assert.equal(rejection.stage,'writing');
+  assert.equal(calls,0);
 });
