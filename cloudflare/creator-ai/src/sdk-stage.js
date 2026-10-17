@@ -38,7 +38,8 @@ function nativeDecodingSchema(schema) {
 
 // Direct binding only: no REST shim, gateway, fallback, tools or stream retry.
 // The counter is also a fail-closed boundary if an SDK/provider ever adds calls.
-export async function generateStage(env, {instructions, input, schema, budget, temperature, signal}, observe) {
+export async function generateStage(env, {instructions, input, schema, budget, temperature, signal, reasoningEffort="low"}, observe) {
+  if(!["low","medium","high"].includes(reasoningEffort)) throw new Error("Invalid reasoning effort");
   let calls=0,received=false,nativeFailure=null;
   const binding={run:async(model, inputs, options)=>{
     if(++calls!==1 || model!==env.CREATOR_MODEL || inputs.stream===true) throw new Error("Unexpected SDK model call");
@@ -66,7 +67,7 @@ export async function generateStage(env, {instructions, input, schema, budget, t
     return result;
   }};
   const provider=createWorkersAI({binding});
-  const settings=env.CREATOR_MODEL.startsWith("@cf/openai/gpt-oss-")?{reasoning_effort:"low"}:
+  const settings=env.CREATOR_MODEL.startsWith("@cf/openai/gpt-oss-")?{reasoning_effort:reasoningEffort}:
     env.CREATOR_MODEL==="@cf/qwen/qwen3-30b-a3b-fp8"?{chat_template_kwargs:{enable_thinking:false}}:{};
   try {
     const result=await generateText({

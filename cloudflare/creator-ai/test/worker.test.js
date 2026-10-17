@@ -59,8 +59,8 @@ function environment(outputs,model="@cf/openai/gpt-oss-120b"){
 test("source analysis precedes writing; conflicting prose instructions never enter JSON stages",async()=>{
   const {body,written}=draft();const {captured,env}=environment([analysis,written,written,audit(body)]);
   const response=await worker.fetch(request(),env);assert.equal(response.status,200);assert.equal(captured.length,4);
-  for(const options of captured){
-    assert.equal(options.input,undefined);assert.equal(options.instructions,undefined);assert.equal(options.reasoning_effort,"low");
+  for(const [index,options] of captured.entries()){
+    assert.equal(options.input,undefined);assert.equal(options.instructions,undefined);assert.equal(options.reasoning_effort,index===0?"low":"medium");
     assert.equal(options.max_output_tokens,undefined);assert.equal(options.messages[0].role,"system");assert.equal(options.messages[1].role,"user");
     assert.equal(options.messages[1].content.includes("chỉ trả prose"),false);assert.ok(options.messages[1].content.includes(data.materials[0].text));
   }
@@ -381,4 +381,11 @@ test("task requirements are audited even when the editor claims no source issues
   const rejected=environment([analysis,written,written,omitted]);
   const failed=await worker.fetch(request(),rejected.env);
   assert.ok([422,502].includes(failed.status));assert.equal(rejected.captured.length,4);
+});
+
+test('native effort is unchanged for analysis and medium for all three generative quality stages',async()=>{
+  const {body,written}=draft();const {captured,env}=environment([analysis,written,written,audit(body)],'@cf/openai/gpt-oss-120b');
+  assert.equal((await worker.fetch(request(),env)).status,200);
+  assert.deepEqual(captured.map(c=>c.reasoning_effort),['low','medium','medium','medium']);
+  assert.deepEqual(captured.map(c=>c.max_tokens),[2600,3000,3000,2200]);
 });

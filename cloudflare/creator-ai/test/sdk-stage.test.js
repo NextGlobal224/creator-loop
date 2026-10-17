@@ -21,6 +21,16 @@ test("429/capacity/5xx failures execute exactly once at SDK and transport bounda
     await assert.rejects(generateStage(env,task,()=>{}));assert.equal(count(),1);
   }
 });
+
+test("explicit medium effort changes only the requested native effort; analysis default is unchanged",async()=>{
+  const captured=[];
+  const {env,count}=setup(async(_model,input)=>{captured.push(input);return {response:{text:"Same typed response"},usage:{prompt_tokens:8,completion_tokens:12}};});
+  await generateStage(env,task,()=>{});
+  await generateStage(env,{...task,reasoningEffort:"medium"},()=>{});
+  assert.equal(count(),2);assert.equal(captured[0].reasoning_effort,"low");assert.equal(captured[1].reasoning_effort,"medium");
+  assert.deepEqual({...captured[0],reasoning_effort:"medium"},captured[1]);
+  await assert.rejects(generateStage(env,{...task,reasoningEffort:"unsupported"},()=>{}));assert.equal(count(),2);
+});
 test("malformed/fenced/empty/truncated JSON cannot trigger repair, retry or fallback",async()=>{
   for(const reply of ["",' {"text":', '```json\n{"text":"fenced"}\n```']){
     const {env,count}=setup(async()=>({response:reply,usage:{prompt_tokens:2,completion_tokens:3}}));

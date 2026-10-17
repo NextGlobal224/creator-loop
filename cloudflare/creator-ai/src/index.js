@@ -46,6 +46,7 @@ export default {
       const index=stageNames.indexOf(stage);
       if(staged && index<requested){usage.push({stage,usage:packet.previous[index].usage});return packet.previous[index].value;}
       const generated=await generateStage(env,{instructions,input,schema,budget,temperature:stage==="writing"?0.3:0,
+        reasoningEffort:stage==="analysis"?"low":"medium",
         signal:AbortSignal.any([request.signal,AbortSignal.timeout(85000)])},result=>{lastResult=result;usage.push({stage,usage:result.usage});});
       lastText=generated.text;
       return generated.value;

@@ -150,3 +150,11 @@ test('actual 1725b01 output cannot bind two different premises to a single quote
   assert.deepEqual(paragraph[0].premise_checks.map(p=>p.quote_ids),[[8],[4]]);
   assert.equal(JSON.stringify(actual),before,'Replay must not split or rewrite actual model prose');
 });
+
+test('actual340006b unsupported paragraph removal cannot become an incomplete article',()=>{
+  const actual=JSON.parse(readFileSync(new URL('../../../tests/fixtures/workers_b_340006b_removed_paragraph.json',import.meta.url),'utf8'));
+  const before=JSON.stringify(actual),initial=compileSourcedArticle(checkedWriting(actual.writing,actual.catalog),actual.catalog);
+  assert.equal(actual.edits.edits[3].support,'INSUFFICIENT');assert.equal(actual.edits.edits[3].decision,'REMOVE');
+  assert.throws(()=>applyEditOperations(actual.edits,initial,actual.catalog),/Editing omitted a required paragraph/);
+  assert.equal(JSON.stringify(actual),before,'Keep both actual model outputs unchanged');
+});

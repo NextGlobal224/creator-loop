@@ -1,3 +1,32 @@
+## B post-analysis reasoning configuration — 17 October 2026
+
+340006b passed all three required checks in run39004613823 and was deployed/pinned
+as26c07e41-3a06-4f9a-b04b-e62db8c87428. Real app writing passed its structural gate,
+but the editor correctly removed the only segment in paragraph3 as an unsupported
+verification procedure. Composition rejected the resulting incomplete article.
+Offline replay reproduces Editing omitted a required paragraph. The original
+writing also repeats paragraph2 as steps in paragraph3, while the editor's note
+misattributes a manual-note editorial suggestion to UNESCO. No audit or new Draft.
+Both exact model outputs remain immutable in the regression fixture.
+
+Across the observed failures, low-effort generation still misses interacting
+source/development requirements. Change the testable configuration variable to
+medium reasoning for writing/editing/source_audit, retaining low for analysis.
+Cloudflare documents low/medium/high for this same gpt-oss-120b model:
+https://developers.cloudflare.com/workers-ai/models/gpt-oss-120b/
+No prompt, guard, paragraph requirement, retry, timeout or output-token cap is
+relaxed; unsupported premises still cannot be rewritten as advice, and removing
+a whole required paragraph still fails. The actual fixture remains rejected.
+
+60Node checks and dry build PASS. An offline old/new realSDK comparison on the
+exact selected analysis task produced identical native model/messages/schema/
+input/budget/low-effort payloads. Original analysis origin/receipt is preserved;
+this compatibility check is not a new analysis or cloud quality result. Medium
+reasoning behavior, latency and actual content quality still require a new full
+app pilot after exactHEAD CI/deploy/pin and sufficient fresh same-account Free
+quota. GrantB-finish-20261017-free has used3calls/2starts, including failures;
+oldrepairgrant4/6calls2/2starts remains unchanged. No billing, approval or release.
+
 ## Single-excerpt citation and fictional-label repair — 17 October 2026
 
 The authorized B-finish-20261017-free grant supersedes future small call/start
