@@ -26,28 +26,39 @@ async function abortableBinding(invoke, signal) {
 function nativeDecodingSchema(schema) {
   if(!schema || typeof schema!=="object" || Array.isArray(schema)) return schema;
   const result={...schema};delete result.uniqueItems;
+  // Actual ce273a1 decoding emitted only index/decision/replacement from a
+  // partial oneOf branch, omitting the parent object's required receipts.
+  // Expand our const/array-bound alternatives and known item-property consts
+  // into complete objects, preserving the inherited item fields and types.
+  // This preserves the intersection, unlike replacing the parent with a branch.
+  if(result.type==="object" && result.properties && Array.isArray(result.oneOf) &&
+     result.oneOf.every(branch=>branch && Object.keys(branch).every(key=>["properties","required"].includes(key)) && branch.properties &&
+       Object.entries(branch.properties).every(([name,constraints])=>Object.hasOwn(result.properties,name) &&
+         Object.keys(constraints).every(key=>["const","minItems","maxItems","items"].includes(key)) &&
+         (!constraints.items || Object.keys(constraints.items).every(key=>key==="properties") && result.properties[name].items &&
+           (result.properties[name].items.oneOf??[result.properties[name].items]).every(item=>item.properties &&
+             Object.entries(constraints.items.properties??{}).every(([field,rule])=>Object.hasOwn(item.properties,field) && Object.keys(rule).every(key=>key==="const"))))))){
+    const base={...result};delete base.oneOf;
+    const compatible=result.oneOf.filter(branch=>Object.entries(branch.properties).every(([name,rule])=>!Object.hasOwn(rule,"const") || !Object.hasOwn(base.properties[name],"const") || JSON.stringify(rule.const)===JSON.stringify(base.properties[name].const)));
+    if(!compatible.length)throw new Error("Contradictory native schema constants");
+    return nativeDecodingSchema({oneOf:compatible.map(branch=>({...base,properties:Object.fromEntries(Object.entries(base.properties).map(([name,property])=>{
+      const constraints=branch.properties[name]??{},merged={...property,...constraints};
+      if(constraints.items){
+        const items=(property.items.oneOf??[property.items]).filter(item=>Object.entries(constraints.items.properties).every(([field,rule])=>!Object.hasOwn(item.properties[field],"const") || JSON.stringify(rule.const)===JSON.stringify(item.properties[field].const)));
+        if(!items.length)throw new Error("Contradictory native item constants");
+        merged.items={oneOf:items.map(item=>({...item,properties:{...item.properties,...Object.fromEntries(Object.entries(constraints.items.properties).map(([field,rule])=>[field,{...item.properties[field],...rule}]))}}))};
+      }
+      for(const [key,combine] of [["minItems",Math.max],["maxItems",Math.min]])
+        if(property[key]!==undefined && constraints[key]!==undefined)merged[key]=combine(property[key],constraints[key]);
+      return [name,merged];
+    })),required:[...new Set([...(base.required??[]),...(branch.required??[])])]}))});
+  }
   for(const key of ["properties","patternProperties","$defs","definitions"])
     if(result[key]) result[key]=Object.fromEntries(Object.entries(result[key]).map(([name,value])=>[name,nativeDecodingSchema(value)]));
   for(const key of ["items","additionalProperties","not","if","then","else","contains"])
     if(result[key] && !Array.isArray(result[key])) result[key]=nativeDecodingSchema(result[key]);
   for(const key of ["allOf","anyOf","oneOf","prefixItems"])
     if(Array.isArray(result[key])) result[key]=result[key].map(nativeDecodingSchema);
-  // Actual ce273a1 decoding emitted only index/decision/replacement from a
-  // partial oneOf branch, omitting the parent object's required receipts.
-  // Expand only our flat const/array-bound alternatives into complete objects.
-  // This preserves the intersection, unlike replacing the parent with a branch.
-  if(result.type==="object" && result.properties && Array.isArray(result.oneOf) &&
-     result.oneOf.every(branch=>branch && Object.keys(branch).every(key=>["properties","required"].includes(key)) && branch.properties &&
-       Object.entries(branch.properties).every(([name,constraints])=>Object.hasOwn(result.properties,name) &&
-         Object.keys(constraints).every(key=>["const","minItems","maxItems"].includes(key))))){
-    const base={...result};delete base.oneOf;
-    return {oneOf:result.oneOf.map(branch=>({...base,properties:Object.fromEntries(Object.entries(base.properties).map(([name,property])=>{
-      const constraints=branch.properties[name]??{},merged={...property,...constraints};
-      for(const [key,combine] of [["minItems",Math.max],["maxItems",Math.min]])
-        if(property[key]!==undefined && constraints[key]!==undefined)merged[key]=combine(property[key],constraints[key]);
-      return [name,merged];
-    })),required:[...new Set([...(base.required??[]),...(branch.required??[])])]}))};
-  }
   return result;
 }
 

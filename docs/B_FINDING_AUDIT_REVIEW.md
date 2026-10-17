@@ -1,3 +1,30 @@
+## Preserve fictional-opening identity in native edit decoding — 17 October 2026
+
+Exactf6aa611 CI39039454853 passed all three checks; deployed/pinned/health matched
+0ab50dfc after fresh Workers Free/$0/Today5.11k/10k quota. The editor returned
+completeJSON/finishstop at4104tokens under the4500allowance: the budget correction
+worked. App guards then rejected its new source-cited fictional opening: editor
+moved UNESCO fact into opening and emitted whitespace for the original paragraph.
+It also retained unsupported CORrecommendation/outcome wording. No audit,
+workflow or Draft was saved. Actual failure fixture stays unchanged; grant22/10.
+
+Native opening REWRITE now permits exactly one uncited replacement with empty
+replacement premises. It does not restrict original support assessments. Existing
+paragraph/source/whitespace guards remain independent. Instructions forbid moving
+another paragraph's facts into opening or using blank text as a removal. The SDK
+decoder intersects the known item-property constants with complete source
+alternatives, preserves inherited type/required/bounds, and excludes contradictory
+const alternatives instead of overwriting them. Other paragraph citations remain
+available; no prose filling, output repair, schema retry or fallback.
+
+75directWorker/SDK tests, drybuild and scoped secret scan PASS. Replay through
+realSDK/fakebinding checks the complete uncited opening alternative and still
+rejects the unchanged actual bad operations. Analysis old/currentWorker+realSDK
+native input remains equal for actual originalpacket/response despite adapter
+changes; source/model/settings/provenance preserved. Editor4500medium stays.
+New exactCI/fresh sufficientFreequota/deploypin/livefullQA/save-reopen pending.
+Native/schema success cannot certify meaning or product quality. B not accepted.
+
 ## Bounded source edit output after exhausted response — 17 October 2026
 
 Exact2a5b58d CI39021330192 passed all three required checks; Worker e4f0b49d was

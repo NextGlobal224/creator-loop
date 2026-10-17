@@ -105,7 +105,7 @@ test('actual ce273a1 partial-branch reply cannot erase inherited receipts in the
       assert.equal(branch.properties.decision.type,'string');
       assert.equal(branch.properties.replacement.type,'array');
       if(branch.properties.decision.const==='REWRITE'){
-        assert.equal(branch.properties.replacement.minItems,1);assert.equal(branch.properties.replacement.maxItems,12);
+        assert.equal(branch.properties.replacement.minItems,1);assert.equal(branch.properties.replacement.maxItems,branch.properties.index.const===0?1:12);
       }else assert.equal(branch.properties.replacement.maxItems,0);
     }
     assert.ok(input.messages[1].content.includes('"support"'),'Full SDK/prompt contract remains unchanged');

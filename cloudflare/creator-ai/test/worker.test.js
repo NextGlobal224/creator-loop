@@ -396,7 +396,9 @@ test('native writing and replacement schemas correlate selected quotes and premi
   const {body,written}=draft();const {captured,env}=environment([analysis,written,written,audit(body)]);
   assert.equal((await worker.fetch(request(),env)).status,200);
   const writing=editorialRoles.map(role=>captured[1].response_format.json_schema.properties.editorial_paragraphs.properties[role.key].items.oneOf);
-  const replacements=captured[2].response_format.json_schema.properties.edits.items.oneOf.map(branch=>branch.properties.replacement.items.oneOf);
+  const editBranches=captured[2].response_format.json_schema.properties.edits.items.oneOf;
+  for(const branch of editBranches.filter(b=>b.properties.index.const===0 && b.properties.decision.const==='REWRITE'))assert.deepEqual(branch.properties.replacement.items.oneOf.map(b=>b.properties.source_quote_id.const),[-1]);
+  const replacements=editBranches.filter(b=>!(b.properties.index.const===0 && b.properties.decision.const==='REWRITE')).map(branch=>branch.properties.replacement.items.oneOf);
   for(const branches of [...writing,...replacements]){
     assert.deepEqual(branches.map(b=>b.properties.source_quote_id.const),[-1,0]);
     assert.equal(branches[0].properties.premise_checks.maxItems,0);

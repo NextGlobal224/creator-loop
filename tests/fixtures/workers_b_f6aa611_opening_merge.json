@@ -1,0 +1,246 @@
+{
+  "origin_head": "f6aa611480262cd5b122f521c1c5bbc885e34a1d",
+  "worker_version": "0ab50dfc-3e8b-47dc-ac31-124152f7c13c",
+  "initial": {
+    "body": "Tình huống giả định: Bạn nhận được một ảnh chụp màn hình từ một người bạn, trong đó hiển thị một bài đăng trên Facebook có nội dung gây tranh cãi, nhưng không có bất kỳ đường dẫn, ngày đăng hay thông tin về người đăng nào.\n\nUNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội; tuy nhiên trang giới thiệu không xác minh một bài Facebook cụ thể nào.\n\nẢnh chụp màn hình này không kèm đường dẫn tới bài gốc, không ghi ngày đăng và không nêu rõ người đăng, vì vậy người xem không có thông tin nền để đánh giá độ tin cậy.\n\nCOR khuyến nghị người dùng tự hỏi ba câu: ai đứng sau thông tin, bằng chứng nào được đưa ra, và các nguồn khác nói gì, để đánh giá nội dung chưa quen thuộc.\n\nBạn có thể cung cấp link gốc, ngày đăng và nguồn của ảnh chụp này được không? Cảm ơn!",
+    "claims": [
+      {
+        "text": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội; tuy nhiên trang giới thiệu không xác minh một bài Facebook cụ thể nào.",
+        "material_ids": [
+          "file:1da0c5ef932840d9befe5a61d11adce9"
+        ],
+        "source_quote": "Diễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể."
+      },
+      {
+        "text": "COR khuyến nghị người dùng tự hỏi ba câu: ai đứng sau thông tin, bằng chứng nào được đưa ra, và các nguồn khác nói gì, để đánh giá nội dung chưa quen thuộc.",
+        "material_ids": [
+          "file:e72b0742f1c148abbc9a54f2ad3d4a7e"
+        ],
+        "source_quote": "Diễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì."
+      }
+    ],
+    "segments": [
+      {
+        "index": 0,
+        "paragraph_index": 0,
+        "text": "Tình huống giả định: Bạn nhận được một ảnh chụp màn hình từ một người bạn, trong đó hiển thị một bài đăng trên Facebook có nội dung gây tranh cãi, nhưng không có bất kỳ đường dẫn, ngày đăng hay thông tin về người đăng nào."
+      },
+      {
+        "index": 1,
+        "paragraph_index": 1,
+        "text": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội; tuy nhiên trang giới thiệu không xác minh một bài Facebook cụ thể nào.",
+        "citation": {
+          "text": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội; tuy nhiên trang giới thiệu không xác minh một bài Facebook cụ thể nào.",
+          "material_ids": [
+            "file:1da0c5ef932840d9befe5a61d11adce9"
+          ],
+          "source_quote": "Diễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể."
+        }
+      },
+      {
+        "index": 2,
+        "paragraph_index": 2,
+        "text": "Ảnh chụp màn hình này không kèm đường dẫn tới bài gốc, không ghi ngày đăng và không nêu rõ người đăng, vì vậy người xem không có thông tin nền để đánh giá độ tin cậy.",
+        "citation": null
+      },
+      {
+        "index": 3,
+        "paragraph_index": 3,
+        "text": "COR khuyến nghị người dùng tự hỏi ba câu: ai đứng sau thông tin, bằng chứng nào được đưa ra, và các nguồn khác nói gì, để đánh giá nội dung chưa quen thuộc.",
+        "citation": {
+          "text": "COR khuyến nghị người dùng tự hỏi ba câu: ai đứng sau thông tin, bằng chứng nào được đưa ra, và các nguồn khác nói gì, để đánh giá nội dung chưa quen thuộc.",
+          "material_ids": [
+            "file:e72b0742f1c148abbc9a54f2ad3d4a7e"
+          ],
+          "source_quote": "Diễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì."
+        }
+      },
+      {
+        "index": 4,
+        "paragraph_index": 4,
+        "text": "Bạn có thể cung cấp link gốc, ngày đăng và nguồn của ảnh chụp này được không? Cảm ơn!",
+        "citation": null
+      }
+    ]
+  },
+  "catalog": [
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra."
+    },
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Source: UNESCO"
+    },
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "URL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course"
+    },
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Diễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể."
+    },
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Hướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này."
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra."
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Source: Digital Inquiry Group / Civic Online Reasoning"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "URL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Trích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Diễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì."
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Hướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral."
+    }
+  ],
+  "operations": {
+    "source_issues": [
+      "Segment 3: question-only excerpt does not establish identification or reliability result.",
+      "Segment 2: factual claim about missing link lacks source support."
+    ],
+    "edits": [
+      {
+        "index": 0,
+        "premise_checks": [
+          {
+            "assertion": "UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội.",
+            "quote_ids": [
+              3
+            ],
+            "supported": true
+          }
+        ],
+        "support": "SOURCE_SUPPORTED",
+        "quote_ids": [
+          3
+        ],
+        "decision": "REWRITE",
+        "note": "Kết hợp mở đầu giả định với thông tin UNESCO được trích từ nguồn.",
+        "replacement": [
+          {
+            "source_quote_id": 3,
+            "text": "Tình huống giả định: Bạn nhận được một ảnh chụp màn hình trên Facebook có nội dung gây tranh cãi nhưng không có đường dẫn, ngày đăng hay thông tin người đăng. UNESCO đã giới thiệu một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội.",
+            "premise_checks": [
+              {
+                "assertion": "UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội.",
+                "quote_ids": [
+                  3
+                ],
+                "supported": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "index": 1,
+        "premise_checks": [],
+        "support": "INSUFFICIENT",
+        "quote_ids": [],
+        "decision": "REWRITE",
+        "note": "Nội dung đã được hợp nhất vào đoạn 0, vì vậy đoạn này không còn cần thiết.",
+        "replacement": [
+          {
+            "source_quote_id": -1,
+            "text": " ",
+            "premise_checks": []
+          }
+        ]
+      },
+      {
+        "index": 2,
+        "premise_checks": [],
+        "support": "SUGGESTION",
+        "quote_ids": [],
+        "decision": "REWRITE",
+        "note": "Biến đoạn thành đề xuất tự nguyện không yêu cầu bằng chứng.",
+        "replacement": [
+          {
+            "source_quote_id": -1,
+            "text": "Bạn có thể yêu cầu người gửi cung cấp link gốc, ngày đăng và tên người đăng để có thể kiểm chứng nội dung.",
+            "premise_checks": []
+          }
+        ]
+      },
+      {
+        "index": 3,
+        "premise_checks": [
+          {
+            "assertion": "COR đề xuất ba câu hỏi: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì, để xem xét nội dung trực tuyến chưa quen thuộc.",
+            "quote_ids": [
+              9
+            ],
+            "supported": true
+          }
+        ],
+        "support": "SOURCE_SUPPORTED",
+        "quote_ids": [
+          9
+        ],
+        "decision": "REWRITE",
+        "note": "Sửa lại để chỉ nêu câu hỏi mà không khẳng định chúng sẽ xác định độ tin cậy.",
+        "replacement": [
+          {
+            "source_quote_id": 9,
+            "text": "COR khuyến nghị người dùng tự hỏi ba câu: ai đứng sau thông tin, bằng chứng nào được đưa ra, và các nguồn khác nói gì, để đánh giá nội dung chưa quen thuộc.",
+            "premise_checks": [
+              {
+                "assertion": "COR đề xuất ba câu hỏi: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì, để xem xét nội dung trực tuyến chưa quen thuộc.",
+                "quote_ids": [
+                  9
+                ],
+                "supported": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "index": 4,
+        "premise_checks": [],
+        "support": "SUGGESTION",
+        "quote_ids": [],
+        "decision": "KEEP",
+        "note": "Đây là tin nhắn yêu cầu thông tin còn thiếu, đáp ứng yêu cầu đóng bài.",
+        "replacement": []
+      }
+    ]
+  },
+  "diagnostic": {
+    "format": "WORKERS_AI_DIAGNOSTIC_V1",
+    "provider_code": null,
+    "usage": {
+      "prompt_tokens": 5532,
+      "completion_tokens": 4104,
+      "total_tokens": 9636,
+      "neurons": 455.83526611328125
+    },
+    "response_received": true,
+    "stage_diagnostic": null,
+    "top_level_keys": [
+      "choices",
+      "usage"
+    ],
+    "response_type": "undefined",
+    "choice_content_type": "string",
+    "choice_finish_reason": "stop",
+    "output_types": [],
+    "selected_edit_output": "{\n  \"source_issues\": [\n    \"Segment 3: question-only excerpt does not establish identification or reliability result.\",\n    \"Segment 2: factual claim about missing link lacks source support.\"\n  ],\n  \"edits\": [\n    {\n      \"index\": 0,\n      \"premise_checks\": [\n        {\n          \"assertion\": \"UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội.\",\n          \"quote_ids\": [3],\n          \"supported\": true\n        }\n      ],\n      \"support\": \"SOURCE_SUPPORTED\",\n      \"quote_ids\": [3],\n      \"decision\": \"REWRITE\",\n      \"note\": \"Kết hợp mở đầu giả định với thông tin UNESCO được trích từ nguồn.\",\n      \"replacement\": [\n        {\n          \"source_quote_id\": 3,\n          \"text\": \"Tình huống giả định: Bạn nhận được một ảnh chụp màn hình trên Facebook có nội dung gây tranh cãi nhưng không có đường dẫn, ngày đăng hay thông tin người đăng. UNESCO đã giới thiệu một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội.\",\n          \"premise_checks\": [\n            {\n              \"assertion\": \"UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội.\",\n              \"quote_ids\": [3],\n              \"supported\": true\n            }\n          ]\n        }\n      ]\n    },\n    {\n      \"index\": 1,\n      \"premise_checks\": [],\n      \"support\": \"INSUFFICIENT\",\n      \"quote_ids\": [],\n      \"decision\": \"REWRITE\",\n      \"note\": \"Nội dung đã được hợp nhất vào đoạn 0, vì vậy đoạn này không còn cần thiết.\",\n      \"replacement\": [\n        {\n          \"source_quote_id\": -1,\n          \"text\": \" \",\n          \"premise_checks\": []\n        }\n      ]\n    },\n    {\n      \"index\": 2,\n      \"premise_checks\": [],\n      \"support\": \"SUGGESTION\",\n      \"quote_ids\": [],\n      \"decision\": \"REWRITE\",\n      \"note\": \"Biến đoạn thành đề xuất tự nguyện không yêu cầu bằng chứng.\",\n      \"replacement\": [\n        {\n          \"source_quote_id\": -1,\n          \"text\": \"Bạn có thể yêu cầu người gửi cung cấp link gốc, ngày đăng và tên người đăng để có thể kiểm chứng nội dung.\",\n          \"premise_checks\": []\n        }\n      ]\n    },\n    {\n      \"index\": 3,\n      \"premise_checks\": [\n        {\n          \"assertion\": \"COR đề xuất ba câu hỏi: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì, để xem xét nội dung trực tuyến chưa quen thuộc.\",\n          \"quote_ids\": [9],\n          \"supported\": true\n        }\n      ],\n      \"support\": \"SOURCE_SUPPORTED\",\n      \"quote_ids\": [9],\n      \"decision\": \"REWRITE\",\n      \"note\": \"Sửa lại để chỉ nêu câu hỏi mà không khẳng định chúng sẽ xác định độ tin cậy.\",\n      \"replacement\": [\n        {\n          \"source_quote_id\": 9,\n          \"text\": \"COR khuyến nghị người dùng tự hỏi ba câu: ai đứng sau thông tin, bằng chứng nào được đưa ra, và các nguồn khác nói gì, để đánh giá nội dung chưa quen thuộc.\",\n          \"premise_checks\": [\n            {\n              \"assertion\": \"COR đề xuất ba câu hỏi: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì, để xem xét nội dung trực tuyến chưa quen thuộc.\",\n              \"quote_ids\": [9],\n              \"supported\": true\n            }\n          ]\n        }\n      ]\n    },\n    {\n      \"index\": 4,\n      \"premise_checks\": [],\n      \"support\": \"SUGGESTION\",\n      \"quote_ids\": [],\n      \"decision\": \"KEEP\",\n      \"note\": \"Đây là tin nhắn yêu cầu thông tin còn thiếu, đáp ứng yêu cầu đóng bài.\",\n      \"replacement\": []\n    }\n  ]\n}"
+  }
+}
