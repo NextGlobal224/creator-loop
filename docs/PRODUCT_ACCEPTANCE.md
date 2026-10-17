@@ -1,3 +1,30 @@
+## Single-excerpt citation and fictional-label repair — 17 October 2026
+
+The authorized B-finish-20261017-free grant supersedes future small call/start
+caps only, within verified actual Workers Free quota and $0 incremental cost.
+Historical B-repair-20261016-6 remains4/6calls and2/2starts; no unused calls added.
+Normal push/update of related B source/tests/docs in PR86 is authorized; no
+force-push, merge, release, protection change or self-approval.
+
+1725b01 was deployed as cf88ccfc-214f-4e56-85ac-bf44ea79bb5b after fresh same-account
+Free/$0 and Today164.85/10k. Actual app writing returned a nonempty opening, but
+checkedWriting rejected a segment with source_quote_id8 whose premises cite8
+and4 separately. Offline replay reproduces that exact error. The opening also
+lacked an explicit fictional label, and source-note editorial commentary leaked
+into public prose. No editing/audit/new Draft followed. One model call consumed
+157.14036560058594Neurons; no retry or output repair.
+
+Clarify the existing one-excerpt citation contract: split independently sourced
+assertions into separate segments, each covering every attached premise. State
+the fictional label explicitly in the schema description/task, and distinguish
+editorial suggestions from institutional authority in public prose. All guards,
+stages and source/audit requirements remain. An immutable actual-output fixture
+continues to fail the same guard; offline checks do not certify model behavior.
+
+57Node checks and dryWorkerbuild PASS. Current source needs exact requiredCI,
+deployment/pin, fresh quota and actual output/source QA. B quality remains FAIL.
+Independent review is absent; no self-APPROVE/merge/release/Facebook publish.
+
 **17/10/2026 second repair:** bdf3d07 exactCI3PASS/deployed/pinned; app writing refused empty opening,1newcall20.312s/164.85400390625Neurons, no newDraft/editor/audit. Fixedgrant4/6calls and2/2pipeline starts, no thirdstart. New offline schema opening minLength1/actualfailure regression56Node+drybuildPASS; not deployed/liveverified, Bquality stillFAIL. Fullreview/beta/release gates retained.
 
 **17/10/2026 B v32:** actualf103545 completed3stages/saved-reopened exactautomaticTEXT, but assistantQAFAIL: repeated/undeveloped thirdparagraph; oldauditissues=[] insufficient. Fixedgrant3/6calls,1/2pipelines. New all-paragraph development coverage is offline-only until newHEADCI/deploy/quota/liveQA. IMAGE/VIDEO and fullbeta/review/artifact gates remain separate.

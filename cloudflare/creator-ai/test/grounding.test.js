@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {evidenceInput,revisionIssues,applyEditOperations,checkedSegment} from '../src/grounding.js';
+import {evidenceInput,revisionIssues,applyEditOperations,checkedSegment,checkedWriting} from '../src/grounding.js';
 import {compileSourcedArticle,quoteCatalog} from '../src/quality.js';
 
 test('generation evidence is exact snapshots; model inference is not promoted into the evidence pack',()=>{
@@ -139,4 +139,14 @@ test('writer and replacement citations must cover all declared factual premises'
   // A structurally consistent declaration is not proof the excerpt entails it.
   segment.source_quote_id=-1;
   assert.throws(()=>checkedSegment(segment,sources),/uncited advice/);
+});
+
+test('actual 1725b01 output cannot bind two different premises to a single quote',()=>{
+  const actual=JSON.parse(readFileSync(new URL('../../../tests/fixtures/workers_b_1725b01_mixed_quotes.json',import.meta.url),'utf8'));
+  const before=JSON.stringify(actual);
+  assert.throws(()=>checkedWriting(actual.writing,actual.catalog),/Segment citation does not cover its declared factual premises/);
+  const paragraph=actual.writing.editorial_paragraphs[2];
+  assert.equal(paragraph[0].source_quote_id,8);
+  assert.deepEqual(paragraph[0].premise_checks.map(p=>p.quote_ids),[[8],[4]]);
+  assert.equal(JSON.stringify(actual),before,'Replay must not split or rewrite actual model prose');
 });
