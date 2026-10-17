@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {evidenceInput,revisionIssues,applyEditOperations,checkedSegment,checkedWriting,factualQuoteIds,sourcedSegmentSchema} from '../src/grounding.js';
+import {evidenceInput,revisionIssues,applyEditOperations,checkedSegment,checkedWriting,factualQuoteIds,sourcedSegmentSchema,operationSchema} from '../src/grounding.js';
 import {compileSourcedArticle,quoteCatalog} from '../src/quality.js';
 
 test('generation evidence is exact snapshots; model inference is not promoted into the evidence pack',()=>{
@@ -92,12 +92,46 @@ test('edit operations bind KEEP/REMOVE/REWRITE to a single text and compute shif
   assert.ok(!final.body.includes(original.segments[1].text));assert.ok(final.body.includes(original.segments[2].text));
   assert.deepEqual(output.source_checks[1].final_segment_indexes,[]);assert.deepEqual(output.source_checks[2].final_segment_indexes,[1]);
   assert.deepEqual(revisionIssues(original,final,output.source_checks,catalog),[]);
-  for(const change of [{decision:'KEEP'},{decision:'REWRITE',replacement:[{text:'The same conclusion in different words.',source_quote_id:-1}]}]){
+  for(const change of [{decision:'KEEP'}]){
     const invalid=structuredClone(edits);Object.assign(invalid[1],change);
     assert.throws(()=>applyEditOperations({source_issues:[],edits:invalid},original,catalog),/Insufficient/);
   }
   const invalid=structuredClone(edits);invalid[2].replacement=[{text:'Silently changed KEEP',source_quote_id:-1}];
   assert.throws(()=>applyEditOperations({source_issues:[],edits:invalid},original,catalog),/contradicts/);
+});
+
+test('an insufficient sole paragraph can be replaced independently without changing its negative assessment',()=>{
+  const initial=article('An identified procedure establishes the result.');
+  const edits=initial.segments.map((s,index)=>({index,support:index===0?'HYPOTHETICAL':'SUGGESTION',quote_ids:[],decision:'KEEP',note:'Synthetic protocol case only',premise_checks:[],replacement:[]}));
+  const unsupported={assertion:initial.segments[1].text,quote_ids:[],supported:false};
+  edits[1]={...edits[1],support:'INSUFFICIENT',decision:'REWRITE',premise_checks:[unsupported],replacement:[{text:'Ask the sender what information is still missing.',source_quote_id:-1,premise_checks:[]}]};
+  const result=applyEditOperations({source_issues:[],edits},initial,catalog);
+  assert.equal(result.source_checks[1].support,'INSUFFICIENT');
+  assert.deepEqual(result.source_checks[1].final_segment_indexes,[1]);
+  assert.equal(result.editorial_paragraphs.length,4);assert.ok(result.editorial_paragraphs.every(p=>p.length));
+  assert.ok(result.source_issues.includes(edits[1].note),'Negative finding must reach the final audit');
+  const before=JSON.stringify(edits);
+  for(const text of [initial.segments[1].text,'An identified procedure establishes the result!','Perhaps: '+initial.segments[1].text]){
+    const bad=structuredClone(edits);bad[1].replacement[0].text=text;
+    assert.throws(()=>applyEditOperations({source_issues:[],edits:bad},initial,catalog),/Insufficient original assertion remains/);
+  }
+  const bad=structuredClone(edits);bad[1].replacement[0].premise_checks=[unsupported];
+  assert.throws(()=>applyEditOperations({source_issues:[],edits:bad},initial,catalog),/unsupported factual premise/);
+  assert.equal(JSON.stringify(edits),before);
+});
+
+test('actual39b6ac0 sole-paragraph removal is excluded by native edit decisions while original failure stays immutable',()=>{
+  const actual=JSON.parse(readFileSync(new URL('../../../tests/fixtures/workers_b_39b6ac0_removed_paragraph.json',import.meta.url),'utf8'));
+  const before=JSON.stringify(actual),sources=quoteCatalog(actual.materials);
+  const initial=compileSourcedArticle(checkedWriting(actual.written,sources),sources);
+  assert.equal(actual.operations.edits[2].decision,'REMOVE');
+  assert.throws(()=>applyEditOperations(actual.operations,initial,sources),/Editing omitted a required paragraph/);
+  const branches=operationSchema(initial.segments.length,sources,initial).properties.edits.items.oneOf;
+  const foreign=branches.filter(b=>b.properties.index.const===2);
+  assert.deepEqual(foreign.map(b=>b.properties.decision.const),['REWRITE']);
+  assert.equal(foreign[0].properties.replacement.minItems,1);
+  assert.ok(!branches.some(b=>b.properties.decision.const==='REMOVE'),'Every actual paragraph has one segment');
+  assert.equal(JSON.stringify(actual),before);
 });
 
 test('an acknowledged unsupported premise cannot survive under a suggestion label',()=>{

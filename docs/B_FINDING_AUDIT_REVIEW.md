@@ -1,3 +1,34 @@
+## Independent replacement for an insufficient sole paragraph — 17 October 2026
+
+39b6ac0 passed exact CI39011232909 and deployed/pinned as
+dcc76f00-ab18-4b42-90a0-5dd09ec53acf. A real app run generated new analysis,
+writing and editing, then stopped at the four-paragraph guard. The editor found
+bilingual duplication but removed a paragraph's only segment; it also retained
+an unsupported reliability benefit. No audit/Draft followed. Grant10calls/5starts.
+
+The edit protocol had required every insufficient original to be REMOVE, while
+requiring all four paragraphs to survive. It now retains the negative original
+assessment but permits independently checked replacement text. KEEP is still
+forbidden; exact/punctuation-only retention of the original/declared unsupported
+assertions is rejected. Every replacement has its own premise/source checks;
+the original negative finding is forwarded to the final semantic audit. This
+does not prove a paraphrase entails its source; actual full prose QA remains
+mandatory. No source/version/review/publication acceptance threshold is changed.
+
+Native edit schema now binds original index, allowed decision and replacement
+count: a sole segment cannot REMOVE; a mandatory public-copy revision cannot
+KEEP; REWRITE requires nonempty replacement. The app guards remain independent
+of schema compliance. Immutable actual39b6ac0 output demonstrates the missed
+constraint; synthetic tests cover a genuinely new conditional suggestion and
+rejection of retained/unsupported replacements.57directtests/drybuild PASS.
+
+Analysis/SDK/model/settings/input are unchanged; exact source prefix through the
+analysis call matches39b6ac0. Its new analysis may be reused only with exact
+packet/response/compatibility receipt checks, original provenance and explicit
+unverified editorial-proposal limits. No unchanged analysis retry is needed.
+Next exactCI/freshFreequota/deploy/pin and writing/editing/audit quality remain
+unverified. No Bquality PASS, manual approval, merge/release or Facebook publish.
+
 ## Native schema accepted; full-output quality still failed — 17 October 2026
 
 dc8326b CI39009196221 passed fast/security/Windows. Worker

@@ -74,7 +74,7 @@ export default {
       if(initialBody.length<400 || initialBody.length>12000 || initialBody.includes("```")) throw new Error("Invalid article");
       if(staged && requested===1) return Response.json({model:env.CREATOR_MODEL,worker_version:env.CREATOR_VERSION?.id,stage_result:{stage:"writing",value:written,usage:usage[1].usage}},{headers:{"cache-control":"no-store"}});
       const risks=initialBody.match(/[^.!?]+[.!?]?/gu)?.filter(s=>/(giúp|giảm rủi ro|xác minh|xác định tính xác thực|tránh lan|độ tin cậy|một phần của|khả năng|chắc chắn|thường)/iu.test(s)) ?? [];
-      const editSchema=operationSchema(initial.segments.length,catalog);
+      const editSchema=operationSchema(initial.segments.length,catalog,initial);
       const editorialWarnings=uncitedAssertionIssues(initialBody,initial.claims);
       if(/Hướng biên tập:|Ghi chú nghiên cứu|Diễn giải phần giới thiệu/iu.test(initialBody))editorialWarnings.push("Internal research-note headings/metadata were copied into public prose; remove them, preserve any supported reader-facing idea in natural wording.");
       if(/công cụ này|truy cập công cụ|sẽ biết|sẽ tìm|do UNESCO khuyến nghị/iu.test(initialBody))editorialWarnings.push("Resolve ambiguous tool referents and check every promised capability/outcome against an exact note. A handbook containing exercises is not an identified interactive comparison tool.");
