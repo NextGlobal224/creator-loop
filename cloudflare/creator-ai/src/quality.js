@@ -21,8 +21,8 @@ export function safeFailure(error, result) {
     output_types:Array.isArray(result?.output)?result.output.map(item=>item?.type).filter(t=>["message","reasoning","function_call"].includes(t)).slice(0,10):[]};
 }
 
-export function auditSchema(articleHash, segmentCount, findingCount=0) {
-  return {type:"object",properties:{
+export function auditSchema(articleHash, segmentCount, findingCount=0,findings=[]) {
+  const schema={type:"object",properties:{
     article_sha256:{type:"string",const:articleHash},
     finding_checks:{type:"array",minItems:findingCount,maxItems:findingCount,items:{
       type:"object",properties:{index:{type:"integer"},
@@ -35,6 +35,15 @@ export function auditSchema(articleHash, segmentCount, findingCount=0) {
         kind:{type:"string",enum:["HYPOTHETICAL","ADVICE","SOURCE_FACT"]},issues:{type:"array",items:{type:"string"}}},
       required:["index","kind","issues"],additionalProperties:false}},
   },required:["article_sha256","segments","finding_checks"],additionalProperties:false};
+  if(findings.length){
+    if(findings.length!==findingCount)throw new Error("Audit finding count mismatch");
+    schema.properties.finding_checks.items.oneOf=findings.flatMap((finding,index)=>{
+      const project=finding.startsWith("PROJECT_");
+      const minItems=["PROJECT_NO_UNSOURCED_RULE","PROJECT_NONREPETITIVE_DEVELOPMENT"].includes(finding)?4:1;
+      return (project?["ADDRESSED","UNRESOLVED"]:[null]).map(verdict=>({properties:{index:{const:index},...(verdict?{verdict:{const:verdict}}:{}),segment_indexes:{minItems}},required:["index","segment_indexes",...(verdict?["verdict"]:[])]}));
+    });
+  }
+  return schema;
 }
 
 export function bindAudit(body,articleHash,audit,segments,editorFindings=[]) {
@@ -62,6 +71,11 @@ export function bindAudit(body,articleHash,audit,segments,editorFindings=[]) {
   if(development>=0){
     const check=audit.finding_checks[development];
     if(check.verdict==="NOT_APPLICABLE" || paragraphs.slice(1).some((_,i)=>!check.segment_indexes.some(j=>segments[j].paragraph_index===i+1)))return null;
+  }
+  for(const [i,finding] of editorFindings.entries()){
+    if(finding.startsWith("PROJECT_") && audit.finding_checks[i].verdict==="NOT_APPLICABLE")return null;
+    if(finding==="PROJECT_NO_UNSOURCED_RULE" && paragraphs.slice(1).some((_,p)=>!audit.finding_checks[i].segment_indexes.some(j=>segments[j].paragraph_index===p+1)))return null;
+    if(finding==="PROJECT_CLOSING_MESSAGE" && !audit.finding_checks[i].segment_indexes.some(j=>segments[j].paragraph_index===paragraphs.length-1))return null;
   }
   const finding_checks=audit.finding_checks.map((c,i)=>({finding:editorFindings[i],verdict:c.verdict,reason:c.reason,
     segments:c.segment_indexes.map(j=>({index:j,text:segments[j].text}))}));
@@ -107,7 +121,8 @@ function questionOutcomeIssues(segment){
   // Observed question-only excerpts do not establish the result claimed in the
   // public sentence. This is a narrow lead/guard, not general entailment proof.
   const result=/(?:giúp|có thể|sẽ|để|nhằm)[^.!?\n]{0,160}(?:đánh giá|xác định|kiểm chứng|xác minh)/iu;
-  return result.test(segment.text) && !result.test(quote)?["Question-only excerpt does not establish the asserted identification or reliability result"]:[];
+  const recommendation=/khuyến nghị|đề nghị|yêu cầu|nên ghi|ghi lại (?:câu trả lời|kết quả)|recommend|should record/iu;
+  return [...(result.test(segment.text) && !result.test(quote)?["Question-only excerpt does not establish the asserted identification or reliability result"]:[]),...(recommendation.test(segment.text) && !recommendation.test(quote)?["Question-only excerpt does not establish the attributed recommendation or recording procedure"]:[])];
 }
 export function publicCopyRevisions(initial) {
   const repeated=englishQuestions.test(initial.body) && vietnameseQuestions.test(initial.body);

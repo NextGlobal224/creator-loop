@@ -7,7 +7,7 @@ import {auditSchema,bindAudit,validAudit,compileEditedArticle,compileSourcedArti
 function compileSourcedArticle(value,catalog){
   return compilePlainArticle({...value,editorial_paragraphs:value.editorial_paragraphs.map(p=>p.map(({premise_checks,...segment})=>segment))},catalog);
 }
-import {checkedWriting,articleRequirements} from "../src/grounding.js";
+import {checkedWriting,articleRequirements,editorialRoles} from "../src/grounding.js";
 const data={format:"TEXT",purpose:"Kiểm chứng",materials:[{material_id:"m",text:"Ghi chú nguồn công khai"}]};
 test("actual v24 metadata-leak output remains rejected despite source citation and prior empty audit",()=>{
   const actual=readFileSync(new URL("../../../tests/fixtures/workers_b_v24_metadata_failed.txt",import.meta.url),"utf8");
@@ -25,9 +25,10 @@ function draft(){
     "Nếu vẫn thiếu căn cứ, hãy giữ Chưa xác nhận và nhắn người gửi: bạn có đường dẫn gốc để mình kiểm tra không?",
   ]};return {typed,body:compileEditedArticle(typed),written:{...typed,editorial_paragraphs:typed.editorial_paragraphs.map(text=>[{text,source_quote_id:-1,premise_checks:[]}])}};
 }
-function requirementReceipts(offset=0){return articleRequirements.map((r,i)=>({index:offset+i,verdict:r.id==="PROJECT_NONREPETITIVE_DEVELOPMENT"?"ADDRESSED":"NOT_APPLICABLE",segment_indexes:r.id==="PROJECT_NONREPETITIVE_DEVELOPMENT"?[1,2,3,4]:[i===0?1:4],reason:"Synthetic task coverage only; not a semantic quality assessment."}));}
+function requirementReceipts(offset=0){return articleRequirements.map((r,i)=>({index:offset+i,verdict:"ADDRESSED",segment_indexes:r.id==="PROJECT_CLOSING_MESSAGE"?[4]:[1,2,3,4],reason:"Synthetic task coverage only; not a semantic quality assessment."}));}
 function audit(body,issues=[]){return {finding_checks:requirementReceipts(),article_sha256:createHash("sha256").update(body).digest("hex"),segments:body.split(/\n\s*\n/u).map((_,index)=>({index,kind:index===0?"HYPOTHETICAL":"ADVICE",issues:index===0?issues:[]}))};}
-function request(extra={}){return new Request("https://example.test/b/generate",{method:"POST",headers:{authorization:"Bearer fixture","content-type":"application/json"},body:JSON.stringify({prompt:"notes",writing_prompt:writingPrompt,schema,...extra})});}
+function asPlan(value){return value && Array.isArray(value.editorial_paragraphs)?{...value,editorial_paragraphs:Object.fromEntries(editorialRoles.map((role,i)=>[role.key,value.editorial_paragraphs[i]]))}:value;}
+function request(extra={}){if(extra.previous)extra={...extra,previous:extra.previous.map(p=>p.stage==="writing"?{...p,value:asPlan(p.value)}:p)};return new Request("https://example.test/b/generate",{method:"POST",headers:{authorization:"Bearer fixture","content-type":"application/json"},body:JSON.stringify({prompt:"notes",writing_prompt:writingPrompt,schema,...extra})});}
 // Synthetic valid edit receipts for protocol fixtures, not source-quality QA.
 function fixtureChecks(first, edited){
   const catalog=quoteCatalog(data.materials);
@@ -53,6 +54,7 @@ function environment(outputs,model="@cf/openai/gpt-oss-120b"){
   const captured=[];
   return {captured,env:{CREATOR_KEY:"fixture",CREATOR_MODEL:model,CREATOR_VERSION:{id:"pinned-version"},AI:{run:async(_,options)=>{
     captured.push(options);let value=outputs[captured.length-1];if(value instanceof Error)throw value; if(captured.length===3 && value && typeof value==="object" && value.editorial_paragraphs)value=fixtureOperations(outputs[1],value);
+    if(options.response_format?.json_schema?.properties?.editorial_paragraphs?.type==="object")value=asPlan(value);
     return {choices:[{message:{content:typeof value==="string"?value:JSON.stringify(value),reasoning_content:"private reasoning fixture"},finish_reason:"stop"}],usage:{prompt_tokens:12,completion_tokens:30}};
   }}}};
 }
@@ -80,7 +82,7 @@ test("structured model gets the actual stage schemas",async()=>{
   const {body,written}=draft();const {captured,env}=environment([analysis,written,written,audit(body)],"@cf/aisingapore/gemma-sea-lion-v4-27b-it");
   assert.equal((await worker.fetch(request(),env)).status,200);
   assert.deepEqual(captured[0].response_format.json_schema.required,["observations","inferences","direction"]);
-  assert.equal(captured[1].response_format.json_schema.properties.editorial_paragraphs.minItems,4);
+  assert.deepEqual(captured[1].response_format.json_schema.properties.editorial_paragraphs.required,editorialRoles.map(r=>r.key));
   assert.equal(captured[1].response_format.json_schema.properties.hypothetical_opening.minLength,1);
   assert.equal(captured[3].response_format.json_schema.properties.article_sha256.const,createHash("sha256").update(body).digest("hex"));
 });
@@ -95,7 +97,7 @@ test("AI.run JSON mode object response keeps roles, budgets and source checks",a
   const {env}=environment([]);env.AI.run=async(_,options)=>{
     assert.equal(options.messages[0].role,"system");assert.equal(options.response_format.type,"json_schema");
     assert.ok(options.max_tokens>0);assert.equal(options.input,undefined);
-    const value=outputs[calls++];return {response:calls===3?fixtureOperations(written,value):value,usage:{input_tokens:12,output_tokens:30}};
+    const value=outputs[calls++];return {response:calls===3?fixtureOperations(written,value):calls===2?asPlan(value):value,usage:{input_tokens:12,output_tokens:30}};
   };
   const result=await worker.fetch(request(),env);assert.equal(result.status,200);assert.equal(calls,4);
   assert.equal(JSON.parse((await result.json()).result.response).draft_body,body);
@@ -155,7 +157,7 @@ test("actual bdf3d07 empty opening is rejected without relocating prose or calli
   const failure=await response.json();
   assert.equal(failure.stage,"writing");assert.equal(failure.retryable,false);
   assert.equal(failure.reason,"STAGE_OUTPUT_INVALID");
-  assert.deepEqual(JSON.parse(JSON.parse(failure.stage_output).selected_writing_output),actual.written);
+  assert.deepEqual(JSON.parse(JSON.parse(failure.stage_output).selected_writing_output),asPlan(actual.written));
   assert.equal(JSON.stringify(actual.written),before,"No synthetic repair or first-paragraph extraction");
 });
 test("audit cannot rewrite article or omit paragraphs",async()=>{
@@ -232,7 +234,7 @@ test("editor receives concrete source/metadata warnings and must return findings
   assert.ok(captured[2].messages[1].content.includes("ambiguous tool referents"));
   assert.deepEqual((await response.json()).stages[2].source_issues,["Internal note and unspecified tool"]);
   const outputs=[analysis,written,written];let calls=0;
-  env.AI.run=async()=>({response:outputs[calls++]});
+  env.AI.run=async()=>({response:asPlan(outputs[calls++])});
   assert.equal((await worker.fetch(request(),env)).status,502);assert.equal(calls,3);
 });
 
@@ -340,7 +342,7 @@ test("writing rejects a declared unsupported premise before editing or audit can
     assert.equal(response.status,502);assert.equal(captured.length,2);
     const failed=await response.json();assert.equal(failed.stage,"writing");assert.equal(failed.retryable,false);
     const diagnostic=JSON.parse(failed.stage_output);
-    assert.deepEqual(JSON.parse(diagnostic.selected_writing_output),written);
+    assert.deepEqual(JSON.parse(diagnostic.selected_writing_output),asPlan(written));
     assert.equal(JSON.stringify(failed).includes("private reasoning fixture"),false);
   }
 });
@@ -393,9 +395,9 @@ test('native effort is unchanged for analysis and medium for all three generativ
 test('native writing and replacement schemas correlate selected quotes and premise IDs',async()=>{
   const {body,written}=draft();const {captured,env}=environment([analysis,written,written,audit(body)]);
   assert.equal((await worker.fetch(request(),env)).status,200);
-  const writing=captured[1].response_format.json_schema.properties.editorial_paragraphs.items.items.oneOf;
+  const writing=editorialRoles.map(role=>captured[1].response_format.json_schema.properties.editorial_paragraphs.properties[role.key].items.oneOf);
   const replacements=captured[2].response_format.json_schema.properties.edits.items.oneOf.map(branch=>branch.properties.replacement.items.oneOf);
-  for(const branches of [writing,...replacements]){
+  for(const branches of [...writing,...replacements]){
     assert.deepEqual(branches.map(b=>b.properties.source_quote_id.const),[-1,0]);
     assert.equal(branches[0].properties.premise_checks.maxItems,0);
     assert.equal(branches[1].properties.premise_checks.items.properties.quote_ids.items.const,0);
@@ -410,6 +412,6 @@ test('actual medium mixed-quote output still stops before editing when native sc
   const response=await worker.fetch(request({stage:'writing',previous:[{stage:'analysis',value:analysis,usage:{}}],writing_prompt:'Selected data:\n'+JSON.stringify({format:'TEXT',materials})}),env);
   assert.equal(response.status,502);assert.equal(captured.length,1);
   const failure=await response.json();assert.equal(failure.stage,'writing');assert.equal(failure.retryable,false);
-  const branches=captured[0].response_format.json_schema.properties.editorial_paragraphs.items.items.oneOf;
+  const branches=captured[0].response_format.json_schema.properties.editorial_paragraphs.properties.context_and_scope.items.oneOf;
   assert.deepEqual(branches.map(b=>b.properties.source_quote_id.const),[-1,3,8,9]);
 });

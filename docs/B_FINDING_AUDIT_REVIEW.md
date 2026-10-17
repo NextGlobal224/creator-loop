@@ -1,3 +1,38 @@
+## Named editorial contributions and mandatory whole-article source review — 17 October 2026
+
+ccca4a6 passed CI39016861640, deployed/pinned as
+e781eb22-65e3-417c-bb39-8fcf59b68130. Native full receipts worked and the app
+completed writing/editing/audit in42.734s. Full prose QA still failed: a source
+question list became a COR recommendation, and a cited sentence added recording
+answers before sharing. The notes do not supply that recommendation/procedure.
+The audit waived PROJECT_NO_UNSOURCED_RULE as NOT_APPLICABLE using only safe
+paragraph1; paragraphs2/3 remained underdeveloped. No Draft was saved. Grant15/7.
+
+Change generation structure rather than repeat another anonymous four-array
+attempt: the writer must return named context/scope, unresolved-information,
+supported-perspective and closing-message sections. Each contains free-written
+source-bound segments. The assembler only orders their declared text; it cannot
+fill a missing role, accept old array wire format or rewrite/remove prose. The
+analysis direction stays a creative proposal, not chosen instructions or source
+authority. Factual assertions and new voluntary suggestions remain distinct.
+
+Every Project audit requirement now requires ADDRESSED or UNRESOLVED; source-rule
+and development checks must cover every editorial paragraph, and the closing
+check must include the last paragraph. Native per-index schema encodes these
+constraints, using the proven full-object decoder adaptation. Coverage is not
+semantic certification. The question-only source guard also detects the observed
+unsupported recommendation/recording attribution before and after editing.
+Explicitly supported source recommendations remain allowed; full prose/source QA
+and UNREVIEWED/manual publication approval remain mandatory.
+
+72direct Worker/SDK/guard tests and dry build PASS, including immutable actual
+false-audit replay and proof that role ordering leaves every model text unchanged.
+Old fixtures are only re-encoded in declared synthetic protocol tests, never
+repaired or counted as automatic quality success. Actual original analysis input
+and response replayed through old/current Worker and real SDK/provider still yield
+equal native inputs with unchanged model/low2600 settings; reuse remains explicit
+and provenance-bound. Exact newCI/freshFreequota/liveQA/save-reopen are pending.
+
 ## Complete native edit alternatives and question-only outcome limits — 17 October 2026
 
 ce273a1 passed exact CI39015003538 and deployed/pinned as

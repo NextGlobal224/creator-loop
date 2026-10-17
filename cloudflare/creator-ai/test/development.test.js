@@ -20,6 +20,9 @@ test('actual f103545 empty audit cannot substitute for all-paragraph development
   const raw={article_sha256:hash,segments:composed.segments.map((s,index)=>({index,kind:index===0?'HYPOTHETICAL':s.citation?'SOURCE_FACT':'ADVICE',issues:[]})),finding_checks:actual.audit.finding_checks.map((c,index)=>({index,verdict:c.verdict,reason:c.reason,segment_indexes:c.segments.map(s=>s.index)}))};
   const before=JSON.stringify(actual);
   assert.equal(bindAudit(composed.body,hash,raw,composed.segments,findings),null,'Old real audit lacks the new mandatory check');
+  // Isolate development coverage with synthetic valid dispositions for the
+  // other mandatory Project checks; original failed audit remains unchanged.
+  raw.finding_checks.forEach((check,i)=>{check.verdict='ADDRESSED';check.segment_indexes=findings[i]==='PROJECT_CLOSING_MESSAGE'?[4]:[1,2,3,4];});
   const all=[1,2,3,4];
   const check={index:2,verdict:'NOT_APPLICABLE',reason:'Synthetic protocol disposition, not semantic QA',segment_indexes:all};
   raw.finding_checks.push(check);

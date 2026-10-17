@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import worker from '../src/index.js';
+import {editorialRoles} from '../src/grounding.js';
 const actual=JSON.parse(readFileSync(new URL('../../../tests/fixtures/workers_b_ede13a9_writing_failed.json',import.meta.url),'utf8'));
 test('unsupported-benefit writing without a citation-role violation reaches the editor as a lead',async()=>{
   const before=JSON.stringify(actual);
@@ -10,7 +11,8 @@ test('unsupported-benefit writing without a citation-role violation reaches the 
   const written=structuredClone(actual.written);
   for(const paragraph of written.editorial_paragraphs)for(const segment of paragraph){segment.source_quote_id=-1;segment.premise_checks=[];}
   const analysis={observations:[{material_id:actual.materials[0].material_id,quote:actual.materials[0].text.split('\n')[0],observation:'Protocol replay only'}],inferences:[],direction:'Protocol replay only'};
-  const packet={prompt:'Offline replay',writing_prompt:'Selected notes\n'+JSON.stringify({format:'TEXT',materials:actual.materials}),schema:{properties:{observations:{type:'array'},inferences:{type:'array'},direction:{type:'string'}}},stage:'editing',previous:[{stage:'analysis',value:analysis,usage:{}},{stage:'writing',value:written,usage:{}}]};
+  const plan={...written,editorial_paragraphs:Object.fromEntries(editorialRoles.map((r,i)=>[r.key,written.editorial_paragraphs[i]]))};
+  const packet={prompt:'Offline replay',writing_prompt:'Selected notes\n'+JSON.stringify({format:'TEXT',materials:actual.materials}),schema:{properties:{observations:{type:'array'},inferences:{type:'array'},direction:{type:'string'}}},stage:'editing',previous:[{stage:'analysis',value:analysis,usage:{}},{stage:'writing',value:plan,usage:{}}]};
   let calls=0,captured;
   const response=await worker.fetch(new Request('https://example.test/b/generate',{method:'POST',headers:{authorization:'Bearer fixture','content-type':'application/json'},body:JSON.stringify(packet)}),{CREATOR_KEY:'fixture',CREATOR_MODEL:'@cf/openai/gpt-oss-120b',CREATOR_VERSION:{id:'fixture'},AI:{run:async(_,options)=>{
     calls++;captured=options.messages[1].content;

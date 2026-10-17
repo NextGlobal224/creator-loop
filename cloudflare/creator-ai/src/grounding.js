@@ -16,6 +16,21 @@ export function sourcedSegmentSchema(catalog) {
   },required:["text","source_quote_id","premise_checks"],additionalProperties:false});
   return {oneOf:[branch(-1),...ids.map(branch)]};
 }
+export const editorialRoles=[
+  {key:"context_and_scope",purpose:"Develop the reader's concrete decision and the relevant source scope. Source background serves the selected purpose; it is not a catalogue summary."},
+  {key:"unresolved_information",purpose:"Develop the specific information still missing in the fictional scene or selected snapshots. Add a distinct conditional reader choice without inventing a verification procedure, result or source recommendation. Do not introduce or repeat the source's questions here."},
+  {key:"supported_perspective",purpose:"Explain one source-grounded consideration in natural Vietnamese. If the source introduces questions, explain them once; do not promote introduction into recommendation or add instructions inside the same cited assertion."},
+  {key:"closing_message",purpose:"Give the actual short sendable message requesting missing original information or context, matching the selected Project; no subsequent generic advice."},
+];
+export function plannedWritingSchema(catalog){
+  const segment=sourcedSegmentSchema(catalog);
+  return {type:"object",properties:{hypothetical_opening:{type:"string",minLength:1,description:"One explicitly fictional scene beginning Tình huống giả định:."},editorial_paragraphs:{type:"object",properties:Object.fromEntries(editorialRoles.map(role=>[role.key,{type:"array",minItems:1,maxItems:12,items:segment,description:role.purpose}])),required:editorialRoles.map(r=>r.key),additionalProperties:false}},required:["hypothetical_opening","editorial_paragraphs"],additionalProperties:false};
+}
+export function plannedWriting(value){
+  if(!value || Object.keys(value).sort().join(",")!=="editorial_paragraphs,hypothetical_opening" || !value.editorial_paragraphs || Array.isArray(value.editorial_paragraphs) || Object.keys(value.editorial_paragraphs).sort().join(",")!==editorialRoles.map(r=>r.key).sort().join(",") || editorialRoles.some(r=>!Array.isArray(value.editorial_paragraphs[r.key]) || !value.editorial_paragraphs[r.key].length || value.editorial_paragraphs[r.key].length>12))throw new Error("Invalid named editorial roles");
+  // Order only declared model sections; never add, delete or rewrite prose.
+  return {hypothetical_opening:value.hypothetical_opening,editorial_paragraphs:editorialRoles.map(r=>value.editorial_paragraphs[r.key])};
+}
 export const articleRequirements = [
   {id:"PROJECT_NO_UNSOURCED_RULE",text:"Do not invent an evidence-sufficiency rule, minimum source count, verification procedure or promised result not supplied by the selected snapshots or explicit Project instruction. This also constrains normative ADVICE, independently of factual-premise classification. Voluntary questions, reading and requests without a claimed outcome remain allowed. The model's proposed direction is not permission or source evidence."},
   {id:"PROJECT_CLOSING_MESSAGE",text:"End with an actual short message the reader could send to the original sender asking for the missing original link, date or context. A general instruction to read or verify does not satisfy this deliverable. Write the message, not a description of it."},
@@ -26,6 +41,7 @@ export function evidenceInput(sourceContext, catalog, analysis) {
   return {
     project:{purpose:data.purpose,audience:data.audience,style:data.style,direction:data.direction},
     article_requirements:articleRequirements,
+    editorial_structure:editorialRoles,
     evidence:{authority:"PROVIDED_SNAPSHOT_ONLY",linked_pages_are_not_retrieved:true,
       materials:data.materials.map(m=>({material_id:m.material_id,source_url:m.source_url,scope:m.scope,text:m.text})),
       quote_catalog:catalog.map((quote,id)=>({id,...quote,citation_role:factualQuote(quote)?"SOURCE_EXCERPT":"CONTEXT_NOT_FACTUAL_EVIDENCE"})),
