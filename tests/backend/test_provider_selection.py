@@ -61,10 +61,15 @@ class ProviderConfigurationTests(unittest.TestCase):
                 "TEXT",
                 "Nguồn cần được đối chiếu.",
             )
-            body = "Giả sử bạn nhận được một ảnh thiếu nguồn. " + " ".join(
-                f"Gợi ý {n}: hãy đọc nguồn và xem căn cứ trước khi chia sẻ."
-                for n in range(10)
-            )
+            # Protocol fixture only, not a model output or quality certificate.
+            paragraphs = [
+                "Giả sử bạn nhận được một ảnh chụp thông báo nhưng thiếu đường dẫn gốc.",
+                "Hãy hỏi người gửi về nơi đăng và ngày công bố, giữ những thông tin chưa có ở trạng thái chưa xác nhận.",
+                "Nếu có bản gốc, hãy đọc phần trước và sau đoạn chụp, chú ý phạm vi của thông báo thay vì đoán theo tiêu đề.",
+                "Hãy ghi lại điều còn thiếu để đối chiếu với nguồn, đừng biến câu hỏi chưa có đáp án thành một kết luận.",
+                "Bạn có thể nhắn người gửi: Bạn cho mình xin đường dẫn gốc và ngày đăng của thông báo này được không?",
+            ]
+            body = "\n\n".join(paragraphs)
             content = {
                 "observations": [
                     {
@@ -93,16 +98,29 @@ class ProviderConfigurationTests(unittest.TestCase):
                     "finding_checks": [
                         {
                             "finding": requirement,
-                            "verdict": "NOT_APPLICABLE",
+                            "verdict": (
+                                "ADDRESSED"
+                                if requirement == "PROJECT_NONREPETITIVE_DEVELOPMENT"
+                                else "NOT_APPLICABLE"
+                            ),
                             "reason": "Synthetic protocol coverage, not a quality verdict.",
-                            "segments": [{"index": 0, "text": body}],
+                            "segments": [
+                                {"index": i, "text": text}
+                                for i, text in enumerate(paragraphs)
+                                if i
+                            ],
                         }
                         for requirement in ARTICLE_REQUIREMENT_IDS
                     ],
                     "draft_body": body,
                     "issues": [],
                     "paragraphs": [
-                        {"text": body, "kind": "HYPOTHETICAL", "factual_passages": []}
+                        {
+                            "text": text,
+                            "kind": "HYPOTHETICAL" if i == 0 else "ADVICE",
+                            "factual_passages": [],
+                        }
+                        for i, text in enumerate(paragraphs)
                     ],
                 },
             }
@@ -191,6 +209,19 @@ class ProviderConfigurationTests(unittest.TestCase):
                     "00000000-0000-4000-8000-000000000002",
                 )
             stale = replies(packet)
+            waived = json.loads(json.dumps(packet))
+            next(
+                check
+                for check in waived["quality_audit"]["finding_checks"]
+                if check["finding"] == "PROJECT_NONREPETITIVE_DEVELOPMENT"
+            )["verdict"] = "NOT_APPLICABLE"
+            with patch(
+                "creator_loop.backend.analysis.workers_creator.post_owned",
+                side_effect=replies(waived),
+            ) as transport:
+                with self.assertRaisesRegex(ValueError, "development check"):
+                    provider.generate(request, [material])
+                self.assertEqual(transport.call_count, 4)
             old_edit = json.loads(stale[2])
             old_edit["stage_result"].pop("task_requirements")
             stale[2] = json.dumps(old_edit).encode()
