@@ -1,3 +1,35 @@
+## Complete native edit alternatives and question-only outcome limits — 17 October 2026
+
+ce273a1 passed exact CI39015003538 and deployed/pinned as
+ad4f8c27-8030-4a48-8f1a-e845a3ede5f0. The app reused proven-compatible analysis
+and ran writing/editing. Native edit output followed per-index branch decisions
+but omitted the parent-required support/quote_ids/premise_checks/note fields.
+The app rejected invalid edit identity, before audit/Draft. Grant12calls/6starts.
+The exact malformed receipt remains an immutable fixture, never repaired.
+
+The observed output suggests native decoding did not intersect a partial oneOf
+branch with its parent object. The binding-only adapter now expands our narrow
+flat const/array-bound alternatives into complete objects: every required field,
+type, source/premise constraint and stricter min/max bound is inherited. It does
+not weaken the full SDK/prompt schema or change output text. An offline real-SDK
+replay verifies full native receipts while independently rejecting the original
+bad reply. Native enforcement and actual full prose QA still require a live run.
+
+The same observed samples kept identification/reliability claims backed only
+by a question-list excerpt. A narrow source-bound revision check now requires
+editing such additions, and checks replacements again before audit. Explicit
+outcomes actually present in the excerpt are not banned by this check. This is
+not a general entailment/language score; full source/prose/analysis QA remains.
+69direct SDK/guard/deadline tests and dry build PASS; source/model/version/review
+guards and one-request/no-retry behavior are preserved.
+
+Actual39b6ac0 analysis packet/response replayed through old/current Worker and
+real SDK/provider produces byte-equivalent native analysis inputs, low2600tokens.
+Only edit decoding changes; no new analysis inference or quality PASS is claimed.
+Exact input/source/response/origin/target receipt checks remain mandatory for reuse.
+Next exactCI/freshsame-accountFreequota/deploy/pin/writing-editing-audit and true
+quality/save-reopen/history are pending. No self-approval/merge/release/publish.
+
 ## Independent replacement for an insufficient sole paragraph — 17 October 2026
 
 39b6ac0 passed exact CI39011232909 and deployed/pinned as

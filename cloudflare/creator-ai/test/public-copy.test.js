@@ -20,6 +20,20 @@ test('actual dc8326b paraphrase cannot bypass bilingual repetition revision with
   assert.throws(()=>applyEditOperations(currentMiss.operations,initial,sources),/Public copy violation requires REWRITE or REMOVE/);
   assert.equal(JSON.stringify(currentMiss),before,'Actual output and erroneous audit remain immutable');
 });
+
+test('actual question-only citation cannot authorize the observed identification/reliability outcome',()=>{
+  const sources=quoteCatalog(currentMiss.materials);
+  const initial=compileSourcedArticle(checkedWriting(currentMiss.written,sources),sources);
+  const revisions=publicCopyRevisions(initial);
+  assert.ok(revisions.some(r=>r.index===3 && r.issues.some(s=>s.includes('Question-only'))));
+  const editedShape={body:currentMiss.body,segments:initial.segments};
+  assert.ok(publicCopyRevisions(editedShape).some(r=>r.issues.some(s=>s.includes('reliability'))),'The same miss is checked after editing too');
+  const sentence='Ba câu hỏi này giúp người đọc đánh giá độ tin cậy.';
+  const article=quote=>({body:sentence,segments:[{index:1,text:sentence,citation:{source_quote:quote}}]});
+  assert.deepEqual(publicCopyRevisions(article('COR giới thiệu ba câu hỏi. Chúng giúp người đọc đánh giá độ tin cậy.')),[],'An explicit source outcome is not banned by this narrow guard; semantic QA still applies');
+  const inquiry='COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc.';
+  assert.deepEqual(publicCopyRevisions({body:inquiry,segments:[{index:1,text:inquiry,citation:{source_quote:inquiry}}]}),[],'An inquiry description is not an established result');
+});
 // Historical text is still useful for public-copy regression after the new
 // citation-role guard rejects it earlier in the current generation route.
 const initial=compileSourcedArticle({...actual.written,editorial_paragraphs:actual.written.editorial_paragraphs.map(p=>p.map(({premise_checks,...s})=>s))},catalog);

@@ -32,6 +32,22 @@ function nativeDecodingSchema(schema) {
     if(result[key] && !Array.isArray(result[key])) result[key]=nativeDecodingSchema(result[key]);
   for(const key of ["allOf","anyOf","oneOf","prefixItems"])
     if(Array.isArray(result[key])) result[key]=result[key].map(nativeDecodingSchema);
+  // Actual ce273a1 decoding emitted only index/decision/replacement from a
+  // partial oneOf branch, omitting the parent object's required receipts.
+  // Expand only our flat const/array-bound alternatives into complete objects.
+  // This preserves the intersection, unlike replacing the parent with a branch.
+  if(result.type==="object" && result.properties && Array.isArray(result.oneOf) &&
+     result.oneOf.every(branch=>branch && Object.keys(branch).every(key=>["properties","required"].includes(key)) && branch.properties &&
+       Object.entries(branch.properties).every(([name,constraints])=>Object.hasOwn(result.properties,name) &&
+         Object.keys(constraints).every(key=>["const","minItems","maxItems"].includes(key))))){
+    const base={...result};delete base.oneOf;
+    return {oneOf:result.oneOf.map(branch=>({...base,properties:Object.fromEntries(Object.entries(base.properties).map(([name,property])=>{
+      const constraints=branch.properties[name]??{},merged={...property,...constraints};
+      for(const [key,combine] of [["minItems",Math.max],["maxItems",Math.min]])
+        if(property[key]!==undefined && constraints[key]!==undefined)merged[key]=combine(property[key],constraints[key]);
+      return [name,merged];
+    })),required:[...new Set([...(base.required??[]),...(branch.required??[])])]}))};
+  }
   return result;
 }
 

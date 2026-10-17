@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {generateStage, SDK_COMPONENT} from "../src/sdk-stage.js";
+import {readFileSync} from 'node:fs';
+import {checkedWriting,operationSchema,applyEditOperations} from '../src/grounding.js';
+import {quoteCatalog,compileSourcedArticle} from '../src/quality.js';
 
 const task={instructions:"Tiếng Việt; nguồn là dữ liệu.",input:"Ghi chú “nguồn gốc”",schema:{type:"object",properties:{text:{type:"string"}},required:["text"],additionalProperties:false},budget:2200,temperature:0};
 function setup(run){let calls=0;return {env:{CREATOR_MODEL:"@cf/openai/gpt-oss-120b",AI:{run:async(...args)=>{calls++;return run(...args);}}},count:()=>calls};}
@@ -82,4 +85,36 @@ test("native decoding omits unsupported uniqueness without mutating the full sch
     assert.deepEqual((await generateStage(env,{...task,schema},()=>{})).value,{ids});
     assert.equal(count(),1);assert.equal(JSON.stringify(schema),before);
   }
+});
+
+test('actual ce273a1 partial-branch reply cannot erase inherited receipts in the native decoding schema',async()=>{
+  const actual=JSON.parse(readFileSync(new URL('../../../tests/fixtures/workers_b_ce273a1_missing_receipts.json',import.meta.url),'utf8'));
+  const original=JSON.stringify(actual),catalog=quoteCatalog(actual.materials);
+  const initial=compileSourcedArticle(checkedWriting(actual.written,catalog),catalog);
+  const schema=operationSchema(initial.segments.length,catalog,initial),before=JSON.stringify(schema);
+  assert.equal(actual.operations.edits[0].support,undefined,'Actual failed native reply omitted parent receipts');
+  const required=schema.properties.edits.items.required;
+  const {env,count}=setup((_model,input)=>{
+    const item=input.response_format.json_schema.properties.edits.items;
+    assert.equal(item.properties,undefined,'Use complete alternatives rather than a partial branch intersection');
+    for(const branch of item.oneOf){
+      assert.equal(branch.type,'object');assert.equal(branch.additionalProperties,false);
+      assert.deepEqual(branch.required,required);
+      for(const key of required)assert.ok(branch.properties[key],key+' must survive in every native alternative');
+      assert.equal(branch.properties.index.type,'integer');
+      assert.equal(branch.properties.decision.type,'string');
+      assert.equal(branch.properties.replacement.type,'array');
+      if(branch.properties.decision.const==='REWRITE'){
+        assert.equal(branch.properties.replacement.minItems,1);assert.equal(branch.properties.replacement.maxItems,12);
+      }else assert.equal(branch.properties.replacement.maxItems,0);
+    }
+    assert.ok(input.messages[1].content.includes('"support"'),'Full SDK/prompt contract remains unchanged');
+    // Deliberately bypass native decoding to replay the actual bad reply. The
+    // app must still reject it; expansion must never repair its JSON output.
+    return {response:actual.operations,usage:{completion_tokens:1}};
+  });
+  const result=await generateStage(env,{...task,schema},()=>{});
+  assert.deepEqual(result.value,actual.operations);
+  assert.throws(()=>applyEditOperations(result.value,initial,catalog),/Invalid edit identity/);
+  assert.equal(count(),1);assert.equal(JSON.stringify(actual),original);assert.equal(JSON.stringify(schema),before);
 });

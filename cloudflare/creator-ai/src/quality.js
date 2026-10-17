@@ -101,10 +101,18 @@ export function publicArticleIssues(body) {
 // Narrow checks for the actual v31 miss, not a general language/entailment score.
 const englishQuestions=/who[’']s behind the information\?\s*what[’']s the evidence\?\s*what do other sources say\?/iu;
 const vietnameseQuestions=/ai (?:là người )?đứng sau thông tin[^.\n]{0,120}(?:căn cứ|bằng chứng)[^.\n]{0,120}(?:nguồn khác|những nguồn khác)/iu;
+function questionOutcomeIssues(segment){
+  const quote=segment.citation?.source_quote;
+  if(!quote || !/ba câu hỏi|who[’']s behind the information/iu.test(quote))return [];
+  // Observed question-only excerpts do not establish the result claimed in the
+  // public sentence. This is a narrow lead/guard, not general entailment proof.
+  const result=/(?:giúp|có thể|sẽ|để|nhằm)[^.!?\n]{0,160}(?:đánh giá|xác định|kiểm chứng|xác minh)/iu;
+  return result.test(segment.text) && !result.test(quote)?["Question-only excerpt does not establish the asserted identification or reliability result"]:[];
+}
 export function publicCopyRevisions(initial) {
   const repeated=englishQuestions.test(initial.body) && vietnameseQuestions.test(initial.body);
   return initial.segments.flatMap(segment=>{
-    const issues=publicArticleIssues(segment.text);
+    const issues=[...publicArticleIssues(segment.text),...questionOutcomeIssues(segment)];
     if(repeated && englishQuestions.test(segment.text) && !issues.some(s=>s.includes("bilingual"))) issues.push("Repeated bilingual source questions remain in the public Draft");
     return issues.length?[{index:segment.index,issues}]:[];
   });

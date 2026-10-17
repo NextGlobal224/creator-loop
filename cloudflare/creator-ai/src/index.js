@@ -90,7 +90,7 @@ export default {
       const composed=compileSourcedArticle({hypothetical_opening:edited.hypothetical_opening,editorial_paragraphs:edited.editorial_paragraphs},catalog);
       const body=composed.body;
       if(body.length<400 || body.length>12000 || body.includes("```") || !hasHypotheticalOpening(body)) throw new Error("Invalid edited article");
-      const publicIssues=[...revisionIssues(initial,composed,edited.source_checks,catalog),...publicArticleIssues(body),...uncitedAssertionIssues(body,composed.claims)];
+      const publicIssues=[...revisionIssues(initial,composed,edited.source_checks,catalog),...publicArticleIssues(body),...publicCopyRevisions(composed).flatMap(r=>r.issues),...uncitedAssertionIssues(body,composed.claims)];
       if(publicIssues.length) return Response.json({error:"QUALITY_REJECTED",reason:"SOURCE_AUDIT_FAILED",stage:"editing",retryable:false,candidate_body:body,stage_output:JSON.stringify(operations).slice(0,12000),audit_issues:publicIssues,stages:usage},{status:422,headers:{"cache-control":"no-store"}});
       const taskRequirements=articleRequirements.map(item=>item.id);
       const auditFindings=[...new Set([...edited.source_issues,...taskRequirements])];

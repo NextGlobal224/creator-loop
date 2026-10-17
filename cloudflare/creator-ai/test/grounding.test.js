@@ -125,7 +125,7 @@ test('actual39b6ac0 sole-paragraph removal is excluded by native edit decisions 
   const before=JSON.stringify(actual),sources=quoteCatalog(actual.materials);
   const initial=compileSourcedArticle(checkedWriting(actual.written,sources),sources);
   assert.equal(actual.operations.edits[2].decision,'REMOVE');
-  assert.throws(()=>applyEditOperations(actual.operations,initial,sources),/Editing omitted a required paragraph/);
+  assert.throws(()=>applyEditOperations(actual.operations,initial,sources),/Editing omitted a required paragraph|Public copy violation/);
   const branches=operationSchema(initial.segments.length,sources,initial).properties.edits.items.oneOf;
   const foreign=branches.filter(b=>b.properties.index.const===2);
   assert.deepEqual(foreign.map(b=>b.properties.decision.const),['REWRITE']);
