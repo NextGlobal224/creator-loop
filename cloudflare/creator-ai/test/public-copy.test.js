@@ -7,6 +7,19 @@ import worker from '../src/index.js';
 
 const actual=JSON.parse(readFileSync(new URL('../../../tests/fixtures/workers_b_v31_editing_failed.json',import.meta.url),'utf8'));
 const catalog=quoteCatalog(actual.materials);
+const currentMiss=JSON.parse(readFileSync(new URL('../../../tests/fixtures/workers_b_dc8326b_public_repetition.json',import.meta.url),'utf8'));
+
+test('actual dc8326b paraphrase cannot bypass bilingual repetition revision with different Vietnamese wording',()=>{
+  const before=JSON.stringify(currentMiss);
+  const sources=quoteCatalog(currentMiss.materials);
+  const writing=checkedWriting(currentMiss.written,sources);
+  const initial=compileSourcedArticle(writing,sources);
+  assert.ok(publicArticleIssues(currentMiss.body).some(s=>s.includes('bilingual')));
+  const revisions=publicCopyRevisions(initial);
+  assert.ok(revisions.some(r=>r.issues.some(s=>s.includes('bilingual'))));
+  assert.throws(()=>applyEditOperations(currentMiss.operations,initial,sources),/Public copy violation requires REWRITE or REMOVE/);
+  assert.equal(JSON.stringify(currentMiss),before,'Actual output and erroneous audit remain immutable');
+});
 // Historical text is still useful for public-copy regression after the new
 // citation-role guard rejects it earlier in the current generation route.
 const initial=compileSourcedArticle({...actual.written,editorial_paragraphs:actual.written.editorial_paragraphs.map(p=>p.map(({premise_checks,...s})=>s))},catalog);

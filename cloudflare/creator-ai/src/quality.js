@@ -100,7 +100,7 @@ export function publicArticleIssues(body) {
 
 // Narrow checks for the actual v31 miss, not a general language/entailment score.
 const englishQuestions=/who[’']s behind the information\?\s*what[’']s the evidence\?\s*what do other sources say\?/iu;
-const vietnameseQuestions=/ai đứng sau thông tin[^.\n]{0,100}căn cứ nào[^.\n]{0,100}nguồn khác nói gì/iu;
+const vietnameseQuestions=/ai (?:là người )?đứng sau thông tin[^.\n]{0,120}(?:căn cứ|bằng chứng)[^.\n]{0,120}(?:nguồn khác|những nguồn khác)/iu;
 export function publicCopyRevisions(initial) {
   const repeated=englishQuestions.test(initial.body) && vietnameseQuestions.test(initial.body);
   return initial.segments.flatMap(segment=>{

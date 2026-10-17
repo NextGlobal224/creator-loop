@@ -1,3 +1,29 @@
+## Native schema accepted; full-output quality still failed — 17 October 2026
+
+dc8326b CI39009196221 passed fast/security/Windows. Worker
+8f3f6479-ac35-4d59-8d19-d725e5e929f4 matched metadata/health and app pin.
+The real app completed writing/editing/audit in51.5s with compatible analysis
+reuse, but prose QA failed: a full English question list was repeated as a
+Vietnamese paraphrase; applying questions was overstated as identifying an
+author/assessing reliability. Audit incorrectly accepted it. No Draft was saved.
+The unmodified actual output, source notes, edit decisions and audit are now a
+fixture. The public-copy check recognizes the observed Vietnamese variant and
+requires revision, without banning standalone foreign quotations or names.
+
+Writer/editor/auditor instructions now distinguish a paraphrase from a new
+paragraph contribution and require concrete information gaps/conditional actions
+without invented results. Analysis instructions explicitly separate inquiry
+questions from verification efficacy or source-endorsed procedures. Therefore
+the next app chain must generate NEW analysis; the old analysis reuse receipt is
+not compatible with this change. Model/effort, exact source text/IDs, schema and
+all source/version/review guards remain.55direct tests plus dry build PASS.
+Actual automatic prose and analysis QA, save/reopen/history and independent
+review remain unverified for this candidate. No quality PASS follows from tests.
+
+Grant B-finish-20261017-free now7calls/4starts, no retry/fallback; previous grants
+remain historical. Next live four-stage chain requires exact CI and fresh
+sufficient same-account WorkersFreequota at$0; no arbitrary old2start cap.
+
 ## Correlated source schema and explicit note roles — 17 October 2026
 
 d7315a2 passed all three required checks in run39006421655, deployed/pinned as
