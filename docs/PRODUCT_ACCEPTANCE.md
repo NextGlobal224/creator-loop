@@ -1,3 +1,28 @@
+## Bounded source edit output after exhausted response — 17 October 2026
+
+Exact2a5b58d CI39021330192 passed all three required checks; Worker e4f0b49d was
+deployed/pinned and verified against metadata/health after fresh Workers Free/$0
+and Today4.42k/10k quota. App writing/editing used two new calls. Editing consumed
+all3000completion tokens and the real SDK could not obtain valid text. The saved
+diagnostic did not include native finish_reason, so its exact private response
+is unknown. No audit/workflow/Draft; grant20calls/9starts, failures retained.
+
+Increase only the bounded edit output allowance3000→4500, preserving medium
+reasoning, source-first instructions, immutable receipts, structural/source/audit
+guards and no retry/fallback. Other stage budgets/settings stay unchanged. Writer
+output still needs genuine source-aware correction: Englishquestion/Vietnamese
+duplication and unsupported source scope/outcome additions are not accepted.
+Failure diagnostics now export only an allowlisted finish_reason enum; never
+exception text, headers or hidden reasoning. Quota planning must account for the
+larger editor before another live chain; this is not renewed grant authority.
+
+74direct Worker/SDK tests, drybuild and scoped secret scan PASS. The immutable
+actual budget diagnostic is preserved; a clearly labelled synthetic length/null
+reply still fails once through the real SDK, with no repaired output or secret
+diagnostics. Old/current Worker realSDK analysis invocation remains byte-equal
+for the actual originalpacket/response, retaining originalanalysis provenance.
+Exact newCI/freshFreequota/deploypin/livefullQA/save-reopen pending. B not accepted.
+
 ## Complete immutable audit scope — 17 October 2026
 
 The actual6ff5fb0 run completed three native calls but its global source audit
