@@ -3,7 +3,7 @@
 import hashlib
 import json
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -108,7 +108,13 @@ class WorkersCreator:
         cancelled: Callable[[], bool] = lambda: False,
         *,
         analysis_receipt: Path | None = None,
+        predecessor_receipts: Mapping[str, Path] | None = None,
     ) -> dict[str, Any]:
+        predecessors = dict(predecessor_receipts or {})
+        if set(predecessors) not in (set(), {"writing"}, {"writing", "editing"}) or (
+            predecessors and analysis_receipt is None
+        ):
+            raise ValueError("Predecessor reuse requires an explicit compatible prefix")
         if request.output_format != "TEXT":
             raise ValueError(
                 "Workers B pilot supports TEXT; other formats require a separately verified provider"
@@ -185,6 +191,32 @@ class WorkersCreator:
                     {
                         "stage": stage,
                         "run": analysis_receipt.parent.name,
+                        "elapsed_seconds": 0,
+                        "upload_bytes": 0,
+                        "download_bytes": 0,
+                        **reused,
+                    }
+                )
+                continue
+            if stage in predecessors:
+                from creator_loop.backend.analysis.workers_predecessor_reuse import (
+                    reuse_predecessor,
+                )
+
+                cached_item, reused = reuse_predecessor(
+                    self.root,
+                    predecessors[stage],
+                    stage_payload,
+                    stage=stage,
+                    endpoint=self.endpoint,
+                    model=self.model.component_id,
+                    worker_version=self.worker_version,
+                )
+                previous.append(cached_item)
+                requests.append(
+                    {
+                        "stage": stage,
+                        "run": predecessors[stage].parent.name,
                         "elapsed_seconds": 0,
                         "upload_bytes": 0,
                         "download_bytes": 0,

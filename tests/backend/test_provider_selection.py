@@ -14,6 +14,7 @@ from creator_loop.backend.analysis.workers_quality import ARTICLE_REQUIREMENT_ID
 from creator_loop.shared.workflow import CreatorRequest, ResearchMaterial
 
 from tests.backend.test_workers_analysis_reuse import make_analysis_receipt
+from tests.backend.test_workers_predecessor_reuse import make_predecessor_receipt
 
 
 class ProviderConfigurationTests(unittest.TestCase):
@@ -208,6 +209,51 @@ class ProviderConfigurationTests(unittest.TestCase):
                     resumed["provenance"]["requests"][0]["origin_worker_version"],
                     "00000000-0000-4000-8000-000000000002",
                 )
+            predecessor_receipts = {
+                stage: make_predecessor_receipt(
+                    root,
+                    stage,
+                    resumed_transport.call_args_list[index].args[3],
+                    replies(packet)[index + 1],
+                    provider.model.component_id,
+                    version,
+                    version,
+                )
+                for index, stage in enumerate(("writing", "editing"))
+            }
+            with patch(
+                "creator_loop.backend.analysis.workers_creator.post_owned",
+                return_value=json.dumps(packet).encode(),
+            ) as audit_only:
+                resumed = provider.generate(
+                    request,
+                    [material],
+                    analysis_receipt=receipt,
+                    predecessor_receipts=predecessor_receipts,
+                )
+                self.assertEqual(resumed["draft_body"], body)
+                self.assertEqual(audit_only.call_count, 1)
+                uploaded = json.loads(audit_only.call_args.args[3])
+                self.assertEqual(uploaded["stage"], "source_audit")
+                self.assertEqual(len(uploaded["previous"]), 3)
+                self.assertEqual(
+                    [r.get("execution") for r in resumed["provenance"]["requests"][:3]],
+                    ["reused_analysis", "reused_predecessor", "reused_predecessor"],
+                )
+            broken = json.loads(json.dumps(packet))
+            broken["stages"][2]["body"] += " changed"
+            with patch(
+                "creator_loop.backend.analysis.workers_creator.post_owned",
+                return_value=json.dumps(broken).encode(),
+            ) as audit_only:
+                with self.assertRaisesRegex(ValueError, "exact edited article"):
+                    provider.generate(
+                        request,
+                        [material],
+                        analysis_receipt=receipt,
+                        predecessor_receipts=predecessor_receipts,
+                    )
+                self.assertEqual(audit_only.call_count, 1)
             stale = replies(packet)
             waived = json.loads(json.dumps(packet))
             next(

@@ -72,7 +72,7 @@ test("source analysis precedes writing; conflicting prose instructions never ent
     assert.equal(captured[i].messages[1].content.includes(analysis.observations[0].observation),false);
     assert.ok(captured[i].messages[1].content.includes("UNVERIFIED_PROPOSAL_NOT_SOURCE_EVIDENCE"));
   }
-  assert.deepEqual(captured.map(c=>c.max_tokens),[2600,3000,4500,2200]);
+  assert.deepEqual(captured.map(c=>c.max_tokens),[2600,3000,4500,4000]);
   const result=await response.json();assert.deepEqual(result.stages.map(s=>s.stage),["analysis","writing","editing","source_audit"]);
   assert.equal(result.stages[1].body,body);assert.equal(JSON.parse(result.result.response).draft_body,body);
   assert.equal(result.quality_audit.draft_body,body);assert.deepEqual(result.quality_audit.issues,[]);assert.equal(result.worker_version,"pinned-version");
@@ -89,7 +89,7 @@ test("structured model gets the actual stage schemas",async()=>{
 test("explicit Qwen model keeps JSON stage contract and bounded non-thinking input",async()=>{
   const {body,written}=draft();const {captured,env}=environment([analysis,written,written,audit(body)],"@cf/qwen/qwen3-30b-a3b-fp8");
   assert.equal((await worker.fetch(request(),env)).status,200);
-  assert.equal(captured.length,4);assert.deepEqual(captured.map(c=>c.max_tokens),[2600,3000,4500,2200]);
+  assert.equal(captured.length,4);assert.deepEqual(captured.map(c=>c.max_tokens),[2600,3000,4500,4000]);
   for(const options of captured){assert.deepEqual(options.chat_template_kwargs,{enable_thinking:false});assert.equal(options.reasoning_effort,undefined);assert.equal(options.response_format.type,"json_schema");assert.ok(options.messages[1].content.includes("Return only JSON matching this schema"));}
 });
 test("AI.run JSON mode object response keeps roles, budgets and source checks",async()=>{
@@ -389,7 +389,7 @@ test('native effort is unchanged for analysis and medium for all three generativ
   const {body,written}=draft();const {captured,env}=environment([analysis,written,written,audit(body)],'@cf/openai/gpt-oss-120b');
   assert.equal((await worker.fetch(request(),env)).status,200);
   assert.deepEqual(captured.map(c=>c.reasoning_effort),['low','medium','medium','medium']);
-  assert.deepEqual(captured.map(c=>c.max_tokens),[2600,3000,4500,2200]);
+  assert.deepEqual(captured.map(c=>c.max_tokens),[2600,3000,4500,4000]);
 });
 
 test('native writing and replacement schemas correlate selected quotes and premise IDs',async()=>{

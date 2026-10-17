@@ -1,3 +1,34 @@
+## Resume compatible predecessors before a complete live audit — 17 October 2026
+
+b8250a3 CI39043488603 passed all three required checks, deployed/pinned/health
+13d35c5b after freshWorkersFree/$0/Today6.67k/10k. Writing/editing returned and
+the actual composed candidate removed unsupported researcher roles. Audit then
+exhausted2200tokens/finishlength; no complete verdict/workflow/Draft. All3calls
+counted: grant28calls/12starts. Predecessor operations and incomplete audit remain
+immutable evidence, never manually repaired or labelled automaticPASS.
+
+Increase only audit output2200→4000, retaining medium effort and every source,
+coverage and immutable-body guard. To avoid regenerating unchanged valid stages,
+add explicit backend writing/editing predecessor receipts. They require an
+explicit Workers provider plus compatible analysis and a contiguous prefix;
+normal generation retains its existing calls. Audit cannot be cached. Receipts
+bind exact request/response/proof hashes, model/endpoint/original and target
+Worker identities and native-input compatibility; mutated/rehashed response
+content without its original proof is rejected. Original UUID/usage are retained
+as reused data, never relabelled new or source authority. TargetWorker revalidates
+all supplied predecessors and final audit/body/citations before persistence.
+
+Workflow cache keys include receipt hashes and recheck them after generation;
+no silent provider fallback, skipped audit, output repair, retry, review or approval.
+Normal/no-receipt cache keys, other providers and IMAGE/VIDEO modes remain intact.
+34scoped backend tests,78directWorker/SDK tests, lint/typecheck/drybuild and scoped
+secret scan PASS. Synthetic receipt tests verify normal4calls, analysis-only3calls
+and explicit-prefix1liveaudit; final-body rejection still applies. Real recorded
+writing/editing packets/responses throughold/currentWorker+realSDK have equal
+native inputs with0cloudcalls; analysis equality also retained. These are
+compatibility proofs, not sourcequality acceptance. Actualaudit/fullQA/save-reopen
+and exactnewCI/freshFreequota/deploypin remain pending. B not accepted.
+
 ## Exact source identity after full native chain — 17 October 2026
 
 6c4b660 CI39041557832 passed all three required checks; Worker909c0e6b was deployed,

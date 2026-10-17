@@ -128,6 +128,10 @@ class LLMPersistenceTests(unittest.TestCase):
 
         def generated(*args, **kwargs):
             self.assertEqual(kwargs["analysis_receipt"], receipt)
+            self.assertEqual(
+                kwargs.get("predecessor_receipts", {}),
+                pipeline.workers_predecessor_receipts,
+            )
             return {
                 "observations": [
                     {
@@ -151,7 +155,18 @@ class LLMPersistenceTests(unittest.TestCase):
                             "receipt_sha256": hashlib.sha256(
                                 receipt.read_bytes()
                             ).hexdigest(),
-                        }
+                        },
+                        *[
+                            {
+                                "stage": stage,
+                                "execution": "reused_predecessor",
+                                "new_model_calls": 0,
+                                "receipt_sha256": hashlib.sha256(
+                                    path.read_bytes()
+                                ).hexdigest(),
+                            }
+                            for stage, path in pipeline.workers_predecessor_receipts.items()
+                        ],
                     ],
                 },
             }
@@ -177,6 +192,40 @@ class LLMPersistenceTests(unittest.TestCase):
             receipt.write_text('{"fixture":"second"}')
             self.assertNotEqual(pipeline.analyze(self.request), first)
             self.assertEqual(generation.call_count, 2)
+            predecessors = {
+                stage: receipt.parent / (stage + "-receipt.json")
+                for stage in ("writing", "editing")
+            }
+            for path in predecessors.values():
+                path.write_text('{"fixture":"first"}')
+            pipeline = ResearchPipeline(
+                self.root,
+                provider_override="CLOUDFLARE_WORKERS_AI",
+                workers_analysis_receipt=receipt,
+                workers_predecessor_receipts=predecessors,
+            )
+            reused = pipeline.analyze(self.request)
+            self.assertEqual(pipeline.analyze(self.request), reused)
+            self.assertEqual(generation.call_count, 3)
+            predecessors["editing"].write_text('{"fixture":"second"}')
+            self.assertNotEqual(pipeline.analyze(self.request), reused)
+            self.assertEqual(generation.call_count, 4)
+            predecessors["writing"].write_text('{"fixture":"third"}')
+
+            def changed_during_generation(*args, **kwargs):
+                result = generated(*args, **kwargs)
+                predecessors["editing"].write_text('{"fixture":"changed-during-run"}')
+                return result
+
+            generation.side_effect = changed_during_generation
+            with self.assertRaisesRegex(ValueError, "Predecessor receipt changed"):
+                pipeline.analyze(self.request)
+            with patch(
+                "creator_loop.backend.creator.local_generation.selected_provider",
+                return_value=SimpleNamespace(name="CODEX_CLI_TEXT"),
+            ):
+                with self.assertRaisesRegex(ValueError, "actual Workers provider"):
+                    pipeline.analyze(self.request)
         with closing(open_readonly(self.root / "creator_loop.sqlite3")) as db:
             self.assertEqual(
                 db.execute("SELECT COUNT(*) FROM review_events").fetchone()[0], 0

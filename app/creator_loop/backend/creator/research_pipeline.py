@@ -6,7 +6,7 @@ import hashlib
 import json
 import sqlite3
 import unicodedata
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -48,6 +48,7 @@ class ResearchPipeline:
         *,
         provider_override: str | None = None,
         workers_analysis_receipt: Path | None = None,
+        workers_predecessor_receipts: Mapping[str, Path] | None = None,
     ) -> None:
         self.root = Path(root)
         if provider_override not in (
@@ -64,6 +65,14 @@ class ResearchPipeline:
         ):
             raise ValueError("Analysis reuse requires an explicit Workers provider")
         self.workers_analysis_receipt = workers_analysis_receipt
+        self.workers_predecessor_receipts = dict(workers_predecessor_receipts or {})
+        if self.workers_predecessor_receipts and (
+            provider_override != "CLOUDFLARE_WORKERS_AI"
+            or workers_analysis_receipt is None
+            or set(self.workers_predecessor_receipts)
+            not in ({"writing"}, {"writing", "editing"})
+        ):
+            raise ValueError("Predecessor reuse requires an explicit Workers prefix")
         from creator_loop.backend.creator.generation_recovery import recover_generation
 
         recover_generation(self.root)

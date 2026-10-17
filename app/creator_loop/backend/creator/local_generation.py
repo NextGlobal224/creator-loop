@@ -33,6 +33,10 @@ def analyze_local(
     pipeline: ResearchPipeline, request: CreatorRequest, cancelled: Callable[[], bool]
 ) -> str:
     provider = selected_provider(pipeline.root, pipeline.provider_override)
+    if pipeline.workers_predecessor_receipts and not isinstance(
+        provider, WorkersCreator
+    ):
+        raise ValueError("Predecessor reuse requires an actual Workers provider")
     from creator_loop.backend.analysis.creator_llm import response_schema
     from creator_loop.backend.analysis.generation_prompt import generation_prompt
 
@@ -59,6 +63,14 @@ def analyze_local(
             and pipeline.workers_analysis_receipt is not None
             else None
         )
+        predecessor_hashes = (
+            {
+                stage: _analysis_receipt_fingerprint(pipeline.root, receipt)
+                for stage, receipt in pipeline.workers_predecessor_receipts.items()
+            }
+            if isinstance(provider, WorkersCreator)
+            else {}
+        )
         fingerprint = hashlib.sha256(
             json.dumps(
                 {
@@ -71,6 +83,11 @@ def analyze_local(
                     ),
                     "response_schema": response_schema(
                         [m.material_id for m in materials]
+                    ),
+                    **(
+                        {"predecessor_receipts_sha256": predecessor_hashes}
+                        if predecessor_hashes
+                        else {}
                     ),
                     **(
                         {"analysis_receipt_sha256": analysis_receipt_hash}
@@ -129,6 +146,7 @@ def analyze_local(
                 materials,
                 cancelled,
                 analysis_receipt=pipeline.workers_analysis_receipt,
+                predecessor_receipts=pipeline.workers_predecessor_receipts,
             )
             if isinstance(provider, WorkersCreator)
             and pipeline.workers_analysis_receipt is not None
@@ -146,6 +164,21 @@ def analyze_local(
                 != analysis_receipt_hash
             ):
                 raise ValueError("Analysis reuse receipt changed during generation")
+        if predecessor_hashes:
+            requests = result.get("provenance", {}).get("requests", [])
+            for stage, expected in predecessor_hashes.items():
+                entries = [r for r in requests if r.get("stage") == stage]
+                if (
+                    len(entries) != 1
+                    or entries[0].get("execution") != "reused_predecessor"
+                    or entries[0].get("new_model_calls") != 0
+                    or entries[0].get("receipt_sha256") != expected
+                    or _analysis_receipt_fingerprint(
+                        pipeline.root, pipeline.workers_predecessor_receipts[stage]
+                    )
+                    != expected
+                ):
+                    raise ValueError("Predecessor receipt changed during generation")
         if request.output_format == "VIDEO":
             # Pure scene contract validation; no RenderService/worker/engine starts.
             from creator_loop.backend.video.planner import _declared_scenes
