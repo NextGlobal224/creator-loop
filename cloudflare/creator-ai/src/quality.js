@@ -39,8 +39,9 @@ export function auditSchema(articleHash, segmentCount, findingCount=0,findings=[
     if(findings.length!==findingCount)throw new Error("Audit finding count mismatch");
     schema.properties.finding_checks.items.oneOf=findings.flatMap((finding,index)=>{
       const project=finding.startsWith("PROJECT_");
-      const minItems=["PROJECT_NO_UNSOURCED_RULE","PROJECT_NONREPETITIVE_DEVELOPMENT"].includes(finding)?4:1;
-      return (project?["ADDRESSED","UNRESOLVED"]:[null]).map(verdict=>({properties:{index:{const:index},...(verdict?{verdict:{const:verdict}}:{}),segment_indexes:{minItems}},required:["index","segment_indexes",...(verdict?["verdict"]:[])]}));
+      const global=["PROJECT_NO_UNSOURCED_RULE","PROJECT_NONREPETITIVE_DEVELOPMENT"].includes(finding);
+      const minItems=global?4:1;
+      return (project?["ADDRESSED","UNRESOLVED"]:[null]).map(verdict=>({properties:{index:{const:index},...(verdict?{verdict:{const:verdict}}:{}),segment_indexes:{minItems,...(global?{const:Array.from({length:segmentCount},(_,i)=>i)}:{})}},required:["index","segment_indexes",...(verdict?["verdict"]:[])]}));
     });
   }
   return schema;

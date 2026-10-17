@@ -1,3 +1,21 @@
+## Complete immutable audit scope — 17 October 2026
+
+The actual6ff5fb0 run completed three native calls but its global source audit
+listed0,1,2,3, counting the opening and omitting closing paragraph4. App coverage
+guards rejected the incomplete audit. No workflow/Draft was saved; grant18/8.
+The native global source/development checks now declare the complete known
+segment ID array as an integer-array const, alongside existing bounds/types and
+ADDRESSED/UNRESOLVED verdicts. Instructions require review of every immutable
+segment. A scope list is not proof of factual support or prose quality.
+
+73directWorker/SDK/guard tests and dry build PASS. The actual incomplete audit is
+replayed unchanged through the real SDK with a fake binding: native inherited
+scope/type/required fields are preserved, and independent app guards still reject
+the bad response without repair/retry. No prose is patched. Writer and complete
+analysis path/native input remain unchanged; only post-analysis audit scope and
+instructions change. Exact newCI/freshFreequota/deploypin/liveQA/save-reopen are
+pending. B is not accepted. UNREVIEWED/publication guards remain mandatory.
+
 ## Named editorial contributions and mandatory whole-article source review — 17 October 2026
 
 ccca4a6 passed CI39016861640, deployed/pinned as
