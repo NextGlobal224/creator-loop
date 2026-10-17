@@ -124,7 +124,8 @@ function questionOutcomeIssues(segment){
   // public sentence. This is a narrow lead/guard, not general entailment proof.
   const result=/(?:giúp|có thể|sẽ|để|nhằm)[^.!?\n]{0,160}(?:đánh giá|xác định|kiểm chứng|xác minh)/iu;
   const recommendation=/khuyến nghị|đề nghị|yêu cầu|nên ghi|ghi lại (?:câu trả lời|kết quả)|recommend|should record/iu;
-  return [...(result.test(segment.text) && !result.test(quote)?["Question-only excerpt does not establish the asserted identification or reliability result"]:[]),...(recommendation.test(segment.text) && !recommendation.test(quote)?["Question-only excerpt does not establish the attributed recommendation or recording procedure"]:[])];
+  const roles=[/nhà nghiên cứu|nhóm nghiên cứu|researchers?|research team/iu,/chuyên gia|experts?/iu];
+  return [...(result.test(segment.text) && !result.test(quote)?["Question-only excerpt does not establish the asserted identification or reliability result"]:[]),...(recommendation.test(segment.text) && !recommendation.test(quote)?["Question-only excerpt does not establish the attributed recommendation or recording procedure"]:[]),...(roles.some(role=>role.test(segment.text) && !role.test(quote))?["Question-only excerpt does not identify the attributed authors or professional roles"]:[])];
 }
 export function publicCopyRevisions(initial) {
   const repeated=englishQuestions.test(initial.body) && vietnameseQuestions.test(initial.body);

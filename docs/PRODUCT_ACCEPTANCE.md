@@ -1,3 +1,33 @@
+## Exact source identity after full native chain — 17 October 2026
+
+6c4b660 CI39041557832 passed all three required checks; Worker909c0e6b was deployed,
+metadata/health verified and app pinned after fresh WorkersFree/$0/Today5.85k/10k.
+The real app completed writing/editing/audit, returned workflow0327059813d947b794173dcfaf4e7eda,
+and loaded exact citations. Native opening constraints and full global audit IDs
+worked. The3newcalls took97.562s and816.4925689697266Neurons; measured app-child
+kernel peak working set34,570,240bytes excludes browser/GUI/cloud compute.
+Analysis reuse usage is excluded. Grant25calls/11starts, history retained.
+
+Full human-readable source QA still FAILED: “Các nhà nghiên cứu của Digital
+Inquiry Group” adds a professional author role absent from the cited question
+excerpt. Source labels identify provenance, not the occupations of authors. The
+complete audit wrongly returned empty issues/ADDRESSED. No Draft was saved;
+workflow/public response/false-clean audit remain immutable evidence, not PASS.
+
+Generation/edit/audit guidance now forbids adding identities or professional
+authority absent from the supporting excerpt. The narrow question-source guard
+detects researcher/expert role additions before and after editing, while allowing
+roles explicitly present in the selected source. It does not replace general
+semantic QA, alter prose, waive guards or fix the returned audit.
+
+77directWorker/SDK tests, drybuild and scoped secret scan PASS. The actual audit
+request replay with its unchanged predecessors is now rejected before any new
+audit request; a positive explicit-source role control remains accepted. Actual
+analysis packet/response old/currentWorker+realSDK native inputs are equal;
+originalmodel/low2600/provenance retained. Exact newCI/freshFreequota/deploypin/
+fullactualquality/save-reopen pending. B not accepted; no retry/fallback/manual
+repair to claim automatic quality, selfAPPROVE, newreviewrequest or publication.
+
 ## Preserve fictional-opening identity in native edit decoding — 17 October 2026
 
 Exactf6aa611 CI39039454853 passed all three checks; deployed/pinned/health matched
