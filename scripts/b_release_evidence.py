@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any
 from uuid import UUID
@@ -38,7 +40,11 @@ NATIVE = {
 
 
 def check_b_evidence(
-    receipt: dict[str, Any], manifest: dict[str, Any], tag: str
+    receipt: dict[str, Any],
+    manifest: dict[str, Any],
+    tag: str,
+    *,
+    cloud_config: bytes | None = None,
 ) -> None:
     exact(
         receipt,
@@ -126,6 +132,23 @@ def check_b_evidence(
             "format_map",
         },
     )
+    if cloud_config is None or len(cloud_config) > 4096:
+        raise ValueError("Actual packaged cloud configuration required")
+    config = json.loads(cloud_config)
+    if hashlib.sha256(cloud_config).hexdigest() != cloud["config_sha256"]:
+        raise ValueError("Cloud config bytes differ from evidence digest")
+    if (
+        not isinstance(config, dict)
+        or set(config) != {"endpoint", "model", "worker_version", "key_file"}
+        or config["endpoint"]
+        != "https://creator-loop-ai-beta.creator-loop-ai-beta.workers.dev/b/generate"
+        or config["key_file"] != "secrets/creator-cloud-key"
+        or config["model"] != cloud["model"]
+        or config["worker_version"] != cloud["worker_version"]
+    ):
+        raise ValueError(
+            "Cloud receipt identity differs from actual package configuration"
+        )
     if (
         cloud["provider"] != "CLOUDFLARE_WORKERS_AI"
         or cloud["model"] != "@cf/openai/gpt-oss-120b"

@@ -150,8 +150,24 @@ class BReleaseEvidenceTests(unittest.TestCase):
             ],
         }
 
+        self.cloud_config = json.dumps(
+            {
+                "endpoint": "https://creator-loop-ai-beta.creator-loop-ai-beta.workers.dev/b/generate",
+                "model": "@cf/openai/gpt-oss-120b",
+                "worker_version": "bcc58e3c-35bc-4d06-a601-52fc8fed929b",
+                "key_file": "secrets/creator-cloud-key",
+            }
+        ).encode()
+        config_digest = hashlib.sha256(self.cloud_config).hexdigest()
+        self.manifest["files"]["CreatorLoop/examples/B/creator-cloud.json"][
+            "sha256"
+        ] = config_digest
+        self.receipt["cloud"]["config_sha256"] = config_digest
+
     def check(self):
-        check_b_evidence(self.receipt, self.manifest, "v0.1.0-beta.1")
+        check_b_evidence(
+            self.receipt, self.manifest, "v0.1.0-beta.1", cloud_config=self.cloud_config
+        )
 
     def test_structure_fixture_only_not_real_acceptance(self):
         self.check()
@@ -161,6 +177,9 @@ class BReleaseEvidenceTests(unittest.TestCase):
     def test_scope_native_output_source_cloud_and_privacy_fail_closed(self):
         original = copy.deepcopy(self.receipt)
         mutations = [
+            lambda r: r["cloud"].update(
+                worker_version="11111111-1111-4111-8111-111111111111"
+            ),
             lambda r: r.update(scope="full-beta"),
             lambda r: r.update(tested_packaged_artifact=1),
             lambda r: r["scopes"].pop(),

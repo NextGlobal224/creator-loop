@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import tempfile
 import unittest
 from contextlib import closing
@@ -58,6 +59,7 @@ def fixture(root: Path) -> CreatorRequest:
 
 
 class ResearchPipelineTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "win32", "Native owned Original intake")
     def test_image_attach_preserves_exact_caption_and_blocks_changed_bytes_on_reopen(
         self,
     ):

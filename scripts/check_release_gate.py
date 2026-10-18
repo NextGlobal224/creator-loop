@@ -117,9 +117,16 @@ def check_release_gate(
     if beta:
         if beta_evidence is None or beta_evidence.stat().st_size > MAX_MANIFEST_BYTES:
             raise ValueError("Exact beta eligibility evidence is required")
-        (check_b_evidence if b_only else check_beta_evidence)(
-            json.loads(beta_evidence.read_text(encoding="utf-8")), manifest, tag
-        )
+        receipt = json.loads(beta_evidence.read_text(encoding="utf-8"))
+        if b_only:
+            with zipfile.ZipFile(archive) as package:
+                info = package.getinfo("CreatorLoop/examples/B/creator-cloud.json")
+                if info.file_size > 4096:
+                    raise ValueError("Packaged cloud config exceeds budget")
+                config = package.read(info)
+            check_b_evidence(receipt, manifest, tag, cloud_config=config)
+        else:
+            check_beta_evidence(receipt, manifest, tag)
         if "beta" not in notes or "not accepted" not in notes:
             raise ValueError("Beta notes must state the unaccepted stable limitations")
     else:
