@@ -58,6 +58,64 @@ def fixture(root: Path) -> CreatorRequest:
 
 
 class ResearchPipelineTests(unittest.TestCase):
+    def test_manual_exact_claim_assertions_and_same_body_citation_edit_are_versioned(
+        self,
+    ):
+        from creator_loop.backend.creator.drafts import DraftAssertion, DraftClaimLink
+
+        pipeline = ResearchPipeline(self.root)
+        wid = pipeline.analyze(self.request)
+        cid = pipeline.load(wid)["claims"][0]
+        body = "Đây là nhận định cần người dùng kiểm tra."
+        first = pipeline.create_draft(wid, body_text=body)
+        second = pipeline.create_draft(
+            wid,
+            body_text=body,
+            claims=[DraftClaimLink(cid, "ASSERTED")],
+            assertions=[DraftAssertion(0, len(body), cid, "UNREVIEWED")],
+        )
+        self.assertEqual(second.version_no, first.version_no + 1)
+        self.assertNotEqual(first.draft_version_id, second.draft_version_id)
+        self.assertEqual(
+            pipeline.create_draft(wid).draft_version_id, second.draft_version_id
+        )
+        with closing(open_readonly(self.root / "creator_loop.sqlite3")) as db:
+            self.assertEqual(
+                db.execute(
+                    "SELECT claim_version_id,review_state FROM draft_assertions WHERE draft_version_id=?",
+                    (second.draft_version_id,),
+                ).fetchone(),
+                (cid, "UNREVIEWED"),
+            )
+            self.assertEqual(
+                db.execute("SELECT COUNT(*) FROM review_events").fetchone()[0], 0
+            )
+            self.assertEqual(
+                db.execute("SELECT COUNT(*) FROM draft_render_requests").fetchone()[0],
+                0,
+            )
+
+    def test_editing_manual_body_keeps_exact_claims_and_marks_content_needs_source(
+        self,
+    ):
+        pipeline = ResearchPipeline(self.root)
+        wid = pipeline.analyze(self.request)
+        first = pipeline.create_draft(
+            wid, body_text="Nội dung thủ công có căn cứ cần kiểm tra."
+        )
+        changed = pipeline.create_draft(
+            wid, body_text="Nội dung mới cần đối chiếu lại nguồn."
+        )
+        self.assertEqual(first.claim_version_ids, changed.claim_version_ids)
+        with closing(open_readonly(self.root / "creator_loop.sqlite3")) as db:
+            self.assertEqual(
+                db.execute(
+                    "SELECT review_state FROM draft_assertions WHERE draft_version_id=?",
+                    (changed.draft_version_id,),
+                ).fetchone()[0],
+                "NEEDS_SOURCE",
+            )
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -91,7 +149,9 @@ class ResearchPipelineTests(unittest.TestCase):
         self.assertEqual(snapshot.claim_version_ids, tuple(value["claims"]))
         self.assertEqual(self.counts(), (1, 1, 1, 1, 1, 0, 0, 0))
         reopened = ResearchPipeline(self.root)
-        self.assertEqual(reopened.analyze(replace(self.request, mode="AUTOMATIC")), wid)
+        with self.assertRaisesRegex(ValueError, "không thay bằng template"):
+            reopened.analyze(replace(self.request, mode="AUTOMATIC"))
+        self.assertEqual(reopened.analyze(self.request), wid)
         self.assertEqual(reopened.create_draft(wid), snapshot)
         self.assertEqual(reopened.draft(snapshot.draft_version_id), snapshot)
         self.assertEqual(self.counts(), (1, 1, 1, 1, 1, 0, 0, 0))

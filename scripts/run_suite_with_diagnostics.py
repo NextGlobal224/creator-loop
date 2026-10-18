@@ -101,6 +101,7 @@ def main() -> int:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     parser = argparse.ArgumentParser()
     parser.add_argument("--pattern", default="test*.py")
+    parser.add_argument("--group", choices=("backend", "frontend", "integration"))
     args = parser.parse_args()
     diagnostics = Path(".local-test-logs") / f"suite-diagnostics-{uuid4().hex}"
     diagnostics.mkdir(parents=True)
@@ -113,7 +114,9 @@ def main() -> int:
         faulthandler.enable(file=traces, all_threads=True)
         try:
             suite = unittest.defaultTestLoader.discover(
-                "tests", pattern=args.pattern, top_level_dir="."
+                f"tests/{args.group}" if args.group else "tests",
+                pattern=args.pattern,
+                top_level_dir=".",
             )
             runner = unittest.TextTestRunner(
                 verbosity=1,

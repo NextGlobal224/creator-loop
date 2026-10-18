@@ -1,3 +1,432 @@
+## Resume compatible predecessors before a complete live audit — 17 October 2026
+
+b8250a3 CI39043488603 passed all three required checks, deployed/pinned/health
+13d35c5b after freshWorkersFree/$0/Today6.67k/10k. Writing/editing returned and
+the actual composed candidate removed unsupported researcher roles. Audit then
+exhausted2200tokens/finishlength; no complete verdict/workflow/Draft. All3calls
+counted: grant28calls/12starts. Predecessor operations and incomplete audit remain
+immutable evidence, never manually repaired or labelled automaticPASS.
+
+Increase only audit output2200→4000, retaining medium effort and every source,
+coverage and immutable-body guard. To avoid regenerating unchanged valid stages,
+add explicit backend writing/editing predecessor receipts. They require an
+explicit Workers provider plus compatible analysis and a contiguous prefix;
+normal generation retains its existing calls. Audit cannot be cached. Receipts
+bind exact request/response/proof hashes, model/endpoint/original and target
+Worker identities and native-input compatibility; mutated/rehashed response
+content without its original proof is rejected. Original UUID/usage are retained
+as reused data, never relabelled new or source authority. TargetWorker revalidates
+all supplied predecessors and final audit/body/citations before persistence.
+
+Workflow cache keys include receipt hashes and recheck them after generation;
+no silent provider fallback, skipped audit, output repair, retry, review or approval.
+Normal/no-receipt cache keys, other providers and IMAGE/VIDEO modes remain intact.
+34scoped backend tests,78directWorker/SDK tests, lint/typecheck/drybuild and scoped
+secret scan PASS. Synthetic receipt tests verify normal4calls, analysis-only3calls
+and explicit-prefix1liveaudit; final-body rejection still applies. Real recorded
+writing/editing packets/responses throughold/currentWorker+realSDK have equal
+native inputs with0cloudcalls; analysis equality also retained. These are
+compatibility proofs, not sourcequality acceptance. Actualaudit/fullQA/save-reopen
+and exactnewCI/freshFreequota/deploypin remain pending. B not accepted.
+
+## Exact source identity after full native chain — 17 October 2026
+
+6c4b660 CI39041557832 passed all three required checks; Worker909c0e6b was deployed,
+metadata/health verified and app pinned after fresh WorkersFree/$0/Today5.85k/10k.
+The real app completed writing/editing/audit, returned workflow0327059813d947b794173dcfaf4e7eda,
+and loaded exact citations. Native opening constraints and full global audit IDs
+worked. The3newcalls took97.562s and816.4925689697266Neurons; measured app-child
+kernel peak working set34,570,240bytes excludes browser/GUI/cloud compute.
+Analysis reuse usage is excluded. Grant25calls/11starts, history retained.
+
+Full human-readable source QA still FAILED: “Các nhà nghiên cứu của Digital
+Inquiry Group” adds a professional author role absent from the cited question
+excerpt. Source labels identify provenance, not the occupations of authors. The
+complete audit wrongly returned empty issues/ADDRESSED. No Draft was saved;
+workflow/public response/false-clean audit remain immutable evidence, not PASS.
+
+Generation/edit/audit guidance now forbids adding identities or professional
+authority absent from the supporting excerpt. The narrow question-source guard
+detects researcher/expert role additions before and after editing, while allowing
+roles explicitly present in the selected source. It does not replace general
+semantic QA, alter prose, waive guards or fix the returned audit.
+
+77directWorker/SDK tests, drybuild and scoped secret scan PASS. The actual audit
+request replay with its unchanged predecessors is now rejected before any new
+audit request; a positive explicit-source role control remains accepted. Actual
+analysis packet/response old/currentWorker+realSDK native inputs are equal;
+originalmodel/low2600/provenance retained. Exact newCI/freshFreequota/deploypin/
+fullactualquality/save-reopen pending. B not accepted; no retry/fallback/manual
+repair to claim automatic quality, selfAPPROVE, newreviewrequest or publication.
+
+## Preserve fictional-opening identity in native edit decoding — 17 October 2026
+
+Exactf6aa611 CI39039454853 passed all three checks; deployed/pinned/health matched
+0ab50dfc after fresh Workers Free/$0/Today5.11k/10k quota. The editor returned
+completeJSON/finishstop at4104tokens under the4500allowance: the budget correction
+worked. App guards then rejected its new source-cited fictional opening: editor
+moved UNESCO fact into opening and emitted whitespace for the original paragraph.
+It also retained unsupported CORrecommendation/outcome wording. No audit,
+workflow or Draft was saved. Actual failure fixture stays unchanged; grant22/10.
+
+Native opening REWRITE now permits exactly one uncited replacement with empty
+replacement premises. It does not restrict original support assessments. Existing
+paragraph/source/whitespace guards remain independent. Instructions forbid moving
+another paragraph's facts into opening or using blank text as a removal. The SDK
+decoder intersects the known item-property constants with complete source
+alternatives, preserves inherited type/required/bounds, and excludes contradictory
+const alternatives instead of overwriting them. Other paragraph citations remain
+available; no prose filling, output repair, schema retry or fallback.
+
+75directWorker/SDK tests, drybuild and scoped secret scan PASS. Replay through
+realSDK/fakebinding checks the complete uncited opening alternative and still
+rejects the unchanged actual bad operations. Analysis old/currentWorker+realSDK
+native input remains equal for actual originalpacket/response despite adapter
+changes; source/model/settings/provenance preserved. Editor4500medium stays.
+New exactCI/fresh sufficientFreequota/deploypin/livefullQA/save-reopen pending.
+Native/schema success cannot certify meaning or product quality. B not accepted.
+
+## Bounded source edit output after exhausted response — 17 October 2026
+
+Exact2a5b58d CI39021330192 passed all three required checks; Worker e4f0b49d was
+deployed/pinned and verified against metadata/health after fresh Workers Free/$0
+and Today4.42k/10k quota. App writing/editing used two new calls. Editing consumed
+all3000completion tokens and the real SDK could not obtain valid text. The saved
+diagnostic did not include native finish_reason, so its exact private response
+is unknown. No audit/workflow/Draft; grant20calls/9starts, failures retained.
+
+Increase only the bounded edit output allowance3000→4500, preserving medium
+reasoning, source-first instructions, immutable receipts, structural/source/audit
+guards and no retry/fallback. Other stage budgets/settings stay unchanged. Writer
+output still needs genuine source-aware correction: Englishquestion/Vietnamese
+duplication and unsupported source scope/outcome additions are not accepted.
+Failure diagnostics now export only an allowlisted finish_reason enum; never
+exception text, headers or hidden reasoning. Quota planning must account for the
+larger editor before another live chain; this is not renewed grant authority.
+
+74direct Worker/SDK tests, drybuild and scoped secret scan PASS. The immutable
+actual budget diagnostic is preserved; a clearly labelled synthetic length/null
+reply still fails once through the real SDK, with no repaired output or secret
+diagnostics. Old/current Worker realSDK analysis invocation remains byte-equal
+for the actual originalpacket/response, retaining originalanalysis provenance.
+Exact newCI/freshFreequota/deploypin/livefullQA/save-reopen pending. B not accepted.
+
+## Complete immutable audit scope — 17 October 2026
+
+The actual6ff5fb0 run completed three native calls but its global source audit
+listed0,1,2,3, counting the opening and omitting closing paragraph4. App coverage
+guards rejected the incomplete audit. No workflow/Draft was saved; grant18/8.
+The native global source/development checks now declare the complete known
+segment ID array as an integer-array const, alongside existing bounds/types and
+ADDRESSED/UNRESOLVED verdicts. Instructions require review of every immutable
+segment. A scope list is not proof of factual support or prose quality.
+
+73directWorker/SDK/guard tests and dry build PASS. The actual incomplete audit is
+replayed unchanged through the real SDK with a fake binding: native inherited
+scope/type/required fields are preserved, and independent app guards still reject
+the bad response without repair/retry. No prose is patched. Writer and complete
+analysis path/native input remain unchanged; only post-analysis audit scope and
+instructions change. Exact newCI/freshFreequota/deploypin/liveQA/save-reopen are
+pending. B is not accepted. UNREVIEWED/publication guards remain mandatory.
+
+## Named editorial contributions and mandatory whole-article source review — 17 October 2026
+
+ccca4a6 passed CI39016861640, deployed/pinned as
+e781eb22-65e3-417c-bb39-8fcf59b68130. Native full receipts worked and the app
+completed writing/editing/audit in42.734s. Full prose QA still failed: a source
+question list became a COR recommendation, and a cited sentence added recording
+answers before sharing. The notes do not supply that recommendation/procedure.
+The audit waived PROJECT_NO_UNSOURCED_RULE as NOT_APPLICABLE using only safe
+paragraph1; paragraphs2/3 remained underdeveloped. No Draft was saved. Grant15/7.
+
+Change generation structure rather than repeat another anonymous four-array
+attempt: the writer must return named context/scope, unresolved-information,
+supported-perspective and closing-message sections. Each contains free-written
+source-bound segments. The assembler only orders their declared text; it cannot
+fill a missing role, accept old array wire format or rewrite/remove prose. The
+analysis direction stays a creative proposal, not chosen instructions or source
+authority. Factual assertions and new voluntary suggestions remain distinct.
+
+Every Project audit requirement now requires ADDRESSED or UNRESOLVED; source-rule
+and development checks must cover every editorial paragraph, and the closing
+check must include the last paragraph. Native per-index schema encodes these
+constraints, using the proven full-object decoder adaptation. Coverage is not
+semantic certification. The question-only source guard also detects the observed
+unsupported recommendation/recording attribution before and after editing.
+Explicitly supported source recommendations remain allowed; full prose/source QA
+and UNREVIEWED/manual publication approval remain mandatory.
+
+72direct Worker/SDK/guard tests and dry build PASS, including immutable actual
+false-audit replay and proof that role ordering leaves every model text unchanged.
+Old fixtures are only re-encoded in declared synthetic protocol tests, never
+repaired or counted as automatic quality success. Actual original analysis input
+and response replayed through old/current Worker and real SDK/provider still yield
+equal native inputs with unchanged model/low2600 settings; reuse remains explicit
+and provenance-bound. Exact newCI/freshFreequota/liveQA/save-reopen are pending.
+
+## Complete native edit alternatives and question-only outcome limits — 17 October 2026
+
+ce273a1 passed exact CI39015003538 and deployed/pinned as
+ad4f8c27-8030-4a48-8f1a-e845a3ede5f0. The app reused proven-compatible analysis
+and ran writing/editing. Native edit output followed per-index branch decisions
+but omitted the parent-required support/quote_ids/premise_checks/note fields.
+The app rejected invalid edit identity, before audit/Draft. Grant12calls/6starts.
+The exact malformed receipt remains an immutable fixture, never repaired.
+
+The observed output suggests native decoding did not intersect a partial oneOf
+branch with its parent object. The binding-only adapter now expands our narrow
+flat const/array-bound alternatives into complete objects: every required field,
+type, source/premise constraint and stricter min/max bound is inherited. It does
+not weaken the full SDK/prompt schema or change output text. An offline real-SDK
+replay verifies full native receipts while independently rejecting the original
+bad reply. Native enforcement and actual full prose QA still require a live run.
+
+The same observed samples kept identification/reliability claims backed only
+by a question-list excerpt. A narrow source-bound revision check now requires
+editing such additions, and checks replacements again before audit. Explicit
+outcomes actually present in the excerpt are not banned by this check. This is
+not a general entailment/language score; full source/prose/analysis QA remains.
+69direct SDK/guard/deadline tests and dry build PASS; source/model/version/review
+guards and one-request/no-retry behavior are preserved.
+
+Actual39b6ac0 analysis packet/response replayed through old/current Worker and
+real SDK/provider produces byte-equivalent native analysis inputs, low2600tokens.
+Only edit decoding changes; no new analysis inference or quality PASS is claimed.
+Exact input/source/response/origin/target receipt checks remain mandatory for reuse.
+Next exactCI/freshsame-accountFreequota/deploy/pin/writing-editing-audit and true
+quality/save-reopen/history are pending. No self-approval/merge/release/publish.
+
+## Independent replacement for an insufficient sole paragraph — 17 October 2026
+
+39b6ac0 passed exact CI39011232909 and deployed/pinned as
+dcc76f00-ab18-4b42-90a0-5dd09ec53acf. A real app run generated new analysis,
+writing and editing, then stopped at the four-paragraph guard. The editor found
+bilingual duplication but removed a paragraph's only segment; it also retained
+an unsupported reliability benefit. No audit/Draft followed. Grant10calls/5starts.
+
+The edit protocol had required every insufficient original to be REMOVE, while
+requiring all four paragraphs to survive. It now retains the negative original
+assessment but permits independently checked replacement text. KEEP is still
+forbidden; exact/punctuation-only retention of the original/declared unsupported
+assertions is rejected. Every replacement has its own premise/source checks;
+the original negative finding is forwarded to the final semantic audit. This
+does not prove a paraphrase entails its source; actual full prose QA remains
+mandatory. No source/version/review/publication acceptance threshold is changed.
+
+Native edit schema now binds original index, allowed decision and replacement
+count: a sole segment cannot REMOVE; a mandatory public-copy revision cannot
+KEEP; REWRITE requires nonempty replacement. The app guards remain independent
+of schema compliance. Immutable actual39b6ac0 output demonstrates the missed
+constraint; synthetic tests cover a genuinely new conditional suggestion and
+rejection of retained/unsupported replacements.57directtests/drybuild PASS.
+
+Analysis/SDK/model/settings/input are unchanged; exact source prefix through the
+analysis call matches39b6ac0. Its new analysis may be reused only with exact
+packet/response/compatibility receipt checks, original provenance and explicit
+unverified editorial-proposal limits. No unchanged analysis retry is needed.
+Next exactCI/freshFreequota/deploy/pin and writing/editing/audit quality remain
+unverified. No Bquality PASS, manual approval, merge/release or Facebook publish.
+
+## Native schema accepted; full-output quality still failed — 17 October 2026
+
+dc8326b CI39009196221 passed fast/security/Windows. Worker
+8f3f6479-ac35-4d59-8d19-d725e5e929f4 matched metadata/health and app pin.
+The real app completed writing/editing/audit in51.5s with compatible analysis
+reuse, but prose QA failed: a full English question list was repeated as a
+Vietnamese paraphrase; applying questions was overstated as identifying an
+author/assessing reliability. Audit incorrectly accepted it. No Draft was saved.
+The unmodified actual output, source notes, edit decisions and audit are now a
+fixture. The public-copy check recognizes the observed Vietnamese variant and
+requires revision, without banning standalone foreign quotations or names.
+
+Writer/editor/auditor instructions now distinguish a paraphrase from a new
+paragraph contribution and require concrete information gaps/conditional actions
+without invented results. Analysis instructions explicitly separate inquiry
+questions from verification efficacy or source-endorsed procedures. Therefore
+the next app chain must generate NEW analysis; the old analysis reuse receipt is
+not compatible with this change. Model/effort, exact source text/IDs, schema and
+all source/version/review guards remain.55direct tests plus dry build PASS.
+Actual automatic prose and analysis QA, save/reopen/history and independent
+review remain unverified for this candidate. No quality PASS follows from tests.
+
+Grant B-finish-20261017-free now7calls/4starts, no retry/fallback; previous grants
+remain historical. Next live four-stage chain requires exact CI and fresh
+sufficient same-account WorkersFreequota at$0; no arbitrary old2start cap.
+
+## Correlated source schema and explicit note roles — 17 October 2026
+
+d7315a2 passed all three required checks in run39006421655, deployed/pinned as
+8f15dbfc-4466-4bb2-aa14-e8b14e8a203e. Actual medium writing returned mixed quote
+premises again and inferred that COR questions help establish authenticity.
+Writing was rejected before editing/audit/Draft. One call18.5s/223.99940490722656
+Neurons; no retry. The full selected model JSON remains an immutable fixture.
+
+After low and medium both missed these interactions, change the structural
+contract rather than increase effort again. A disjoint oneOf segment schema
+binds each factual branch's source_quote_id to the same single premise quote ID;
+uncited suggestions have empty premises. The same typed contract applies to
+editor replacements. Existing application guards still reject malformed output
+even if native JSON mode ignores the schema. Schema compliance is not entailment.
+
+Original quote catalog indexes/text remain unchanged. Explicit research-note
+headers, Source/URL metadata and Hướng biên tập proposals remain in the source
+packet as context but are ineligible as public factual citation authority. For
+this exact input, only original IDs3/8/9 are eligible excerpts. A guard enforces
+this in writing/replacements/KEEP. This is an explicit-label policy, not a general
+semantic classifier; all original source/audit and full prose QA remain required.
+Legacy fixtures now rejected earlier retain independent public-copy, development
+coverage and benefit-lead regressions using declared synthetic protocol inputs.
+Actual model outputs are never repaired into a quality PASS.
+
+65Node checks, dry build and scoped secret scan PASS. Analysis block, SDK/model,
+low-effort analysis input and original receipt remain unchanged; prior exact
+SDK payload compatibility evidence is reused. Post-analysis remains medium.
+Native oneOf acceptance and actual source-grounded complete prose still require
+exact newHEAD CI, fresh sufficient same-account WorkersFreequota, deploy/pin and
+a full app pilot. Cloudflare warns JSON mode does not guarantee every schema:
+https://developers.cloudflare.com/workers-ai/features/json-mode/
+
+GrantB-finish-20261017-free4calls/3starts including failures, conditional actual
+Freequota/$0, no arbitrarysmallcap. All previous grants/task/hook2/2 retained.
+Continuous B ordinarypush/PR86/deploy/pin/pilot authority is directly confirmed
+in chat; no forcepush/merge/release/protection change/selfAPPROVE/Facebook publish.
+
+## B post-analysis reasoning configuration — 17 October 2026
+
+340006b passed all three required checks in run39004613823 and was deployed/pinned
+as26c07e41-3a06-4f9a-b04b-e62db8c87428. Real app writing passed its structural gate,
+but the editor correctly removed the only segment in paragraph3 as an unsupported
+verification procedure. Composition rejected the resulting incomplete article.
+Offline replay reproduces Editing omitted a required paragraph. The original
+writing also repeats paragraph2 as steps in paragraph3, while the editor's note
+misattributes a manual-note editorial suggestion to UNESCO. No audit or new Draft.
+Both exact model outputs remain immutable in the regression fixture.
+
+Across the observed failures, low-effort generation still misses interacting
+source/development requirements. Change the testable configuration variable to
+medium reasoning for writing/editing/source_audit, retaining low for analysis.
+Cloudflare documents low/medium/high for this same gpt-oss-120b model:
+https://developers.cloudflare.com/workers-ai/models/gpt-oss-120b/
+No prompt, guard, paragraph requirement, retry, timeout or output-token cap is
+relaxed; unsupported premises still cannot be rewritten as advice, and removing
+a whole required paragraph still fails. The actual fixture remains rejected.
+
+60Node checks and dry build PASS. An offline old/new realSDK comparison on the
+exact selected analysis task produced identical native model/messages/schema/
+input/budget/low-effort payloads. Original analysis origin/receipt is preserved;
+this compatibility check is not a new analysis or cloud quality result. Medium
+reasoning behavior, latency and actual content quality still require a new full
+app pilot after exactHEAD CI/deploy/pin and sufficient fresh same-account Free
+quota. GrantB-finish-20261017-free has used3calls/2starts, including failures;
+oldrepairgrant4/6calls2/2starts remains unchanged. No billing, approval or release.
+
+## Single-excerpt citation and fictional-label repair — 17 October 2026
+
+The authorized B-finish-20261017-free grant supersedes future small call/start
+caps only, within verified actual Workers Free quota and $0 incremental cost.
+Historical B-repair-20261016-6 remains4/6calls and2/2starts; no unused calls added.
+Normal push/update of related B source/tests/docs in PR86 is authorized; no
+force-push, merge, release, protection change or self-approval.
+
+1725b01 was deployed as cf88ccfc-214f-4e56-85ac-bf44ea79bb5b after fresh same-account
+Free/$0 and Today164.85/10k. Actual app writing returned a nonempty opening, but
+checkedWriting rejected a segment with source_quote_id8 whose premises cite8
+and4 separately. Offline replay reproduces that exact error. The opening also
+lacked an explicit fictional label, and source-note editorial commentary leaked
+into public prose. No editing/audit/new Draft followed. One model call consumed
+157.14036560058594Neurons; no retry or output repair.
+
+Clarify the existing one-excerpt citation contract: split independently sourced
+assertions into separate segments, each covering every attached premise. State
+the fictional label explicitly in the schema description/task, and distinguish
+editorial suggestions from institutional authority in public prose. All guards,
+stages and source/audit requirements remain. An immutable actual-output fixture
+continues to fail the same guard; offline checks do not certify model behavior.
+
+57Node checks and dryWorkerbuild PASS. Current source needs exact requiredCI,
+deployment/pin, fresh quota and actual output/source QA. B quality remains FAIL.
+Independent review is absent; no self-APPROVE/merge/release/Facebook publish.
+
+**17/10/2026 second repair:** bdf3d07 exactCI3PASS/deployed/pinned; app writing refused empty opening,1newcall20.312s/164.85400390625Neurons, no newDraft/editor/audit. Fixedgrant4/6calls and2/2pipeline starts, no thirdstart. New offline schema opening minLength1/actualfailure regression56Node+drybuildPASS; not deployed/liveverified, Bquality stillFAIL. Fullreview/beta/release gates retained.
+
+**17/10/2026 B v32:** actualf103545 completed3stages/saved-reopened exactautomaticTEXT, but assistantQAFAIL: repeated/undeveloped thirdparagraph; oldauditissues=[] insufficient. Fixedgrant3/6calls,1/2pipelines. New all-paragraph development coverage is offline-only until newHEADCI/deploy/quota/liveQA. IMAGE/VIDEO and fullbeta/review/artifact gates remain separate.
+
+**16/10/2026 v31 checkpoint:**368ce68CI38892798651all3SUCCESS/ZIPsmokePASS. Actualv30app4calls/Draftsave-reopenTECHNICALPASS but qualityFAIL inventedsourcecountthreshold/missingmessage; editorallKEEP/auditfalseempty. Diagnosticcall5samebody+explicitfindings returned422/twoUNRESOLVED. v31sharedtaskchecklist+appreceipt/insufficientnotecarry47Node/17Python/scopedRuff+mypyPASS, notdeployed/cloudverified. Grant5/8,3remaining; old8/8+15historical/task/hook2retained, no sourcepipeline2untilfirstqualityPASS.
+
+**16/10/2026 CI v30:** run38889820337/28e01ab FAIL only after206/209integrationcases reached597.515s and group600stimeout; backend762/frontend162passed. Sameintegration/runtime source as priorPASS21f8c34, common integration1.830x slower; remaining3cases old4.938s, projectedtotal606.552s. Integrationprocessbudget720s/step33minutes, alltests/productdeadlines retained; newHEADCIrequired. Grantv30separatelyauthorized0/8, currentuserFreequota~2.1k/10k at18:00 verified; no deploy/model beforeCI. Bquality remainsFAIL.
+
+**16/10/2026 resume: prior PR86/21f8c34 CI38886742135 all3 SUCCESS. V30 offline candidate:46Node/11Python boundary checks and scoped Ruff PASS; no deploy/model call/Draft. B quality remains FAIL, premise completeness/entailment unproven; no grant renewed. New HEAD requires its own CI and independent review.**
+
+**16/10/2026 B continuous grant/v29:8/8calls spent, quality FAIL; no new audit/Draft.** Native uniqueItems compatibility fixed; operation-based editing removes recognized insufficient claims, but writing and semantic premise classification remain unreliable.42 related Node/13PythonPASS are structural evidence only; final capture/finding-carry35boundaryPASS, not yet redeployed. Existing SDK/connection/default/manual publication guards retained; newHEAD CI/review pending, full A/B/C–Cloudflare–GitHub scope open. Earlier checkpoints below are historical.
+
+**16/10/2026 actual v28 pilot bace845:** writing quality FAIL; editing HTTP502/STAGE_OUTPUT_INVALID,3conservatively charged calls/1attempt,0retry; no audit/newDraft/save-reopen. Worker0f0095ac…/Free/$0policy and originalbudgets retained. Diagnostic-only follow-up (fixedphase/callcount, no prompt/model change) is offline tested and not deployed; newHEAD requires its ownCI/review. See B_FINDING_AUDIT_REVIEW.md.
+
+**v28 candidate16October2026 ? NOT cloud acceptance:** writing/editing evidence inputs and segment-level edit decisions changed; exact frozen-v25 payload reconstruction and offline structural checks only. Original FAIL retained; no new cloud/model/deployment or budget reset. Proposed1attempt/max4calls requires explicit additional authority; details in B_FINDING_AUDIT_REVIEW.md. NewHEAD CI/review required separately.
+
+**16October2026 v27 offline audit correction ? not cloud acceptance.** Editor findings now require complete, exact-text dispositions; missing/unresolved entries fail closed in Worker/app, with new provider cache version. Actual v25 case retained unchanged; saved-case coverage regression plus30Node/13Python boundary checks pass. Existing replay still rejects editing422 with0cloudcalls. Semantic entailment/model behavior and ending quality remain unverified; B cloud FAIL persists. Pilot1/1/calls4/4 spent; no deployment or new inference. Exact newHEAD requiredCI/review remains separate. See [investigation](B_FINDING_AUDIT_REVIEW.md).
+
+**A source clarification16October2026:** confirmed A repositories are
+microsoft/playwright-python and huggingface/sentence-transformers. Existing
+Playwright1.63.0/CDP and exact MiniLM-L12-v2 ONNX revision e8f8c211… are reused;
+model/tokenizer/runtime/source bindings and cached reopen were verified. No
+additional A repository is required. Saved35/qualified0 is preserved; live scan
+and20–40acceptance remain paused. SDK B quality remains FAIL with spent1pilot/4calls.
+
+**Actual SDK pilot16October2026: technical integration exercised, quality FAIL.**
+WorkersFree0/10k was confirmed by the user immediately before this single pilot.
+Worker80759b8e-97e0-490e-83f0-a53de1eaf792 + GPT-OSS120B completed four model
+calls in52.609s through the actual app pipeline; immutable Draft44e79e48… saved and
+reopened exactly, UNREVIEWED/manual publication gates unchanged. Observed usage:
+8873 input tokens and2504 output tokens. Observed Neurons:453.048324585.
+No retries/fallback. Full output QA
+found unsupported comparative probability and absolute safety assertions, plus a
+handbook-scope concern despite an empty model audit. Keep FAIL. The first-round
+budget is now spent1/1pilot,4/4calls and persists across sessions; no second model
+round. New v26 offline guards reject observed uncited assertions in Worker/app,
+retain original output, and send editor findings to audit as leads. This narrow
+check does not certify general factual correctness. v26 is not cloud-validated.
+Current required CI must follow the final source; Windows b76b27a completed968
+tests before the old900s aggregate deadline. Three bounded groups retain every
+test; discovery coverage is checked. Independent review and full beta gates remain.
+
+**B SDK integration update,16October2026 — partial, not beta acceptance.**
+Newly proposed cloudflare/ai workers-ai-provider4.0.0 + AI SDK7.0.142 is wired
+into Worker B; pinned compatible peers/licenses/lock, direct binding/retry0,
+source/Unicode/Claim/audit and real-output replay checks pass offline. No new
+SDK cloud pilot has run; budget1pilot/4calls is persisted pending currentFreequota.
+Oldv24cloud output remains qualityFAIL; nativeCodex/UNREVIEWED unchanged.
+PR86 a2cdd64 CIWindows2fixturefailures were reproduced under8.3TEMP and fixed
+with canonical fixture paths. New source requires new-head CI/review. A scan and
+paidC stay paused, existing full-beta/artifact/release requirements remain.
+
+<!-- B_PROVIDER_INTEGRATION_20261016_BEGIN -->
+**B provider integration checkpoint, 16/10/2026 — not beta acceptance.**
+The B app flow now explicitly selects configured Codex/local/Workers providers;
+automatic mode refuses a template substitute. Selected exact source snapshots,
+observations/inferences/direction, Claim citations and Draft assertions persist in
+canonical SQLite. Manual changes create immutable versions; cached generation and
+unmodified Save preserve edits. No ACCEPT, Selection or publication approval is added.
+
+Focused generation/persistence/provider/HTTP/UI validation passed32tests before the
+final cloud protocol changes; affected protocol/cancel/audit tests were then updated
+and passed. Required lint/format/type checks pass on the scoped B source. Cloud v23
+uses four declared sequential steps (analysis, writing, one edit, audit), each with
+bounded HTTP/owned process deadlines, exact deployment/model identity, no retry or
+fallback, and an ASCII digest/index audit of immutable Vietnamese text.
+
+Earlier real cloud outputs failed source quality; malformed JSON/Unicode and network
+deadline failures remain failures with no successful Workflow/Draft. A model audit
+does not prove quality. Read a real final output against the selected notes before
+claiming cloud automatic quality or choosing it by default. Existing local TEXT,
+IMAGE_CAPTION and VIDEO outputs have separate scoped quality/reopen evidence; manual
+revisions do not stand in for automatic generation. UNREVIEWED remains.
+
+New Facebook scans and paid Cloudflare C remain paused. This B PR does not satisfy
+the missing selected A/B repository identities, A live viral target, C listening/cloud,
+independent review, exact reviewed-main/tag Windows artifact or beta release gates.
+Required hosted CI must bind this new PR HEAD; previous green checks are historical.
+<!-- B_PROVIDER_INTEGRATION_20261016_END -->
+
 # Ma trận nghiệm thu Creator Loop V1
 
 **Native review 13/10/2026, exact local artifact `c2a5afc543eb`:** one labelled local QA TEXT original (not Facebook/viral) went through manual analysis/direction/TEXT Draft and automatic VIDEO Draft. Video edit produced exact v2; local MP4 outputs 16s/16s/34s probe H.264/AAC and match SQLite digests. In-app playback, live owned-FFmpeg cancellation (CANCELLED/no output), normal app exit0 and reopening exact Evidence/Claim/Draft/history/MP4 passed. Review/Selection/Approval/Post counts remain0. This does not accept the Facebook pipeline: the new run reached SCANNING/count1 then BROWSER_FAILED before storing candidates. Old106/11/0 remains historical. Safe exception-type/app-code-location diagnostics distinguish browser timeout/failure without retaining exception messages, URLs or credentials; new build/CI/native diagnosis remain required. Independent review/release gates and stable deferrals remain.

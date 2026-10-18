@@ -1,0 +1,110 @@
+{
+  "origin_head": "bdf3d07c75ea41b005d9d07f54a820306eeb7e39",
+  "worker_version": "f06f1d48-2a48-4c7f-a655-46a1201b92e4",
+  "format": "ACTUAL_FAILED_WRITING_NOT_ACCEPTED_DRAFT",
+  "written": {
+    "hypothetical_opening": "",
+    "editorial_paragraphs": [
+      [
+        {
+          "premise_checks": [],
+          "source_quote_id": -1,
+          "text": "Giả sử bạn A nhận được một ảnh chụp màn hình của một bài viết trên Facebook về một sự kiện y tế, nhưng không có đường link gốc."
+        }
+      ],
+      [
+        {
+          "premise_checks": [
+            {
+              "assertion": "COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.",
+              "quote_ids": [
+                8
+              ],
+              "supported": true
+            }
+          ],
+          "source_quote_id": 8,
+          "text": "Ai đứng sau thông tin? Đây là câu hỏi đầu tiên mà COR khuyên bạn nên tự đặt ra."
+        },
+        {
+          "premise_checks": [],
+          "source_quote_id": -1,
+          "text": "Bạn có thể kiểm tra hồ sơ người đăng, trang cá nhân hoặc tổ chức liên quan để xác định tính xác thực."
+        }
+      ],
+      [
+        {
+          "premise_checks": [
+            {
+              "assertion": "COR đề xuất xem xét căn cứ nào được đưa ra trong nội dung.",
+              "quote_ids": [
+                9
+              ],
+              "supported": true
+            }
+          ],
+          "source_quote_id": 9,
+          "text": "Tiếp theo, hãy xem xét bằng chứng: ảnh chụp có trích dẫn nguồn, số liệu hay liên kết nào không?"
+        },
+        {
+          "premise_checks": [],
+          "source_quote_id": -1,
+          "text": "Nếu không tìm thấy bằng chứng rõ ràng, nên cân nhắc không chia sẻ cho đến khi có thông tin bổ sung."
+        }
+      ],
+      [
+        {
+          "premise_checks": [
+            {
+              "assertion": "Cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả.",
+              "quote_ids": [
+                4
+              ],
+              "supported": true
+            }
+          ],
+          "source_quote_id": 4,
+          "text": "Cuối cùng, so sánh với các nguồn khác để xem chúng có đồng nhất hay không."
+        },
+        {
+          "premise_checks": [],
+          "source_quote_id": -1,
+          "text": "Bạn có thể nhắn lại cho người gửi: “Bạn có thể chia sẻ link gốc hoặc ngày đăng của bài viết này được không? Cảm ơn!”"
+        }
+      ]
+    ]
+  },
+  "materials": [
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_id": null,
+      "asset_id": "02dde26a0828436fa24c468fa6f44d34",
+      "file_id": "1da0c5ef932840d9befe5a61d11adce9",
+      "sha256": "ec6b7c2b9c40394a2824651daa818a0db73575275b1380b9751b834a8f8da60f",
+      "media_type": "TEXT",
+      "text": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra.\nSource: UNESCO\nURL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course\nDiễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể.\nHướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này.\n",
+      "source_url": null,
+      "evidence_version_ids": [],
+      "scope": "TEXT_PASSAGE"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_id": null,
+      "asset_id": "fb7cc0a93386491da0501c111d0c7d58",
+      "file_id": "e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "sha256": "b4870ab706628ca1eb4a3ea0121da60db2fb1e54af22bab0e8c84fe40212cf48",
+      "media_type": "TEXT",
+      "text": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra.\nSource: Digital Inquiry Group / Civic Online Reasoning\nURL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/\nTrích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”\nDiễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.\nHướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral.\n",
+      "source_url": null,
+      "evidence_version_ids": [],
+      "scope": "TEXT_PASSAGE"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 2854,
+    "completion_tokens": 1086,
+    "total_tokens": 3940,
+    "neurons": 164.85400390625
+  },
+  "qa": "FAIL: empty dedicated opening; hypothetical scene misplaced in first editorial paragraph; unsupported profile/authenticity procedure and overstatement of COR note. Immutable modeloutput, not a corrected article."
+}

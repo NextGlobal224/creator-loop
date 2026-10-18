@@ -1,0 +1,265 @@
+{
+  "origin_head": "dc8326b9772e74b28a328d6d094591bc90f5947e",
+  "origin_worker_version": "8f3f6479-ac35-4d59-8d19-d725e5e929f4",
+  "materials": [
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_id": null,
+      "asset_id": "02dde26a0828436fa24c468fa6f44d34",
+      "file_id": "1da0c5ef932840d9befe5a61d11adce9",
+      "sha256": "ec6b7c2b9c40394a2824651daa818a0db73575275b1380b9751b834a8f8da60f",
+      "media_type": "TEXT",
+      "text": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra.\nSource: UNESCO\nURL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course\nDiễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể.\nHướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này.\n",
+      "source_url": null,
+      "evidence_version_ids": [],
+      "scope": "TEXT_PASSAGE"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_id": null,
+      "asset_id": "fb7cc0a93386491da0501c111d0c7d58",
+      "file_id": "e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "sha256": "b4870ab706628ca1eb4a3ea0121da60db2fb1e54af22bab0e8c84fe40212cf48",
+      "media_type": "TEXT",
+      "text": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra.\nSource: Digital Inquiry Group / Civic Online Reasoning\nURL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/\nTrích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”\nDiễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.\nHướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral.\n",
+      "source_url": null,
+      "evidence_version_ids": [],
+      "scope": "TEXT_PASSAGE"
+    }
+  ],
+  "written": {
+    "hypothetical_opening": "Tình huống giả định: Người dùng A chụp màn hình một bài viết trên Facebook về một sự kiện y tế nhưng không kèm theo đường link gốc và muốn chia sẻ cho bạn bè.",
+    "editorial_paragraphs": [
+      [
+        {
+          "source_quote_id": 3,
+          "text": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội, nhưng không đề cập đến bất kỳ bài viết Facebook cụ thể nào.",
+          "premise_checks": [
+            {
+              "assertion": "UNESCO giới thiệu một giáo trình có công cụ kiểm tra dữ kiện và xác minh trên mạng xã hội, không xác minh bài Facebook cụ thể.",
+              "quote_ids": [
+                3
+              ],
+              "supported": true
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "source_quote_id": 8,
+          "text": "Một cách tiếp cận đơn giản là đặt ba câu hỏi: “Who’s behind the information? What’s the evidence? What do other sources say?”",
+          "premise_checks": [
+            {
+              "assertion": "COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc.",
+              "quote_ids": [
+                8
+              ],
+              "supported": true
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "source_quote_id": 9,
+          "text": "Áp dụng ba câu hỏi này, bạn có thể lần lượt xác định ai là người đứng sau thông tin, kiểm tra căn cứ được đưa ra và so sánh với những nguồn khác để đánh giá độ tin cậy.",
+          "premise_checks": [
+            {
+              "assertion": "COR đề xuất ba bước: xác định người đứng sau, kiểm tra căn cứ, và tham khảo nguồn khác.",
+              "quote_ids": [
+                9
+              ],
+              "supported": true
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "source_quote_id": -1,
+          "text": "Bạn có thể nhắn lại cho người gửi: “Bạn có thể chia sẻ link gốc, ngày đăng và nguồn gốc của ảnh chụp màn hình này được không?”",
+          "premise_checks": []
+        }
+      ]
+    ]
+  },
+  "operations": {
+    "source_issues": [],
+    "edits": [
+      {
+        "index": 0,
+        "premise_checks": [],
+        "support": "HYPOTHETICAL",
+        "quote_ids": [],
+        "decision": "KEEP",
+        "note": "Fictional opening, no factual claim.",
+        "replacement": []
+      },
+      {
+        "index": 1,
+        "premise_checks": [
+          {
+            "assertion": "UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội, và không đề cập đến bất kỳ bài viết Facebook cụ thể nào.",
+            "quote_ids": [
+              3
+            ],
+            "supported": true
+          }
+        ],
+        "support": "SOURCE_SUPPORTED",
+        "quote_ids": [
+          3
+        ],
+        "decision": "KEEP",
+        "note": "Statement matches UNESCO excerpt.",
+        "replacement": []
+      },
+      {
+        "index": 2,
+        "premise_checks": [
+          {
+            "assertion": "COR giới thiệu ba câu hỏi: “Who’s behind the information? What’s the evidence? What do other sources say?”",
+            "quote_ids": [
+              8
+            ],
+            "supported": true
+          }
+        ],
+        "support": "SOURCE_SUPPORTED",
+        "quote_ids": [
+          8
+        ],
+        "decision": "KEEP",
+        "note": "Direct quote of COR three questions.",
+        "replacement": []
+      },
+      {
+        "index": 3,
+        "premise_checks": [
+          {
+            "assertion": "Áp dụng ba câu hỏi này, bạn có thể lần lượt xác định ai là người đứng sau thông tin, kiểm tra căn cứ được đưa ra và so sánh với những nguồn khác để đánh giá độ tin cậy.",
+            "quote_ids": [
+              9
+            ],
+            "supported": true
+          }
+        ],
+        "support": "SOURCE_SUPPORTED",
+        "quote_ids": [
+          9
+        ],
+        "decision": "KEEP",
+        "note": "Applies COR questions as described.",
+        "replacement": []
+      },
+      {
+        "index": 4,
+        "premise_checks": [],
+        "support": "SUGGESTION",
+        "quote_ids": [],
+        "decision": "KEEP",
+        "note": "Voluntary request for missing link, date, or context.",
+        "replacement": []
+      }
+    ]
+  },
+  "body": "Tình huống giả định: Người dùng A chụp màn hình một bài viết trên Facebook về một sự kiện y tế nhưng không kèm theo đường link gốc và muốn chia sẻ cho bạn bè.\n\nUNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội, nhưng không đề cập đến bất kỳ bài viết Facebook cụ thể nào.\n\nMột cách tiếp cận đơn giản là đặt ba câu hỏi: “Who’s behind the information? What’s the evidence? What do other sources say?”\n\nÁp dụng ba câu hỏi này, bạn có thể lần lượt xác định ai là người đứng sau thông tin, kiểm tra căn cứ được đưa ra và so sánh với những nguồn khác để đánh giá độ tin cậy.\n\nBạn có thể nhắn lại cho người gửi: “Bạn có thể chia sẻ link gốc, ngày đăng và nguồn gốc của ảnh chụp màn hình này được không?”",
+  "audit": {
+    "draft_body": "Tình huống giả định: Người dùng A chụp màn hình một bài viết trên Facebook về một sự kiện y tế nhưng không kèm theo đường link gốc và muốn chia sẻ cho bạn bè.\n\nUNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội, nhưng không đề cập đến bất kỳ bài viết Facebook cụ thể nào.\n\nMột cách tiếp cận đơn giản là đặt ba câu hỏi: “Who’s behind the information? What’s the evidence? What do other sources say?”\n\nÁp dụng ba câu hỏi này, bạn có thể lần lượt xác định ai là người đứng sau thông tin, kiểm tra căn cứ được đưa ra và so sánh với những nguồn khác để đánh giá độ tin cậy.\n\nBạn có thể nhắn lại cho người gửi: “Bạn có thể chia sẻ link gốc, ngày đăng và nguồn gốc của ảnh chụp màn hình này được không?”",
+    "finding_checks": [
+      {
+        "finding": "PROJECT_NO_UNSOURCED_RULE",
+        "reason": "All factual statements about UNESCO’s handbook and COR’s three questions are directly supported by the cited snapshots (segments 1‑3). No invented verification rule or promised outcome appears, satisfying PROJECT_NO_UNSOURCED_RULE.",
+        "segments": [
+          {
+            "index": 1,
+            "text": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội, nhưng không đề cập đến bất kỳ bài viết Facebook cụ thể nào."
+          },
+          {
+            "index": 2,
+            "text": "Một cách tiếp cận đơn giản là đặt ba câu hỏi: “Who’s behind the information? What’s the evidence? What do other sources say?”"
+          },
+          {
+            "index": 3,
+            "text": "Áp dụng ba câu hỏi này, bạn có thể lần lượt xác định ai là người đứng sau thông tin, kiểm tra căn cứ được đưa ra và so sánh với những nguồn khác để đánh giá độ tin cậy."
+          }
+        ],
+        "verdict": "ADDRESSED"
+      },
+      {
+        "finding": "PROJECT_CLOSING_MESSAGE",
+        "reason": "The article ends with a concrete short message asking the sender for the original link, date, and context (segment 4), exactly as required by PROJECT_CLOSING_MESSAGE.",
+        "segments": [
+          {
+            "index": 4,
+            "text": "Bạn có thể nhắn lại cho người gửi: “Bạn có thể chia sẻ link gốc, ngày đăng và nguồn gốc của ảnh chụp màn hình này được không?”"
+          }
+        ],
+        "verdict": "ADDRESSED"
+      },
+      {
+        "finding": "PROJECT_NONREPETITIVE_DEVELOPMENT",
+        "reason": "Each paragraph introduces a distinct idea: (0) hypothetical scenario, (1) UNESCO’s handbook description, (2) presentation of COR’s three questions, (3) application of those questions, (4) closing request message. No paragraph repeats another nor adds unsupported padding, meeting PROJECT_NONREPETITIVE_DEVELOPMENT.",
+        "segments": [
+          {
+            "index": 0,
+            "text": "Tình huống giả định: Người dùng A chụp màn hình một bài viết trên Facebook về một sự kiện y tế nhưng không kèm theo đường link gốc và muốn chia sẻ cho bạn bè."
+          },
+          {
+            "index": 1,
+            "text": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội, nhưng không đề cập đến bất kỳ bài viết Facebook cụ thể nào."
+          },
+          {
+            "index": 2,
+            "text": "Một cách tiếp cận đơn giản là đặt ba câu hỏi: “Who’s behind the information? What’s the evidence? What do other sources say?”"
+          },
+          {
+            "index": 3,
+            "text": "Áp dụng ba câu hỏi này, bạn có thể lần lượt xác định ai là người đứng sau thông tin, kiểm tra căn cứ được đưa ra và so sánh với những nguồn khác để đánh giá độ tin cậy."
+          },
+          {
+            "index": 4,
+            "text": "Bạn có thể nhắn lại cho người gửi: “Bạn có thể chia sẻ link gốc, ngày đăng và nguồn gốc của ảnh chụp màn hình này được không?”"
+          }
+        ],
+        "verdict": "ADDRESSED"
+      }
+    ],
+    "issues": [],
+    "paragraphs": [
+      {
+        "factual_passages": [],
+        "kind": "HYPOTHETICAL",
+        "text": "Tình huống giả định: Người dùng A chụp màn hình một bài viết trên Facebook về một sự kiện y tế nhưng không kèm theo đường link gốc và muốn chia sẻ cho bạn bè."
+      },
+      {
+        "factual_passages": [
+          "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội, nhưng không đề cập đến bất kỳ bài viết Facebook cụ thể nào."
+        ],
+        "kind": "SOURCE_FACT",
+        "text": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội, nhưng không đề cập đến bất kỳ bài viết Facebook cụ thể nào."
+      },
+      {
+        "factual_passages": [
+          "Một cách tiếp cận đơn giản là đặt ba câu hỏi: “Who’s behind the information? What’s the evidence? What do other sources say?”"
+        ],
+        "kind": "SOURCE_FACT",
+        "text": "Một cách tiếp cận đơn giản là đặt ba câu hỏi: “Who’s behind the information? What’s the evidence? What do other sources say?”"
+      },
+      {
+        "factual_passages": [
+          "Áp dụng ba câu hỏi này, bạn có thể lần lượt xác định ai là người đứng sau thông tin, kiểm tra căn cứ được đưa ra và so sánh với những nguồn khác để đánh giá độ tin cậy."
+        ],
+        "kind": "SOURCE_FACT",
+        "text": "Áp dụng ba câu hỏi này, bạn có thể lần lượt xác định ai là người đứng sau thông tin, kiểm tra căn cứ được đưa ra và so sánh với những nguồn khác để đánh giá độ tin cậy."
+      },
+      {
+        "factual_passages": [],
+        "kind": "ADVICE",
+        "text": "Bạn có thể nhắn lại cho người gửi: “Bạn có thể chia sẻ link gốc, ngày đăng và nguồn gốc của ảnh chụp màn hình này được không?”"
+      }
+    ]
+  },
+  "quality": "FAIL: English question list and Vietnamese paraphrase repeat; claims questions allow identifying author/assessing reliability, beyond selected question-only source."
+}

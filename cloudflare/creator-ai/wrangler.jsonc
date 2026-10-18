@@ -1,0 +1,10 @@
+{
+  "name": "creator-loop-ai-beta",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-13",
+  "workers_dev": true,
+  "ai": { "binding": "AI" },
+  "version_metadata": { "binding": "CREATOR_VERSION" },
+  "vars": { "CREATOR_MODEL": "@cf/openai/gpt-oss-120b" },
+  "observability": { "enabled": false }
+}

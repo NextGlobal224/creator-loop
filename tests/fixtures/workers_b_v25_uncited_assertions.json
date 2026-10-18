@@ -1,0 +1,59 @@
+{
+  "origin": "Actual SDK B pilot 2026-10-16; public source notes, no approval",
+  "worker_version": "80759b8e-97e0-490e-83f0-a53de1eaf792",
+  "model": "@cf/openai/gpt-oss-120b",
+  "content": {
+    "draft_body": "Tình huống giả định: Bạn vừa nhận được một ảnh chụp màn hình của một bài đăng trên Facebook, nhưng không có đường link nào kèm theo. Trước khi chia sẻ, hãy dừng lại một chút và xem xét nội dung này một cách cẩn thận.\n\nĐầu tiên, hãy xác định người hoặc tổ chức đứng sau thông tin đó; nếu không rõ, khả năng sai lệch sẽ cao hơn. Tiếp theo, kiểm tra bằng chứng được đưa ra trong ảnh: có số liệu, trích dẫn, hay chỉ là lời khẳng định mơ hồ? Cuối cùng, tìm kiếm các nguồn khác để xem họ có đưa ra cùng một thông tin hay không.\n\nBa câu hỏi này được tóm tắt trong tài liệu của Digital Inquiry Group: “Who’s behind the information? What’s the evidence? What do other sources say?” Bạn có thể tự đặt chúng vào quy trình kiểm tra nhanh trước khi nhấn nút chia sẻ.\n\nUNESCO giới thiệu một giáo trình về rối loạn thông tin, trong đó có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Mặc dù không có hướng dẫn cụ thể cho một bài đăng Facebook, bạn có thể áp dụng các bước thực hành trong giáo trình này để kiểm tra nguồn và tính xác thực của ảnh chụp màn hình.\n\nHãy nhớ rằng không có thao tác nào có thể luôn xác định một nội dung là thật hay giả; việc kiểm tra kỹ lưỡng và đa nguồn luôn là cách an toàn nhất. Nếu bạn có thêm thông tin về nguồn gốc của ảnh chụp màn hình (link, ngày đăng, ngữ cảnh), vui lòng cung cấp để chúng tôi có thể hỗ trợ kiểm chứng chi tiết hơn.",
+    "factual_claims": [
+      {
+        "material_ids": [
+          "file:e72b0742f1c148abbc9a54f2ad3d4a7e"
+        ],
+        "source_quote": "Trích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”",
+        "text": "Ba câu hỏi này được tóm tắt trong tài liệu của Digital Inquiry Group: “Who’s behind the information? What’s the evidence? What do other sources say?”"
+      },
+      {
+        "material_ids": [
+          "file:1da0c5ef932840d9befe5a61d11adce9"
+        ],
+        "source_quote": "Diễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể.",
+        "text": "UNESCO giới thiệu một giáo trình về rối loạn thông tin, trong đó có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội."
+      }
+    ]
+  },
+  "audit": {
+    "draft_body": "Tình huống giả định: Bạn vừa nhận được một ảnh chụp màn hình của một bài đăng trên Facebook, nhưng không có đường link nào kèm theo. Trước khi chia sẻ, hãy dừng lại một chút và xem xét nội dung này một cách cẩn thận.\n\nĐầu tiên, hãy xác định người hoặc tổ chức đứng sau thông tin đó; nếu không rõ, khả năng sai lệch sẽ cao hơn. Tiếp theo, kiểm tra bằng chứng được đưa ra trong ảnh: có số liệu, trích dẫn, hay chỉ là lời khẳng định mơ hồ? Cuối cùng, tìm kiếm các nguồn khác để xem họ có đưa ra cùng một thông tin hay không.\n\nBa câu hỏi này được tóm tắt trong tài liệu của Digital Inquiry Group: “Who’s behind the information? What’s the evidence? What do other sources say?” Bạn có thể tự đặt chúng vào quy trình kiểm tra nhanh trước khi nhấn nút chia sẻ.\n\nUNESCO giới thiệu một giáo trình về rối loạn thông tin, trong đó có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Mặc dù không có hướng dẫn cụ thể cho một bài đăng Facebook, bạn có thể áp dụng các bước thực hành trong giáo trình này để kiểm tra nguồn và tính xác thực của ảnh chụp màn hình.\n\nHãy nhớ rằng không có thao tác nào có thể luôn xác định một nội dung là thật hay giả; việc kiểm tra kỹ lưỡng và đa nguồn luôn là cách an toàn nhất. Nếu bạn có thêm thông tin về nguồn gốc của ảnh chụp màn hình (link, ngày đăng, ngữ cảnh), vui lòng cung cấp để chúng tôi có thể hỗ trợ kiểm chứng chi tiết hơn.",
+    "issues": [],
+    "paragraphs": [
+      {
+        "factual_passages": [],
+        "kind": "HYPOTHETICAL",
+        "text": "Tình huống giả định: Bạn vừa nhận được một ảnh chụp màn hình của một bài đăng trên Facebook, nhưng không có đường link nào kèm theo. Trước khi chia sẻ, hãy dừng lại một chút và xem xét nội dung này một cách cẩn thận."
+      },
+      {
+        "factual_passages": [],
+        "kind": "ADVICE",
+        "text": "Đầu tiên, hãy xác định người hoặc tổ chức đứng sau thông tin đó; nếu không rõ, khả năng sai lệch sẽ cao hơn. Tiếp theo, kiểm tra bằng chứng được đưa ra trong ảnh: có số liệu, trích dẫn, hay chỉ là lời khẳng định mơ hồ? Cuối cùng, tìm kiếm các nguồn khác để xem họ có đưa ra cùng một thông tin hay không."
+      },
+      {
+        "factual_passages": [
+          "Ba câu hỏi này được tóm tắt trong tài liệu của Digital Inquiry Group: “Who’s behind the information? What’s the evidence? What do other sources say?”"
+        ],
+        "kind": "SOURCE_FACT",
+        "text": "Ba câu hỏi này được tóm tắt trong tài liệu của Digital Inquiry Group: “Who’s behind the information? What’s the evidence? What do other sources say?” Bạn có thể tự đặt chúng vào quy trình kiểm tra nhanh trước khi nhấn nút chia sẻ."
+      },
+      {
+        "factual_passages": [
+          "UNESCO giới thiệu một giáo trình về rối loạn thông tin, trong đó có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội."
+        ],
+        "kind": "SOURCE_FACT",
+        "text": "UNESCO giới thiệu một giáo trình về rối loạn thông tin, trong đó có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Mặc dù không có hướng dẫn cụ thể cho một bài đăng Facebook, bạn có thể áp dụng các bước thực hành trong giáo trình này để kiểm tra nguồn và tính xác thực của ảnh chụp màn hình."
+      },
+      {
+        "factual_passages": [],
+        "kind": "ADVICE",
+        "text": "Hãy nhớ rằng không có thao tác nào có thể luôn xác định một nội dung là thật hay giả; việc kiểm tra kỹ lưỡng và đa nguồn luôn là cách an toàn nhất. Nếu bạn có thêm thông tin về nguồn gốc của ảnh chụp màn hình (link, ngày đăng, ngữ cảnh), vui lòng cung cấp để chúng tôi có thể hỗ trợ kiểm chứng chi tiết hơn."
+      }
+    ]
+  }
+}
