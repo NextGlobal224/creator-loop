@@ -11,7 +11,28 @@ test('immutable analysis audit requires every field/hash/order and no unsupporte
   const r=receipt(hash,fields);mutate(r);assert.throws(()=>validateCoverage(r,hash,fields,catalog));
  }
  assert.throws(()=>validateAnalysis({...analysis,inferences:['Giả thuyết: hiệu quả chưa biết']},materials));
+ for(const suffix of ['', ' ', '\t'])assert.throws(()=>validateAnalysis({...analysis,inferences:['Giả thuyết chưa xác nhận:'+suffix]},materials));
+ assert.doesNotThrow(()=>validateAnalysis({...analysis,inferences:[]},materials));
  assert.throws(()=>validateAnalysis({...analysis,observations:[{...analysis.observations[0],quote:'not in original'}]},materials));
+});
+test('live-failure boundaries are explicit in each Web stage without repairing model JSON',async()=>{
+ for(const stage of ['analysis','writing','editing']){
+  const packet={stage,previous:stage==='analysis'?[]:[{value:analysis}],writing_prompt:'fixture\n'+JSON.stringify({materials})},profile=await analysisProfile(packet);let captured;
+  const result={response:analysis};assert.equal(await profile.run({run:async(_,input)=>{captured=input;return result;}},'model',{messages:[{role:'system',content:'Original constraints'}],response_format:{type:'json_schema',json_schema:{properties:{inferences:{}},required:[]}}}),result);
+  if(stage==='analysis'){
+   const rule=captured.response_format.json_schema.properties.inferences.items;
+   assert.equal(new RegExp(rule.pattern).test('Giả thuyết chưa xác nhận:'),false);assert.equal(new RegExp(rule.pattern).test(analysis.inferences[0]),true);assert.match(captured.messages[0].content,/inferences:\[\]/);
+  }else if(stage==='writing')assert.match(captured.messages[0].content,/direction is NOT evidence/);
+  else assert.match(captured.messages[0].content,/never emit an identical REWRITE/);
+ }
+});
+test('analysis correction preserves factual no-fiction Projects and explicit manual direction',async()=>{
+ for(const project of [{purpose:'Giới thiệu lịch mở cửa bảo tàng',direction:'Chỉ dùng dữ kiện đã có, không tạo tình huống giả định.'},{purpose:'Giúp người đọc nhận thức đúng về sự thật trước khi chia sẻ ảnh chụp màn hình',direction:''}]){
+  const profile=await analysisProfile({stage:'analysis',previous:[],writing_prompt:'fixture\n'+JSON.stringify({...project,materials})});let captured;
+  await profile.run({run:async(_,input)=>{captured=input;return {response:analysis};}},'model',{messages:[{role:'system',content:'Respect explicit Project'}],response_format:{type:'json_schema',json_schema:{properties:{inferences:{}},required:[]}}});
+  assert.match(captured.messages[0].content,/including factual\/no-fiction briefs/);
+  assert.equal(captured.messages[0].content.includes('For this specifically commissioned screenshot-sharing Project'),!project.direction);
+ }
 });
 test('actual failed direction and unsupported observation are audited as immutable fields without rewriting',async()=>{
  const bad={...analysis,direction:'Sử dụng công cụ kiểm tra dữ kiện được UNESCO đề xuất để tìm bằng chứng hỗ trợ hoặc phản bác.'};

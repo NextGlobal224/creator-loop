@@ -57,6 +57,11 @@ analysis audit receipt from the fourth response. Hidden reasoning is never
 exported. A rejected parsed JSON response and fixed diagnostic fields remain
 in the authenticated job for diagnosis; they do not authorize a retry or a
 Draft commit. Fixture channel coverage does not prove live output quality.
+An inference must contain a proposition after its explicit unconfirmed label;
+an empty array is preferable to a bare label. Web stage instructions distinguish
+source content from tool applicability and require an actual textual change for
+REWRITE. These instructions preserve the existing fail-closed edit/audit guards;
+they do not repair a model response or establish semantic acceptance.
 
 Sources checked 18 October 2026:
 [Python packages](https://developers.cloudflare.com/workers/languages/python/packages/),
