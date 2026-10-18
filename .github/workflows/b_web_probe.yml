@@ -15,22 +15,28 @@ permissions:
 jobs:
   independent-cloud:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
         with:
           python-version: '3.12'
+      - name: Install pinned isolated browser test runtime
+        run: |
+          python -m pip install playwright==1.63.0
+          python -m playwright install --with-deps chromium
       - name: Authenticate and exercise isolated cloud storage and saved outputs
         env:
           B_WEB_ORIGIN: https://creator-loop-b-web.creator-loop-ai-beta.workers.dev
           B_WEB_DEPLOYMENT: ${{ inputs.deployment }}
           B_WEB_EXPECTED: ${{ inputs.expected }}
           B_WEB_QA_PASSWORD: ${{ secrets.B_WEB_QA_PASSWORD }}
-        run: timeout 180s python scripts/b_web_remote_probe.py
+        run: timeout 240s python scripts/b_web_remote_probe.py
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: b-web-independent
-          path: b-web-independent.json
+          path: |
+            b-web-independent.json
+            b-web-*.png
           if-no-files-found: error
           retention-days: 14
