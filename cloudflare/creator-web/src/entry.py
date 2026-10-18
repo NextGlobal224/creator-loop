@@ -332,7 +332,12 @@ class Database(DurableObject):
         if path == "/api/runtime" and method == "GET":
             sdk = import_from_javascript("creator_ai.mjs")
             return reply(
-                {"components": json.loads(sdk.components()), "version": VERSION}
+                {
+                    "components": json.loads(sdk.components()),
+                    "version": VERSION,
+                    "deployment": str(self.env.CREATOR_VERSION.id),
+                    "model": self.env.CREATOR_MODEL,
+                }
             )
         if path == "/api/logout" and method == "POST":
             self.sql.exec("DELETE FROM sessions")

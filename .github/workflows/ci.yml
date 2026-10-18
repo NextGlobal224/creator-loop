@@ -58,6 +58,13 @@ jobs:
           python -m pip install --require-hashes -r cloudflare/creator-web/requirements-build.txt --target cloudflare/creator-web/.build-sdk
           timeout 120s python cloudflare/creator-web/build.py
           timeout 90s node cloudflare/creator-ai/node_modules/wrangler/bin/wrangler.js deploy --config cloudflare/creator-web/wrangler.jsonc --dry-run --outdir ./dist
+            timeout 30s python cloudflare/creator-web/package_runtime.py
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: b-web-runtime
+          path: cloudflare/creator-web/b-web-runtime.zip
+          if-no-files-found: error
+          retention-days: 14
       - name: Build B Worker without deploying or calling a model
         timeout-minutes: 2
         working-directory: cloudflare/creator-ai
