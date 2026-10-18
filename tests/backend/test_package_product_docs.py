@@ -9,9 +9,10 @@ import tempfile
 import unittest
 from html.parser import HTMLParser
 from pathlib import Path
+from unittest import mock
 from urllib.parse import unquote, urlparse
 
-from scripts.package_product_docs import DOCUMENTS, package_docs
+from scripts.package_product_docs import DOCUMENTS, _example_bytes, package_docs
 
 
 class Links(HTMLParser):
@@ -48,6 +49,40 @@ class ProductDocsTests(unittest.TestCase):
             if p.is_file()
         }
 
+    def test_example_bytes_use_exact_commit_not_windows_checkout_newlines(self):
+        repository = self.root / "source-repository"
+        repository.mkdir()
+        subprocess.run(["git", "init", "-q", str(repository)], check=True)
+        source = repository / "docs/examples/B/TEXT.md"
+        source.parent.mkdir(parents=True)
+        original = "Bài đã lưu\n\nGiữ citation và phiên bản.".encode()
+        source.write_bytes(original)
+        subprocess.run(
+            ["git", "-c", "core.autocrlf=false", "add", "."],
+            cwd=repository,
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=QA",
+                "-c",
+                "user.email=qa@example.invalid",
+                "commit",
+                "-qm",
+                "Preserve original bytes",
+            ],
+            cwd=repository,
+            check=True,
+        )
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+        ).strip()
+        source.write_bytes(original.replace(b"\n", b"\r\n"))
+        with mock.patch("scripts.package_product_docs.REPOSITORY", repository):
+            self.assertEqual(_example_bytes(source, commit), original)
+
     def test_existing_guidance_refuses_before_mutation(self):
         (self.root / "USER_GUIDE.html").write_bytes(b"Keep previous guidance")
         before = self.snapshot()
@@ -74,6 +109,16 @@ class ProductDocsTests(unittest.TestCase):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         before = self.snapshot()
         info = package_docs(self.root, self.commit)
+        outputs = json.loads(
+            (self.root / "examples/B/outputs.json").read_text(encoding="utf-8")
+        )
+        for item in outputs["outputs"]:
+            self.assertEqual(
+                hashlib.sha256(
+                    (self.root / "examples/B" / item["file"]).read_bytes()
+                ).hexdigest(),
+                item["body_sha256"],
+            )
         self.assertEqual(info["git_commit"], self.commit)
         self.assertEqual(info["product_documents"], len(DOCUMENTS))
         self.assertEqual(
