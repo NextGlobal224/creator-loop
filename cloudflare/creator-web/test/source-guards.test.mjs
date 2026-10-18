@@ -62,4 +62,10 @@ test('Web TEXT retains Windows stage protocol with explicit analysis profile',as
  const native=await worker.fetch(new Request('https://fixture.test/b/generate',{method:'POST',headers:{authorization:'Bearer fixture','content-type':'application/json'},body:JSON.stringify(packet)}),{AI,CREATOR_MODEL:'@cf/openai/gpt-oss-120b',CREATOR_KEY:'fixture',CREATOR_VERSION:{id:'fixture'}});
  const ffi=JSON.parse(await stage(AI,'@cf/openai/gpt-oss-120b',JSON.stringify({...packet,format:'TEXT'}),'fixture'));
  assert.equal(native.status,200);assert.equal(ffi.ok,true);assert.equal(ffi.model_calls,1);assert.notDeepEqual(captured[0],captured[1]);assert.equal(captured[1].response_format.json_schema.properties.inferences.items.pattern,'^Giả thuyết chưa xác nhận:');assert.deepEqual((await native.json()).stage_result,ffi.stage_result);
+ for(const format of ['TEXT','IMAGE_CAPTION','VIDEO']){
+  const packetWithFormat={...packet,format,writing_prompt:'fixture\n'+JSON.stringify({...source,format})};
+  const choiceAI={run:async()=>({choices:[{index:0,finish_reason:'stop',message:{role:'assistant',content:JSON.stringify(analysis),reasoning_content:'PRIVATE_REASONING_FIXTURE'}}],usage:{prompt_tokens:1,completion_tokens:1}})};
+  const choicesFFI=JSON.parse(await stage(choiceAI,'@cf/openai/gpt-oss-120b',JSON.stringify(packetWithFormat),'fixture'));
+  assert.equal(choicesFFI.ok,true,format);assert.deepEqual(choicesFFI.stage_result.value,analysis);assert.equal(choicesFFI.profile_diagnostic.response_channel,'choices');assert.doesNotMatch(JSON.stringify(choicesFFI),/PRIVATE_REASONING_FIXTURE/);
+ }
 });
