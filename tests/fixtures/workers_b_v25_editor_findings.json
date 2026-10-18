@@ -1,0 +1,105 @@
+{
+  "origin": "Actual failed SDK pilot Worker80759b8e, editing output preserved, no verdict fabricated",
+  "edited": {
+    "source_issues": [
+      "Câu mở đầu giả định không được chứng minh là thực tế.",
+      "Những câu khẳng định về việc UNESCO cung cấp \"công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội\" không được chứng minh trong nguồn.",
+      "Những câu khẳng định về việc UNESCO có \"bước thực hành\" cụ thể cho bài đăng Facebook không có bằng chứng.",
+      "Yêu cầu người đọc gửi tin nhắn để nhận công cụ kiểm tra dữ kiện của UNESCO gợi ý một hành động không được nguồn hỗ trợ.",
+      "Lặp lại nội dung mở đầu và các lời khuyên mà không có nguồn xác thực."
+    ],
+    "hypothetical_opening": "Bạn vừa nhận được một ảnh chụp màn hình của một bài đăng trên Facebook, nhưng không có đường link nào kèm theo. Trước khi chia sẻ, hãy dừng lại một chút và xem xét nội dung này một cách cẩn thận.",
+    "editorial_paragraphs": [
+      [
+        {
+          "text": "Đầu tiên, hãy xác định người hoặc tổ chức đứng sau thông tin đó; nếu không rõ, khả năng sai lệch sẽ cao hơn.",
+          "source_quote_id": -1
+        },
+        {
+          "text": "Tiếp theo, kiểm tra bằng chứng được đưa ra trong ảnh: có số liệu, trích dẫn, hay chỉ là lời khẳng định mơ hồ?",
+          "source_quote_id": -1
+        },
+        {
+          "text": "Cuối cùng, tìm kiếm các nguồn khác để xem họ có đưa ra cùng một thông tin hay không.",
+          "source_quote_id": -1
+        }
+      ],
+      [
+        {
+          "text": "Ba câu hỏi này được tóm tắt trong tài liệu của Digital Inquiry Group: “Who’s behind the information? What’s the evidence? What do other sources say?”",
+          "source_quote_id": 8
+        },
+        {
+          "text": "Bạn có thể tự đặt chúng vào quy trình kiểm tra nhanh trước khi nhấn nút chia sẻ.",
+          "source_quote_id": -1
+        }
+      ],
+      [
+        {
+          "text": "UNESCO giới thiệu một giáo trình về rối loạn thông tin, trong đó có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội.",
+          "source_quote_id": 3
+        },
+        {
+          "text": "Mặc dù không có hướng dẫn cụ thể cho một bài đăng Facebook, bạn có thể áp dụng các bước thực hành trong giáo trình này để kiểm tra nguồn và tính xác thực của ảnh chụp màn hình.",
+          "source_quote_id": -1
+        }
+      ],
+      [
+        {
+          "text": "Hãy nhớ rằng không có thao tác nào có thể luôn xác định một nội dung là thật hay giả; việc kiểm tra kỹ lưỡng và đa nguồn luôn là cách an toàn nhất.",
+          "source_quote_id": -1
+        },
+        {
+          "text": "Nếu bạn có thêm thông tin về nguồn gốc của ảnh chụp màn hình (link, ngày đăng, ngữ cảnh), vui lòng cung cấp để chúng tôi có thể hỗ trợ kiểm chứng chi tiết hơn.",
+          "source_quote_id": -1
+        }
+      ]
+    ]
+  },
+  "catalog": [
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra."
+    },
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Source: UNESCO"
+    },
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "URL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course"
+    },
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Diễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể."
+    },
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Hướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này."
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra."
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Source: Digital Inquiry Group / Civic Online Reasoning"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "URL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Trích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Diễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì."
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Hướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral."
+    }
+  ]
+}

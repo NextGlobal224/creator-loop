@@ -1,0 +1,71 @@
+name: Publish verified beta bytes
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vX.Y.Z-beta.N tag already built/tested from main
+        required: true
+      build_run:
+        description: Successful exact tagged Creator Loop CI build run ID
+        required: true
+      evidence_json:
+        description: Sanitized exact artifact beta eligibility receipt (no URLs, text, credentials or local paths)
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  publish-beta:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    env:
+      TAG: ${{ inputs.tag }}
+      BUILD_RUN: ${{ inputs.build_run }}
+      BETA_EVIDENCE: ${{ inputs.evidence_json }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: '3.12'
+      - name: Validate inputs and exact tag/main binding
+        run: |
+          python - <<'PY'
+          import json,os,re
+          from pathlib import Path
+          assert re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+-beta\.[1-9][0-9]*',os.environ['TAG'])
+          assert re.fullmatch(r'[0-9]+',os.environ['BUILD_RUN'])
+          raw=os.environ['BETA_EVIDENCE'];assert len(raw.encode())<=60000
+          Path('beta-evidence.json').write_text(json.dumps(json.loads(raw)),encoding='utf-8')
+          PY
+          COMMIT=$(git rev-parse "$TAG^{commit}")
+          git merge-base --is-ancestor "$COMMIT" origin/main
+          echo "COMMIT=$COMMIT" >> "$GITHUB_ENV"
+          git checkout --detach "$COMMIT"
+      - name: Verify required build jobs before downloading
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" > build-run.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN/jobs?per_page=100" > build-jobs.json
+          python - <<'PY'
+          import json,os
+          run=json.load(open('build-run.json'));jobs=json.load(open('build-jobs.json'))['jobs']
+          assert run['head_sha']==os.environ['COMMIT'] and run['event']=='push' and run['conclusion']=='success'
+          assert run['path']=='.github/workflows/ci.yml' and run['head_branch']==os.environ['TAG']
+          assert run['html_url']==f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['BUILD_RUN']}"
+          required={'fast-schema-domain','security-dependencies-workflow','windows-artifact'}
+          checks={j['name']:j['conclusion'] for j in jobs}
+          assert required<=checks.keys() and all(checks[n]=='success' for n in required)
+          PY
+          gh run download "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --name "creator-loop-windows-$COMMIT" --dir release
+      - name: Finalize exact beta metadata after native eligibility
+        run: |
+          python scripts/finalize_beta_manifest.py --artifact "release/CreatorLoop-$COMMIT-win-x64.zip" --manifest release/release-manifest.json --evidence beta-evidence.json --tag "$TAG" --output release/beta-release-manifest.json
+          python scripts/check_release_gate.py --artifact "release/CreatorLoop-$COMMIT-win-x64.zip" --manifest release/beta-release-manifest.json --expected-commit "$COMMIT" --expected-run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" --tag "$TAG" --beta-evidence beta-evidence.json
+      - name: Publish identical tested ZIP as pre-release
+        run: |
+          (cd release && sha256sum "CreatorLoop-$COMMIT-win-x64.zip" > SHA256SUMS)
+          gh release create "$TAG" "release/CreatorLoop-$COMMIT-win-x64.zip" release/SHA256SUMS release/beta-release-manifest.json beta-evidence.json --verify-tag --prerelease --notes-file release/BETA-NOTES.md

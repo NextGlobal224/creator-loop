@@ -13,12 +13,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from creator_loop.installation_stage import (
+from creator_loop.backend.runtime.installation_stage import (
     MAX_EXPANDED_BYTES,
     MAX_MANIFEST_BYTES,
     load_release_manifest,
 )
 
+from scripts.b_release_evidence import check_b_evidence
+from scripts.beta_release_evidence import check_beta_evidence
 from scripts.package_product_docs import DOCUMENTS
 
 
@@ -60,17 +62,28 @@ def check_release_gate(
     expected_commit: str,
     expected_run_url: str,
     tag: str,
+    beta_evidence: Path | None = None,
 ) -> None:
     manifest = load_release_manifest(manifest_path)
-    if (
-        manifest["git_commit"] != expected_commit
-        or tag != "v" + manifest["app_version"]
+    beta = manifest.get("release_channel") == "beta"
+    if manifest.get("release_channel", "stable") not in (
+        "stable",
+        "beta",
+    ):
+        raise ValueError("Unknown release channel")
+    if manifest["git_commit"] != expected_commit or (
+        not beta and tag != "v" + manifest["app_version"]
     ):
         raise ValueError("Tag/commit does not match the tested artifact manifest")
     compatibility = manifest["component_compatibility"]
-    if compatibility.get("status") != "VERIFIED_V1":
+    b_only = beta and manifest.get("release_scope") == "B"
+    if manifest.get("release_scope") not in (None, "B"):
+        raise ValueError("Unknown release scope")
+    if not b_only and compatibility.get("status") != (
+        "VERIFIED_BETA_LOCAL_RUNTIME" if beta else "VERIFIED_V1"
+    ):
         raise ValueError("Engine/model compatibility is unresolved or unverified")
-    for kind in ("engine", "model"):
+    for kind in () if b_only else ("engine", "model"):
         component = compatibility.get(kind)
         if not isinstance(component, dict) or any(
             not isinstance(component.get(key), str) or not component[key].strip()
@@ -101,7 +114,25 @@ def check_release_gate(
         )
     ):
         raise ValueError("A matching Windows CI build provenance is required")
-    _accepted_prerequisites(acceptance)
+    if beta:
+        if beta_evidence is None or beta_evidence.stat().st_size > MAX_MANIFEST_BYTES:
+            raise ValueError("Exact beta eligibility evidence is required")
+        receipt = json.loads(beta_evidence.read_text(encoding="utf-8"))
+        if b_only:
+            with zipfile.ZipFile(archive) as package:
+                info = package.getinfo("CreatorLoop/examples/B/creator-cloud.json")
+                if info.file_size > 4096:
+                    raise ValueError("Packaged cloud config exceeds budget")
+                config = package.read(info)
+            check_b_evidence(receipt, manifest, tag, cloud_config=config)
+        else:
+            check_beta_evidence(receipt, manifest, tag)
+        if "beta" not in notes or "not accepted" not in notes:
+            raise ValueError("Beta notes must state the unaccepted stable limitations")
+    else:
+        if beta_evidence is not None:
+            raise ValueError("Beta evidence cannot bypass stable gate")
+        _accepted_prerequisites(acceptance)
     files = manifest["files"]
     guidance = {
         "CreatorLoop/USER_GUIDE.html"
@@ -138,7 +169,8 @@ def check_release_gate(
             raise ValueError("Offline guide identity exceeds metadata budget")
         identity = json.loads(package.read("CreatorLoop/build-info.json"))
         if (
-            identity.get("git_commit") != expected_commit
+            (beta and identity.get("source_hashes") != manifest.get("source_hashes"))
+            or identity.get("git_commit") != expected_commit
             or identity.get("target") != "win-x64"
         ):
             raise ValueError("Offline guide identity does not match the tested build")
@@ -154,6 +186,7 @@ def main() -> int:
     parser.add_argument("--expected-commit", required=True)
     parser.add_argument("--expected-run-url", required=True)
     parser.add_argument("--tag", required=True)
+    parser.add_argument("--beta-evidence", type=Path)
     args = parser.parse_args()
     try:
         check_release_gate(
@@ -163,6 +196,7 @@ def main() -> int:
             expected_commit=args.expected_commit,
             expected_run_url=args.expected_run_url,
             tag=args.tag,
+            beta_evidence=args.beta_evidence,
         )
     except (OSError, ValueError, RuntimeError, zipfile.BadZipFile) as exc:
         print("Release gate refused: " + str(exc), file=sys.stderr)

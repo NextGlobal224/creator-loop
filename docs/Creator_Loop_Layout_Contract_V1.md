@@ -58,3 +58,7 @@ Backup DB qua SQLite Backup API. Nếu cần backup toàn bộ, đóng/đóng b�
 - Đường dẫn có khoảng trắng/Unicode hoạt động trên Windows; không cần quyền Administrator nếu chọn cài theo user.
 - Rút ổ media rời → app báo unavailable và giữ bản ghi; gắn lại → resolve được.
 - Component không thuộc ownership không bị updater/uninstaller xóa.
+
+### Local Facebook browser session
+
+The pinned Playwright/Chromium runtime is replaceable installation content. `facebook-browser-session/` is a separate private directory under the selected user data root, never the user's ordinary browser profile, Git, a CI artifact or logs. Cookies/session credentials remain there; app code does not read password values, cookies, tokens, HAR or network dumps. Runtime IPC contains bounded captured text/URLs only. Browser worker/driver/Chromium belong to a suspended-launch private Windows Job; cancellation/deadline/close kills only that owned tree, preserving the session and committed Sources/Originals. Authentication expiry/CAPTCHA stops the operation without automatic retries.

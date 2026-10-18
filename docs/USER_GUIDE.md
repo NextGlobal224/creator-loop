@@ -1,5 +1,20 @@
 # Sử dụng Creator Loop V1
 
+## Workflow beta mới: tư liệu, Draft và MP4 local
+
+Trong Library, chọn **Tư liệu → phân tích → Draft**. Chọn Project, mục đích, khán giả, phong cách và định dạng; đánh dấu đúng tư liệu muốn xử lý. Các ứng viên Facebook chưa chọn/lưu không tự trở thành tư liệu hoặc Evidence.
+
+- **Tự động:** bấm chạy với tập tư liệu đã chọn. App phân tích phần có dữ liệu, đề xuất hướng và lưu Draft chờ review; Draft video mở luồng render preview local.
+- **Thủ công:** phân tích riêng, đọc/sửa Evidence và Claim bằng màn hình hiện có, chọn/chỉnh hướng hoặc viết nội dung rồi tạo Draft. Sửa tạo version mới; mở lại workflow/Draft để tiếp tục. Đề xuất máy chưa là Selection hoặc Approval.
+
+Backend beta `LOCAL_STRUCTURED_RULES/1.0.0` phân tích cấu trúc text và tạo mẫu editorial local. Chưa có LLM sinh nội dung được cấu hình. Caption/URL và Evidence đã xử lý được ghi đúng phạm vi; không suy đã phân tích toàn ảnh/video. Review citation và nội dung trước khi sử dụng.
+
+Chọn **Video nháp / MP4 local** để mở exact Draft VIDEO, lập/chỉnh cảnh, thời lượng, chữ/phụ đề và audio file. Chọn **Chọn FFmpeg / ffprobe local…** với manifest component đã pin version/digest/source/license; app kiểm file và giữ cấu hình video riêng, không thay selection Whisper. Không gọi API/cloud hoặc tự tải TTS/model sinh cảnh. Preset preview mặc định dọc 360×640, tối đa 60 giây; chưa chọn voiceover thì có track âm thanh yên lặng.
+
+Bấm **Render MP4 preview**, theo dõi tiến trình hoặc **Dừng / Hủy render**. Chỉ MP4 đã kiểm thành công được preview bằng **Phát** và giữ trong lịch sử. Cùng exact Draft/input/tool/config dùng lại output hợp lệ; sửa Draft/media/cấu hình tạo render mới, giữ file cũ. Media nguồn cần tham chiếu `REUSE_MEDIA` và quyền `OWNED/LICENSED` hợp lệ; cảnh chữ do app tạo không tái sử dụng media Facebook.
+
+MP4 ở `storage/derived/render-<run>/` trong data root đã công bố; SQLite giữ Draft/run/input/digest/tool lineage. File nháp chưa là Publication Package, Approval hoặc nội dung đã đăng. Khi cần đưa vào Library/publication, nhập file MP4 thực qua luồng Library và review quyền/nội dung.
+
 Hướng dẫn này mô tả giao diện hiện có; không chứng nhận release. Xem
 [checkpoint và bản chạy](HANDOFF.md) để biết đúng commit, checksum, log và phần
 chưa kiểm chứng. Luồng thao tác đầy đủ trên artifact cuối, engine/model thật,
@@ -20,7 +35,8 @@ máy Windows 8 GB và release gate vẫn cần nghiệm thu theo
    có lệnh riêng trong [README](../README.md); bản onedir đóng gói Qt/Python.
    Engine/model là thành phần riêng, chưa có lựa chọn thực tế được nghiệm thu.
    Với bản có `USER_GUIDE.html` cạnh EXE, mở file đó bằng trình duyệt để đọc
-   hướng dẫn offline; `docs/` chứa các hướng dẫn sản phẩm liên quan. Thông tin
+   hướng dẫn offline; `docs/` chứa các hướng dẫn sản phẩm liên quan, gồm
+   transcription và chọn RAW → Evidence. Thông tin
    source trong `build-info.json` chỉ nhận diện bản build, không thay checksum,
    manifest hay bằng chứng nghiệm thu. Link tài liệu phát triển ngoài bộ offline
    mở repo khi bạn chọn; app không tải engine/model qua các link này.
@@ -150,14 +166,27 @@ tin version/source/license. Preflight chỉ kiểm file/metadata rồi lưu lự
 không chứng minh engine chạy được, không tự tải/cài component. Xem
 [component cục bộ](LOCAL_COMPONENTS.md). Bộ Whisper đã chọn dùng budget768MiB;
 chọn rõ budget và kiểm/lưu lại, không lấy lịch sử lựa chọn làm preflight mới.
+Trong cửa sổ Engine/model, **Kiểm phiên bản engine đã lưu** kiểm lại sáu file
+và khởi động CLI của bộ Whisper1.8.7 đã chọn trong tác vụ riêng. Kết quả đúng
+version chưa chạy model, chưa xác nhận tương thích/chất lượng/resource8GB;
+lựa chọn đã lưu không tự được nâng trạng thái nghiệm thu. Hủy hoặc đóng cửa sổ
+chờ worker của tác vụ thoát. Nếu bản đang dùng không có nút này, đối chiếu
+thông tin bản chạy trước khi chọn bản khác. Chi tiết lỗi/CLI ở hướng dẫn component.
 Chọn original VIDEO → **Chép lời Video bằng engine/model đã chọn**. Library
 đóng để nhả lock; cửa sổ tác vụ cho chọn ngôn ngữ/budget khớp selection rồi
 **Tạo PCM và chép lời máy**. Mỗi lần chạy tạo file/run mới; PCM thành công vẫn
 giữ nếu chép lời lỗi. **Hủy tác vụ** hoặc đóng cửa sổ chờ worker thoát, giữ RAW
 và lịch sử đã tạo. **Mở lại Library** xem từng task, không một completed toàn Asset.
-Chép lời máy chưa được ACCEPT và chưa tự tạo Evidence; dùng nguồn/âm thanh để
-kiểm, rồi tạo/review Evidence theo luồng trên. Task UI hiện là source checkpoint,
-chưa có trong ZIP CI78; xem [pipeline/phạm vi](VIDEO_TRANSCRIPTION_PIPELINE.md).
+Task chép lời không tự tạo Evidence hoặc ACCEPT.
+Chọn task **AUDIO_TRANSCRIPTION / SUCCEEDED** → **Chọn đoạn từ task chép lời máy**.
+Library nhả lock trước khi mở cửa sổ lựa chọn. Bấm **Đọc lại RAW**, chọn rõ một
+đoạn để xem toàn bộ text máy, rồi **Đối chiếu âm thanh gốc** và bấm nghe đoạn.
+**Tạo Evidence MODEL chờ duyệt** tạo bản mới neo ORIGINAL VIDEO/range audio,
+giữ RAW và text máy; chưa tạo review. **Mở lại Library** để mở Evidence Audio,
+sửa thành phiên bản HUMAN khi cần và review riêng. Nếu hủy/crash hoặc kết quả
+chưa xác nhận, kiểm lịch sử trước khi tạo lại; không suy rằng giao dịch đã rollback.
+Xem [RAW → Evidence](TRANSCRIPT_EVIDENCE.md) và
+[pipeline](VIDEO_TRANSCRIPTION_PIPELINE.md) để đối chiếu thao tác và dữ liệu lưu.
 Chất lượng tiếng Việt, long input và tài nguyên trên máy8GB còn chờ nghiệm thu.
 
 ## Sao lưu, cập nhật và khôi phục
@@ -183,3 +212,7 @@ lỗi; không tự xóa guard hoặc mở app không tương thích để vượ
 Release notes và manifest của release thật phải công bố compatibility,
 checksum và cách khôi phục. Checkpoint local trong HANDOFF chưa phải release
 từ `main` sau required CI/tag gate.
+
+## Facebook beta
+
+Dùng **Tư liệu Facebook → Chrome đang mở → Kết nối Chrome đang mở** với tab đã đăng nhập. Nhập chủ đề/mục đích/ngày đăng, chọn Viral (mặc định)/Kết hợp/Phân tích và sửa truy vấn. Budget mặc định8truy vấn/160ứng viên/80chi tiết, trần12/300/120 mỗiđợt600giây. Viral bắt buộc đúngchủđề VÀ ít nhất một sốliệu của chínhbài đạt1000thích/100bìnhluận/100chiasẻ/10000views theo cấu hình; phân tích không thayviral. UI tách sốứngviên/đủdữliệu/đạtviral/đangchọnlưu; thiếu20bài phải báo chưađạt. Viral khôngtựtick: chọn/bỏchọn trước **Lưu đã chọn**, xem lý do và Chưa rõ, mở nguồn/lịch sử/chống trùng. Hashtag có nguồn chỉ mô tả mẫu, chưa chứng minh tăng quan tâm toàn Facebook. Dừng/Hủy giữ Chrome và phiên mở; không tải media hoặc tự duyệt Evidence. Xem [hướng dẫn Facebook](FACEBOOK_LOCAL_GUIDE.md).

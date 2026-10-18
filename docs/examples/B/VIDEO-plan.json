@@ -1,0 +1,93 @@
+{
+  "kind": "Derived B scene/subtitle planning view; not rendered media or canonical replacement",
+  "source_draft_version": "1e9263a94f8e4e6d94caeb2ed08fb231",
+  "source_body_sha256": "a23c95de81ac754937f187c87deee6ea84c24304d578e5cb3f1a05d499e6c9bc",
+  "duration_ms": 30000,
+  "scenes": [
+    {
+      "scene": 1,
+      "start_ms": 0,
+      "end_ms": 5000,
+      "title_text": "Trường nghỉ học?",
+      "narration_text": "Một ảnh chụp báo trường nghỉ học. Đây là tình huống giả định.",
+      "subtitle_text": "Một ảnh chụp báo trường nghỉ học. Đây là tình huống giả định.",
+      "asset": {
+        "kind": "INLINE_TITLE_GRAPHIC",
+        "fiction_label": "TÌNH HUỐNG GIẢ ĐỊNH",
+        "external_file_required": false,
+        "source": "Original editorial script; no real school/event imagery"
+      }
+    },
+    {
+      "scene": 2,
+      "start_ms": 5000,
+      "end_ms": 10000,
+      "title_text": "Khoan bấm gửi tiếp",
+      "narration_text": "Ảnh không có đường dẫn. Bạn có gửi tiếp ngay không?",
+      "subtitle_text": "Ảnh không có đường dẫn. Bạn có gửi tiếp ngay không?",
+      "asset": {
+        "kind": "INLINE_TITLE_GRAPHIC",
+        "fiction_label": "TÌNH HUỐNG GIẢ ĐỊNH",
+        "external_file_required": false,
+        "source": "Original editorial script; no real school/event imagery"
+      }
+    },
+    {
+      "scene": 3,
+      "start_ms": 10000,
+      "end_ms": 15000,
+      "title_text": "Ai đăng đầu tiên?",
+      "narration_text": "Ai đăng đầu tiên? Tìm nguồn ban đầu và kiểm tra ngày đăng.",
+      "subtitle_text": "Ai đăng đầu tiên? Tìm nguồn ban đầu và kiểm tra ngày đăng.",
+      "asset": {
+        "kind": "INLINE_TITLE_GRAPHIC",
+        "fiction_label": "TÌNH HUỐNG GIẢ ĐỊNH",
+        "external_file_required": false,
+        "source": "Original editorial script; no real school/event imagery"
+      }
+    },
+    {
+      "scene": 4,
+      "start_ms": 15000,
+      "end_ms": 20000,
+      "title_text": "Đọc trọn thông báo",
+      "narration_text": "Bằng chứng là gì? Đọc trọn thông báo, đừng chỉ xem ảnh chụp.",
+      "subtitle_text": "Bằng chứng là gì? Đọc trọn thông báo, đừng chỉ xem ảnh chụp.",
+      "asset": {
+        "kind": "INLINE_TITLE_GRAPHIC",
+        "fiction_label": "TÌNH HUỐNG GIẢ ĐỊNH",
+        "external_file_required": false,
+        "source": "Original editorial script; no real school/event imagery"
+      }
+    },
+    {
+      "scene": 5,
+      "start_ms": 20000,
+      "end_ms": 25000,
+      "title_text": "Đối chiếu với trường",
+      "narration_text": "Trường nói gì? Mở kênh chính thức để đối chiếu thông báo.",
+      "subtitle_text": "Trường nói gì? Mở kênh chính thức để đối chiếu thông báo.",
+      "asset": {
+        "kind": "INLINE_TITLE_GRAPHIC",
+        "fiction_label": "TÌNH HUỐNG GIẢ ĐỊNH",
+        "external_file_required": false,
+        "source": "Original editorial script; no real school/event imagery"
+      }
+    },
+    {
+      "scene": 6,
+      "start_ms": 25000,
+      "end_ms": 30000,
+      "title_text": "Chưa xác nhận",
+      "narration_text": "Chưa đủ thông tin? Ghi chưa xác nhận, rồi khoan chia sẻ.",
+      "subtitle_text": "Chưa đủ thông tin? Ghi chưa xác nhận, rồi khoan chia sẻ.",
+      "asset": {
+        "kind": "INLINE_TITLE_GRAPHIC",
+        "fiction_label": "TÌNH HUỐNG GIẢ ĐỊNH",
+        "external_file_required": false,
+        "source": "Original editorial script; no real school/event imagery"
+      }
+    }
+  ],
+  "voice_status": "Narration text only. Local synthetic voice/MP4 hearing and rendered quality not accepted; C remains separate."
+}

@@ -1,9 +1,9 @@
-"""Clone isolated closed schema1/schema6 backup/candidate seeds, not live user data.
+"""Clone isolated closed legacy/current backup/candidate seeds, not live user data.
 
 The seed is produced once by the actual backup/stage/migration API. Every test
 receives its own files/installation; changes never reach the cached seed.
 Real corrupt preparation/copy/inspection still run in each behavior test, and
-the supported schema1-6 matrix retains fresh actual backup/update preparation.
+the supported schema matrix retains fresh actual backup/update preparation.
 """
 
 import atexit
@@ -15,8 +15,9 @@ from contextlib import closing
 from functools import lru_cache
 from pathlib import Path
 
-from creator_loop.database import SCHEMA_VERSION, validate
-from test_update_preparation import UpdatePreparationTests
+from creator_loop.backend.runtime.database import SCHEMA_VERSION, validate
+
+from tests.backend.test_update_preparation import UpdatePreparationTests
 
 
 @lru_cache(maxsize=1)
@@ -58,12 +59,12 @@ def _current_seed():
     fixture.setUp()
     atexit.register(fixture.doCleanups)
     clone_prepared_fixture(fixture)
-    # A real new BackupAPI publication at schema6, not renamed schema1 bytes.
+    # A real new BackupAPI publication at current schema, not renamed schema1 bytes.
     return _closed_seed(fixture, fixture._prepare())
 
 
 def clone_current_prepared_fixture(fixture):
-    """Fresh paths, closed schema6 source and actual published schema6 backup."""
+    """Fresh paths, closed current source and actual published current backup."""
     return _clone_seed(fixture, _current_seed())
 
 

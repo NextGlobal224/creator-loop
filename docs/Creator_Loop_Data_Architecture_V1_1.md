@@ -104,6 +104,9 @@ TIME_RANGE: `0 <= start < end <= duration` nếu biết duration. IMAGE_REGION: 
 | Bảng | Các trường lõi | Ràng buộc và lý do NULL |
 |---|---|---|
 | `sources` | `source_id` PK; `platform` NN; `canonical_url`?; `external_id`?; `publisher_name`?; `published_at`?; `captured_at`?; `rights_status` NN; `created_at` NN | URL/ID/ngày đăng có thể vắng khi nhập tệp. UNIQUE `(platform, external_id)` khi ID có giá trị. Ngày đăng khác ngày nhập. |
+| `facebook_searches` | `search_id` PK; `created_at` NN; `criteria_json` NN; `queries_json` NN | Schema8 extension: immutable bounded search context, topic/purpose/date window/mode/thresholds and actual executed queries; JSON valid. Not a publication or Evidence approval. |
+| `facebook_candidates` | `candidate_id` PK; `search_id` FK NN; `external_id` NN; `canonical_url` NN; `observed_at` NN; `snapshot_json` NN | Immutable candidate observation and rule assessment; UNIQUE(search_id,external_id). No Source/media is created by discovery. Missing metadata is JSON null, compact metrics retain raw text/approximation. URL-only is insufficient for automatic qualification. |
+| `facebook_selection_events` | `event_id` PK; `candidate_id` FK NN; `source_id` FK NN; `created_at` NN | Append-only human selection/save provenance. Source external_id/platform must match candidate. Existing Source/capture remains unchanged on duplicate save; observations retain their own query/date/assessment. Selection is not Evidence ACCEPT or publication approval. |
 | `assets` | `asset_id` PK; `media_type` NN; `display_name` NN; `created_at` NN; `deleted_at`? | Identity logic; không có `processing_state` nguồn chuẩn. Xóa mềm khi cần. |
 | `source_assets` | `source_id` FK NN; `asset_id` FK NN; `relationship_type` NN; `verification_status` NN; `recorded_at` NN | PK `(source_id,asset_id,relationship_type)`; `ORIGIN/REPOST/REFERENCE/UNKNOWN`. Không mặc định tên tệp chứng minh xuất xứ. |
 | `asset_files` | `file_id` PK; `asset_id` FK NN; `role` NN; `storage_key` NN; `sha256` NN; `byte_size` NN; `mime_type` NN; `parent_file_id` FK?; `processing_run_id` FK?; `created_at` NN; `width_px`?; `height_px`?; `duration_ms`? | Original không có parent/run; dimension tùy media. `byte_size >= 0`. File dẫn xuất trỏ parent. FK/trigger đảm bảo parent thuộc Asset phù hợp. Không UNIQUE hash toàn cục vì hai Asset có ngữ cảnh khác nhau. |
@@ -159,6 +162,10 @@ V1 nhập số liệu thủ công qua PublicationRepository cho Post đã từng
 
 ## 7. Ràng buộc liên bảng và dữ liệu thiếu
 
+**Bổ sung baseline schema 10:** `creator_draft_choices` ghim hướng biên tập cùng file IMAGE/ORIGINAL, digest, nguồn ảnh và ghi chú căn cứ quyền sử dụng vào exact Draft Version IMAGE_CAPTION. Ghi trước seal, không UPDATE/DELETE/REPLACE hoặc đính kèm muộn. Đổi lựa chọn tạo Version mới kể cả caption không đổi; lịch sử cũ không backfill. File được kiểm byte khi lưu/mở lại. Ghi chú quyền là lời khai nguồn, không cấp review/Approval hoặc thay kiểm quyền lúc xuất bản. Draft cũ không có hàng lựa chọn vẫn đọc được, không suy diễn ảnh đã xem.
+
+**Bổ sung baseline schema 9:** [Creator/render workflows](CREATOR_RENDER_WORKFLOWS.md) định nghĩa các bảng provenance bổ sung cho phân tích/Draft và MP4 local. Chúng giữ exact versions và input digest, không thay bảng lõi hay cấp review/Selection/Approval. MP4 tổng hợp giữ lineage nhiều inputs trong bảng render, không gán `parent_file_id` qua Asset.
+
 Một số bất biến cần transaction/trigger/ứng dụng vì CHECK đơn bảng không đủ:
 
 1. Evidence anchor file cùng Asset với Evidence identity; time range hợp lệ theo duration của tệp.
@@ -195,3 +202,11 @@ Search index là projection tái tạo từ SQLite. JSON export là snapshot tra
 Tài liệu này là **nguồn chuẩn duy nhất cho luật dữ liệu**. `Creator_Loop_CICD_Release_Contract_V1.md` quy định pipeline và cập nhật; `Creator_Loop_Layout_Contract_V1.md` quy định tách installation/user data; `Codex_Master_Prompt_V2.md` là handoff, không được tự sửa các luật ở đây. Nếu phát hiện xung đột, dừng implementation, sửa baseline trước rồi mới sửa migration/test cùng một PR.
 
 Các gate bắt buộc trong CI: `project_references` đúng một target; `review_events` đúng một target; Evidence anchor file cùng Asset; Claim trỏ đúng Evidence Version; Package/Draft cùng Project; Post/platform khớp Package; Package bất biến và approval chỉ hợp lệ cho fingerprint tương ứng. Migration phải kiểm `integrity_check`, `foreign_key_check` và `schema_version`; không được coi riêng `integrity_check` là đủ.
+
+## Facebook local capture (beta, schema 7)
+
+A permalink is a `sources` row (platform FB, exact post/video/reel external ID); URL alone creates no Asset or asset_file. Local DOM collection records the first query, captured UTC, publisher if actually visible, and an optional readable excerpt. No published_at, usage rights, Evidence/review or media availability is inferred. Existing Sources are reused by UNIQUE(platform, external_id); rescanning does not rewrite prior source/capture/Original bytes.
+
+Research observations may retain an explicitly displayed calendar date in `published_label`; a date window can compare that displayed day when a full timestamp is absent. This does not populate `published_at` with fabricated midnight/timezone, and relative dates or missing years stay unknown. The observed author link/name is distinct from a viewer modal title; a group-member URL identifies its observed numeric author ID, not the group ID. Same-post fields read before/after a bounded metrics scroll are retained in the new immutable observation; this never enriches or rewrites an existing Source first capture. Post control counters take precedence over reaction-type breakdowns; comment reactions and caption numeric claims are not post engagement metrics.
+
+`source_captures`: source_id PK/FK, keyword NN (1–200), captured_at NN, excerpt nullable (1–8192), snapshot_file_id nullable FK. Both excerpt and snapshot are present together or both NULL. An excerpt is a physically saved UTF-8 TEXT/ORIGINAL via normal intake, linked REFERENCE/UNREVIEWED to the exact Source in one transaction. Capture insertion checks that lineage; UPDATE/DELETE/REPLACE are rejected. This is a browser text snapshot, not a downloaded video/image or verified fact. Schema0007 adds only this table/guards; existing schema6 data is retained and consistent SQLite backup precedes migration.

@@ -13,28 +13,66 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
+from creator_loop.backend.runtime.app_lock import AppDataLock, DataRootBusy
+from creator_loop.backend.runtime.database import initialize, open_readonly, validate
+from creator_loop.backend.runtime.paths import data_root, ensure_data_root
+
 from . import __version__
-from .app_lock import AppDataLock, DataRootBusy
-from .database import initialize, open_readonly, validate
-from .paths import data_root, ensure_data_root
 
 MAINTENANCE_REQUESTED = 20
 COMPONENTS_REQUESTED = 21
 TRANSCRIPTION_REQUESTED = 22
+TRANSCRIPT_REVIEW_REQUESTED = 24
 
 
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--b-release-smoke":
+        from creator_loop.integration.b_release_smoke import run_b_release_smoke
+
+        try:
+            print(json.dumps(run_b_release_smoke(Path(sys.argv[2]))))
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                json.dumps({"b_release_probe": "refused", "error": str(exc)}),
+                file=sys.stderr,
+            )
+            return 4
+        return 0
+    if len(sys.argv) == 3 and sys.argv[1] == "--creator-workers-http":
+        from creator_loop.backend.analysis.workers_transport import run_http
+
+        return run_http(Path(sys.argv[2]))
+    if len(sys.argv) == 2 and sys.argv[1] == "--install-facebook-browser":
+        from creator_loop.backend.facebook.facebook_install import install_browser
+
+        ensure_data_root(data_root())
+        with AppDataLock(data_root()):
+            install_browser(data_root())
+        print("Pinned local Facebook browser installed; no session credentials read")
+        return 0
+    if len(sys.argv) == 3 and sys.argv[1] == "--facebook-browser-task":
+        from creator_loop.backend.facebook.facebook_browser import run_browser_task
+
+        return run_browser_task(Path(sys.argv[2]))
+    if len(sys.argv) == 3 and sys.argv[1] == "--transcript-review-task":
+        from creator_loop.backend.analysis.transcript_review_task import (
+            run_transcript_review_task,
+        )
+
+        return run_transcript_review_task(Path(sys.argv[2]))
     if len(sys.argv) == 3 and sys.argv[1] == "--transcribe-video-task":
-        from .transcription_task import run_transcription_task
+        from creator_loop.backend.analysis.transcription_task import (
+            run_transcription_task,
+        )
 
         return run_transcription_task(Path(sys.argv[2]))
     if len(sys.argv) == 3 and sys.argv[1] == "--play-media":
-        from .playback_child import run_playback_worker
+        from creator_loop.backend.video.playback_child import run_playback_worker
 
         return run_playback_worker(Path(sys.argv[2]))
     # Private owned decoder entry point precedes all DB/root initialization.
     if len(sys.argv) == 3 and sys.argv[1] == "--decode-media":
-        from .isolated_decode import run_decode_worker
+        from creator_loop.backend.video.isolated_decode import run_decode_worker
 
         return run_decode_worker(Path(sys.argv[2]))
     # Explicit QA mode only writes a new private data root beneath supplied fixtures.
@@ -47,7 +85,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 4
-        from .product_flow_smoke import run_product_flow_smoke
+        from creator_loop.integration.product_flow_smoke import run_product_flow_smoke
 
         try:
             receipt = run_product_flow_smoke(Path(sys.argv[2]))
@@ -162,6 +200,11 @@ def main() -> int:
         "--inspect-components",
         action="store_true",
         help="Read saved component declarations; not a fresh file check",
+    )
+    parser.add_argument(
+        "--check-whisper-runtime",
+        action="store_true",
+        help="Rehash selected profile and check engine CLI version; no model inference",
     )
     parser.add_argument(
         "--check-components",
@@ -279,6 +322,20 @@ def main() -> int:
         help="Read-only schema/storage health; no migration or UI",
     )
     args = parser.parse_args()
+    if args.check_whisper_runtime:
+        if any(
+            value
+            for name, value in vars(args).items()
+            if name != "check_whisper_runtime"
+        ):
+            parser.error(
+                "Engine version checks cannot be combined with other operations"
+            )
+        from creator_loop.backend.analysis.whisper_runtime_probe import (
+            check_whisper_runtime_cli,
+        )
+
+        return check_whisper_runtime_cli(data_root())
     if args.apply_completed_copy_restore is not None:
         if (
             args.fresh_restore_backup is None
@@ -306,8 +363,8 @@ def main() -> int:
             parser.error(
                 "Fresh copy requires only explicit journal/backup/candidate/installation/fresh review and fresh/loss consent"
             )
-        from .corrupt_copy_recovery import _record
-        from .fresh_restore_apply import copy_fresh_restore
+        from creator_loop.backend.runtime.corrupt_copy_recovery import _record
+        from creator_loop.backend.runtime.fresh_restore_apply import copy_fresh_restore
 
         try:
             journal = copy_fresh_restore(
@@ -365,7 +422,9 @@ def main() -> int:
             parser.error(
                 "Fresh review requires only explicit copy journal/backup/candidate/installation; no consent or apply"
             )
-        from .fresh_restore_review import review_fresh_restore
+        from creator_loop.backend.runtime.fresh_restore_review import (
+            review_fresh_restore,
+        )
 
         try:
             print(
@@ -411,7 +470,9 @@ def main() -> int:
             parser.error(
                 "Damaged review requires only explicit backup/candidate/installation and optional raw/preparation"
             )
-        from .damaged_restore_review import review_damaged_restore
+        from creator_loop.backend.runtime.damaged_restore_review import (
+            review_damaged_restore,
+        )
 
         try:
             print(
@@ -448,7 +509,7 @@ def main() -> int:
             if name not in ("review_corrupt_copy", "installation_root")
         ):
             parser.error("Copy review requires only explicit journal and installation")
-        from .corrupt_copy_review import review_corrupt_copy
+        from creator_loop.backend.runtime.corrupt_copy_review import review_corrupt_copy
 
         try:
             print(
@@ -503,7 +564,7 @@ def main() -> int:
             parser.error(
                 "Copy continuation requires only journal/inspection/installation/loss and optional partial/media consent"
             )
-        from .corrupt_copy_resume import resume_corrupt_copy
+        from creator_loop.backend.runtime.corrupt_copy_resume import resume_corrupt_copy
 
         try:
             journal = resume_corrupt_copy(
@@ -556,7 +617,9 @@ def main() -> int:
             parser.error(
                 "Corrupt recovery requires only explicit journal/inspection/installation/consent"
             )
-        from .corrupt_copy_recovery import recover_corrupt_copy
+        from creator_loop.backend.runtime.corrupt_copy_recovery import (
+            recover_corrupt_copy,
+        )
 
         try:
             candidate = recover_corrupt_copy(
@@ -593,7 +656,9 @@ def main() -> int:
             if name != "inspect_corrupt_copy"
         ):
             parser.error("Corrupt copy inspection requires only an explicit journal")
-        from .corrupt_restore_inspection import inspect_corrupt_copy
+        from creator_loop.backend.runtime.corrupt_restore_inspection import (
+            inspect_corrupt_copy,
+        )
 
         try:
             print(
@@ -634,7 +699,9 @@ def main() -> int:
             parser.error(
                 "Guarded corrupt copy requires only explicit preparation/review/candidate/installation/loss consent"
             )
-        from .corrupt_restore_copy import copy_corrupt_restore
+        from creator_loop.backend.runtime.corrupt_restore_copy import (
+            copy_corrupt_restore,
+        )
 
         try:
             root = data_root()
@@ -685,7 +752,9 @@ def main() -> int:
             parser.error(
                 "Stage verification requires only explicit manifest and reviewed digest"
             )
-        from .corrupt_stage_validation import hold_corrupt_preparation
+        from creator_loop.backend.runtime.corrupt_stage_validation import (
+            hold_corrupt_preparation,
+        )
 
         try:
             with hold_corrupt_preparation(
@@ -737,7 +806,9 @@ def main() -> int:
             parser.error(
                 "Corrupt staging requires explicit backup/candidate/archive/review/loss consent only"
             )
-        from .corrupt_restore_preparation import prepare_corrupt_restore
+        from creator_loop.backend.runtime.corrupt_restore_preparation import (
+            prepare_corrupt_restore,
+        )
 
         try:
             root = data_root()
@@ -785,7 +856,9 @@ def main() -> int:
             parser.error(
                 "Raw-source verification requires only an explicit manifest and reviewed damage identity"
             )
-        from .preserved_source_validation import hold_preserved_source
+        from creator_loop.backend.runtime.preserved_source_validation import (
+            hold_preserved_source,
+        )
 
         try:
             with hold_preserved_source(
@@ -813,7 +886,9 @@ def main() -> int:
             parser.error(
                 "Raw-source preservation cannot be combined with other operations"
             )
-        from .corrupt_source_preservation import preserve_corrupt_source
+        from creator_loop.backend.runtime.corrupt_source_preservation import (
+            preserve_corrupt_source,
+        )
 
         try:
             root = data_root()
@@ -857,7 +932,9 @@ def main() -> int:
             parser.error(
                 "Damaged source inspection requires an explicit backup/candidate/installation only"
             )
-        from .corrupt_restore_assessment import assess_corrupt_restore
+        from creator_loop.backend.runtime.corrupt_restore_assessment import (
+            assess_corrupt_restore,
+        )
 
         try:
             print(
@@ -890,7 +967,9 @@ def main() -> int:
             value for name, value in vars(args).items() if name != "inspect_components"
         ):
             parser.error("Component history cannot be combined with other operations")
-        from .component_selection import inspect_components_cli
+        from creator_loop.backend.runtime.component_selection import (
+            inspect_components_cli,
+        )
 
         return inspect_components_cli(data_root())
     if args.reviewed_components is not None and args.select_components is None:
@@ -902,7 +981,7 @@ def main() -> int:
             if name not in ("components", "ui_smoke")
         ):
             parser.error("Component UI cannot be combined with other operations")
-        from .component_ui import run_components
+        from creator_loop.frontend.component_ui import run_components
 
         return run_components(data_root(), ui_smoke=args.ui_smoke)
     if args.check_components is not None:
@@ -912,7 +991,7 @@ def main() -> int:
             if name not in ("check_components", "component_worker_memory_mib")
         ):
             parser.error("Component checks cannot be combined with other operations")
-        from .local_components import check_components_cli
+        from creator_loop.backend.runtime.local_components import check_components_cli
 
         return check_components_cli(
             args.check_components,
@@ -930,7 +1009,9 @@ def main() -> int:
             )
         ):
             parser.error("Component selection cannot be combined with other operations")
-        from .component_selection import select_components_cli
+        from creator_loop.backend.runtime.component_selection import (
+            select_components_cli,
+        )
 
         return select_components_cli(
             data_root(),
@@ -949,7 +1030,7 @@ def main() -> int:
         ):
             parser.error("Maintenance UI cannot be combined with other operations")
         ensure_data_root(root)
-        from .maintenance_ui import run_maintenance
+        from creator_loop.frontend.maintenance_ui import run_maintenance
 
         return run_maintenance(root, args.installation_root, ui_smoke=args.ui_smoke)
     if (
@@ -997,7 +1078,10 @@ def main() -> int:
             parser.error(
                 "Choose confirmed restore with candidate/review identity, or recover an existing restore journal"
             )
-        from .restore_apply import apply_restore, recover_restore
+        from creator_loop.backend.runtime.restore_apply import (
+            apply_restore,
+            recover_restore,
+        )
 
         try:
             if args.apply_restore:
@@ -1049,7 +1133,7 @@ def main() -> int:
             parser.error(
                 "Restore inspection requires explicit backup ID, --restore-candidate and --installation-root only"
             )
-        from .restore_assessment import assess_restore
+        from creator_loop.backend.runtime.restore_assessment import assess_restore
 
         try:
             print(
@@ -1092,7 +1176,10 @@ def main() -> int:
             parser.error(
                 "Choose update inspection or resume with --installation-root only"
             )
-        from .update_recovery import inspect_update, resume_update
+        from creator_loop.backend.runtime.update_recovery import (
+            inspect_update,
+            resume_update,
+        )
 
         try:
             if args.inspect_update:
@@ -1148,7 +1235,7 @@ def main() -> int:
             parser.error(
                 "Managed launch requires --installation-root and at most one smoke mode"
             )
-        from .managed_launcher import launch_managed
+        from creator_loop.backend.runtime.managed_launcher import launch_managed
 
         try:
             return launch_managed(
@@ -1173,7 +1260,7 @@ def main() -> int:
             or args.installation_root is not None
         ):
             parser.error("--health-check cannot be combined with other modes")
-        from .update_health import readonly_health
+        from creator_loop.backend.runtime.update_health import readonly_health
 
         try:
             health_result = readonly_health(root)
@@ -1196,8 +1283,10 @@ def main() -> int:
             parser.error(
                 "Choose activation or metadata repair with --installation-root"
             )
-        from .update_activation import activate_prepared_update
-        from .update_metadata import repair_update_metadata
+        from creator_loop.backend.runtime.update_activation import (
+            activate_prepared_update,
+        )
+        from creator_loop.backend.runtime.update_metadata import repair_update_metadata
 
         operation = "Metadata repair" if args.repair_update_metadata else "Activation"
 
@@ -1234,8 +1323,8 @@ def main() -> int:
             parser.error(
                 "Staging requires --release-manifest and --installation-root, without other modes"
             )
-        from .installation_stage import stage_installation
-        from .update_preparation import prepare_update
+        from creator_loop.backend.runtime.installation_stage import stage_installation
+        from creator_loop.backend.runtime.update_preparation import prepare_update
 
         try:
             if args.prepare_update:
@@ -1274,7 +1363,7 @@ def main() -> int:
     if args.release_manifest is not None or args.installation_root is not None:
         parser.error("Staging paths require --stage-update")
     if args.backup:
-        from .update_backup import create_update_backup
+        from creator_loop.backend.runtime.update_backup import create_update_backup
 
         try:
             result = create_update_backup(root)
@@ -1293,26 +1382,41 @@ def main() -> int:
             with AppDataLock(root) as coordination:
                 launch_result = _run(args, root, coordination=coordination)
             if launch_result == MAINTENANCE_REQUESTED:
-                from .maintenance_ui import run_maintenance
+                from creator_loop.frontend.maintenance_ui import run_maintenance
 
                 return run_maintenance(root, args.installation_root)
             if launch_result == COMPONENTS_REQUESTED:
-                from .component_ui import run_components
+                from creator_loop.frontend.component_ui import run_components
 
                 return run_components(root)
             if launch_result == TRANSCRIPTION_REQUESTED:
-                from .transcription_ui import LIBRARY_REQUESTED, run_transcription
+                from creator_loop.frontend.transcription_ui import (
+                    LIBRARY_REQUESTED,
+                    run_transcription,
+                )
 
                 task_result = run_transcription(root, *args.transcription_selection)
                 if task_result == LIBRARY_REQUESTED:
                     continue  # reacquire a fresh app lock before Library/recovery.
                 return task_result
+            if launch_result == TRANSCRIPT_REVIEW_REQUESTED:
+                from creator_loop.frontend.transcript_review_ui import (
+                    LIBRARY_REQUESTED,
+                    run_transcript_review,
+                )
+
+                review_result = run_transcript_review(
+                    root, *args.transcript_review_selection
+                )
+                if review_result == LIBRARY_REQUESTED:
+                    continue
+                return review_result
             return launch_result
     except DataRootBusy as exc:
         print(str(exc), file=sys.stderr)
         return 3
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
-        from .restore_guard import PendingRestore
+        from creator_loop.backend.runtime.restore_guard import PendingRestore
 
         if isinstance(exc, PendingRestore):
             print(str(exc), file=sys.stderr)
@@ -1327,7 +1431,7 @@ def _run(
     args: argparse.Namespace, root: Path, *, coordination: AppDataLock | None = None
 ) -> int:
     """Initialize and run only while the app/updater coordination lock is held."""
-    from .restore_guard import require_no_pending_restore
+    from creator_loop.backend.runtime.restore_guard import require_no_pending_restore
 
     require_no_pending_restore(root)
     db_path = root / "creator_loop.sqlite3"
@@ -1343,19 +1447,26 @@ def _run(
     except ImportError:
         print("PySide6 is required for the desktop UI", file=sys.stderr)
         return 2
-    from .library_ui import LibraryWindow
+    from creator_loop.frontend.library_ui import LibraryWindow
 
     recovery = None
     runtime_recovery = None
     if not args.ui_smoke:
-        from .processing_recovery import recover_processing_startup
-        from .runtime_recovery import recover_runtime_startup
+        from creator_loop.backend.video.render_service import RenderService
+
+        RenderService(root).recover_interrupted()
+        from creator_loop.backend.runtime.processing_recovery import (
+            recover_processing_startup,
+        )
+        from creator_loop.backend.runtime.runtime_recovery import (
+            recover_runtime_startup,
+        )
 
         if coordination is None:
             raise RuntimeError("UI startup recovery requires the app coordination lock")
         recovery = recover_processing_startup(root, coordination)
         runtime_recovery = recover_runtime_startup(root, coordination)
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)
     window = LibraryWindow(root)
     if (
         recovery is not None
@@ -1401,6 +1512,9 @@ def _run(
 
         QTimer.singleShot(200, app.quit)
     result = app.exec()
+    if window.transcript_review_selection is not None:
+        args.transcript_review_selection = window.transcript_review_selection
+        return TRANSCRIPT_REVIEW_REQUESTED
     if window.transcription_selection is not None:
         args.transcription_selection = window.transcription_selection
         return TRANSCRIPTION_REQUESTED

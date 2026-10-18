@@ -1,0 +1,248 @@
+{
+  "provenance": {
+    "head": "f103545b162dfe64f6db7d7f56306d4a9dd6f726",
+    "worker_version": "e391743f-2137-43fc-9908-b4b4094c1e80",
+    "quality": "FAIL_NONREPETITIVE_DEVELOPMENT: paragraph3 restates prior advice; actual oldaudit checks only source/closing and misses this editorial defect. Structural regression only, not a new semantic evaluator."
+  },
+  "materials": [
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_id": null,
+      "asset_id": "02dde26a0828436fa24c468fa6f44d34",
+      "file_id": "1da0c5ef932840d9befe5a61d11adce9",
+      "sha256": "ec6b7c2b9c40394a2824651daa818a0db73575275b1380b9751b834a8f8da60f",
+      "media_type": "TEXT",
+      "text": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra.\nSource: UNESCO\nURL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course\nDiễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể.\nHướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này.\n",
+      "source_url": null,
+      "evidence_version_ids": [],
+      "scope": "TEXT_PASSAGE"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_id": null,
+      "asset_id": "fb7cc0a93386491da0501c111d0c7d58",
+      "file_id": "e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "sha256": "b4870ab706628ca1eb4a3ea0121da60db2fb1e54af22bab0e8c84fe40212cf48",
+      "media_type": "TEXT",
+      "text": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra.\nSource: Digital Inquiry Group / Civic Online Reasoning\nURL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/\nTrích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”\nDiễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.\nHướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral.\n",
+      "source_url": null,
+      "evidence_version_ids": [],
+      "scope": "TEXT_PASSAGE"
+    }
+  ],
+  "written": {
+    "hypothetical_opening": "Bạn A nhận được ảnh chụp màn hình một bài viết trên Facebook về một sự kiện y tế, nhưng không có đường link gốc.",
+    "editorial_paragraphs": [
+      [
+        {
+          "premise_checks": [
+            {
+              "assertion": "cần đọc nguồn và ngữ cảnh trước khi đưa kết luận",
+              "quote_ids": [
+                4
+              ],
+              "supported": true
+            }
+          ],
+          "source_quote_id": 4,
+          "text": "Trước khi quyết định chia sẻ, hãy đọc nguồn và ngữ cảnh của nội dung; tránh đưa ra kết luận mà không kiểm chứng."
+        }
+      ],
+      [
+        {
+          "premise_checks": [
+            {
+              "assertion": "ba câu hỏi để xem xét nội dung trực tuyến: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì",
+              "quote_ids": [
+                8
+              ],
+              "supported": true
+            }
+          ],
+          "source_quote_id": 8,
+          "text": "Bạn có thể tự hỏi ba câu: ai đứng sau thông tin?, bằng chứng gì?, nguồn khác nói gì?"
+        }
+      ],
+      [
+        {
+          "premise_checks": [],
+          "source_quote_id": -1,
+          "text": "Nếu ảnh chụp màn hình không kèm link, hãy thực hiện ba bước trên, sau đó mới quyết định có chia sẻ hay không."
+        }
+      ],
+      [
+        {
+          "premise_checks": [],
+          "source_quote_id": -1,
+          "text": "Bạn có thể nhắn lại người gửi: “Bạn có thể chia sẻ link gốc, ngày đăng và nguồn của bài này không? Cảm ơn!”"
+        }
+      ]
+    ]
+  },
+  "editing_stage": {
+    "stage": "editing",
+    "value": {
+      "source_issues": [],
+      "edits": [
+        {
+          "index": 0,
+          "premise_checks": [],
+          "support": "HYPOTHETICAL",
+          "quote_ids": [],
+          "decision": "KEEP",
+          "note": "Mở đầu là tình huống giả định, không yêu cầu bằng chứng.",
+          "replacement": []
+        },
+        {
+          "index": 1,
+          "premise_checks": [
+            {
+              "assertion": "cần đọc nguồn và ngữ cảnh trước khi đưa kết luận",
+              "quote_ids": [
+                4
+              ],
+              "supported": true
+            }
+          ],
+          "support": "SOURCE_SUPPORTED",
+          "quote_ids": [
+            4
+          ],
+          "decision": "KEEP",
+          "note": "Câu này được trích dẫn trực tiếp từ ghi chú UNESCO.",
+          "replacement": []
+        },
+        {
+          "index": 2,
+          "premise_checks": [
+            {
+              "assertion": "ba câu hỏi để xem xét nội dung trực tuyến: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì",
+              "quote_ids": [
+                8
+              ],
+              "supported": true
+            }
+          ],
+          "support": "SOURCE_SUPPORTED",
+          "quote_ids": [
+            8
+          ],
+          "decision": "KEEP",
+          "note": "Câu hỏi được trích dẫn từ Digital Inquiry Group.",
+          "replacement": []
+        },
+        {
+          "index": 3,
+          "premise_checks": [],
+          "support": "SUGGESTION",
+          "quote_ids": [],
+          "decision": "KEEP",
+          "note": "Lời khuyên thực hiện ba bước khi không có link là đề xuất tự nguyện, không cần bằng chứng.",
+          "replacement": []
+        },
+        {
+          "index": 4,
+          "premise_checks": [],
+          "support": "SUGGESTION",
+          "quote_ids": [],
+          "decision": "KEEP",
+          "note": "Yêu cầu người gửi cung cấp link gốc, ngày và nguồn là lời nhắn tự nguyện.",
+          "replacement": []
+        }
+      ]
+    },
+    "task_requirements": [
+      "PROJECT_NO_UNSOURCED_RULE",
+      "PROJECT_CLOSING_MESSAGE"
+    ],
+    "usage": {
+      "prompt_tokens": 3721,
+      "completion_tokens": 863,
+      "total_tokens": 4584,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "neurons": 177.2356719970703
+    }
+  },
+  "content": {
+    "draft_body": "Tình huống giả định: Bạn A nhận được ảnh chụp màn hình một bài viết trên Facebook về một sự kiện y tế, nhưng không có đường link gốc.\n\nTrước khi quyết định chia sẻ, hãy đọc nguồn và ngữ cảnh của nội dung; tránh đưa ra kết luận mà không kiểm chứng.\n\nBạn có thể tự hỏi ba câu: ai đứng sau thông tin?, bằng chứng gì?, nguồn khác nói gì?\n\nNếu ảnh chụp màn hình không kèm link, hãy thực hiện ba bước trên, sau đó mới quyết định có chia sẻ hay không.\n\nBạn có thể nhắn lại người gửi: “Bạn có thể chia sẻ link gốc, ngày đăng và nguồn của bài này không? Cảm ơn!”",
+    "factual_claims": [
+      {
+        "claim_version_id": "ce944a3371b2448b912d3b228cba468d",
+        "material_ids": [
+          "file:1da0c5ef932840d9befe5a61d11adce9"
+        ],
+        "source_quote": "Hướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này.",
+        "text": "Trước khi quyết định chia sẻ, hãy đọc nguồn và ngữ cảnh của nội dung; tránh đưa ra kết luận mà không kiểm chứng."
+      },
+      {
+        "claim_version_id": "5a28c266dc8549cd8f99122c5471d3c2",
+        "material_ids": [
+          "file:e72b0742f1c148abbc9a54f2ad3d4a7e"
+        ],
+        "source_quote": "Trích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”",
+        "text": "Bạn có thể tự hỏi ba câu: ai đứng sau thông tin?, bằng chứng gì?, nguồn khác nói gì?"
+      }
+    ]
+  },
+  "audit": {
+    "draft_body": "Tình huống giả định: Bạn A nhận được ảnh chụp màn hình một bài viết trên Facebook về một sự kiện y tế, nhưng không có đường link gốc.\n\nTrước khi quyết định chia sẻ, hãy đọc nguồn và ngữ cảnh của nội dung; tránh đưa ra kết luận mà không kiểm chứng.\n\nBạn có thể tự hỏi ba câu: ai đứng sau thông tin?, bằng chứng gì?, nguồn khác nói gì?\n\nNếu ảnh chụp màn hình không kèm link, hãy thực hiện ba bước trên, sau đó mới quyết định có chia sẻ hay không.\n\nBạn có thể nhắn lại người gửi: “Bạn có thể chia sẻ link gốc, ngày đăng và nguồn của bài này không? Cảm ơn!”",
+    "finding_checks": [
+      {
+        "finding": "PROJECT_NO_UNSOURCED_RULE",
+        "verdict": "ADDRESSED",
+        "reason": "The article does not invent any evidence‑sufficiency rule, minimum source count, verification procedure or promised result. The only procedural advice (segment 3) merely suggests applying the three steps when no link is present and does not claim a guaranteed outcome, thus complying with PROJECT_NO_UNSOURCED_RULE.",
+        "segments": [
+          {
+            "index": 3,
+            "text": "Nếu ảnh chụp màn hình không kèm link, hãy thực hiện ba bước trên, sau đó mới quyết định có chia sẻ hay không."
+          }
+        ]
+      },
+      {
+        "finding": "PROJECT_CLOSING_MESSAGE",
+        "verdict": "ADDRESSED",
+        "reason": "Segment 4 provides an actual short message that the reader could send to the original sender asking for the missing link, date and source, satisfying the PROJECT_CLOSING_MESSAGE requirement.",
+        "segments": [
+          {
+            "index": 4,
+            "text": "Bạn có thể nhắn lại người gửi: “Bạn có thể chia sẻ link gốc, ngày đăng và nguồn của bài này không? Cảm ơn!”"
+          }
+        ]
+      }
+    ],
+    "issues": [],
+    "paragraphs": [
+      {
+        "text": "Tình huống giả định: Bạn A nhận được ảnh chụp màn hình một bài viết trên Facebook về một sự kiện y tế, nhưng không có đường link gốc.",
+        "kind": "HYPOTHETICAL",
+        "factual_passages": []
+      },
+      {
+        "text": "Trước khi quyết định chia sẻ, hãy đọc nguồn và ngữ cảnh của nội dung; tránh đưa ra kết luận mà không kiểm chứng.",
+        "kind": "SOURCE_FACT",
+        "factual_passages": [
+          "Trước khi quyết định chia sẻ, hãy đọc nguồn và ngữ cảnh của nội dung; tránh đưa ra kết luận mà không kiểm chứng."
+        ]
+      },
+      {
+        "text": "Bạn có thể tự hỏi ba câu: ai đứng sau thông tin?, bằng chứng gì?, nguồn khác nói gì?",
+        "kind": "SOURCE_FACT",
+        "factual_passages": [
+          "Bạn có thể tự hỏi ba câu: ai đứng sau thông tin?, bằng chứng gì?, nguồn khác nói gì?"
+        ]
+      },
+      {
+        "text": "Nếu ảnh chụp màn hình không kèm link, hãy thực hiện ba bước trên, sau đó mới quyết định có chia sẻ hay không.",
+        "kind": "ADVICE",
+        "factual_passages": []
+      },
+      {
+        "text": "Bạn có thể nhắn lại người gửi: “Bạn có thể chia sẻ link gốc, ngày đăng và nguồn của bài này không? Cảm ơn!”",
+        "kind": "ADVICE",
+        "factual_passages": []
+      }
+    ]
+  }
+}

@@ -1,16 +1,24 @@
 """Add readable offline product guidance to a fresh onedir package, before ZIP."""
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import subprocess
 from pathlib import Path
 from urllib.parse import quote
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 DOCUMENTS = (
     "USER_GUIDE.md",
+    "B_BETA_GUIDE.md",
+    "CLOUDFLARE_B_SETUP.md",
+    "FACEBOOK_LOCAL_GUIDE.md",
+    "FACEBOOK_DEPENDENCIES.md",
     "LOCAL_COMPONENTS.md",
+    "VIDEO_TRANSCRIPTION_PIPELINE.md",
+    "TRANSCRIPT_EVIDENCE.md",
     "MAINTENANCE_UI.md",
     "MEDIA_CANCEL.md",
     "RUNTIME_RECOVERY.md",
@@ -65,6 +73,22 @@ def _links(text: str, source: Path, output: Path, package: Path, commit: str) ->
     return re.sub(r"\[([^\]]+)\]\(([^)]+)\)", replace, text)
 
 
+def source_hashes(commit: str) -> dict[str, str]:
+    paths = subprocess.check_output(
+        ["git", "ls-tree", "-r", "--name-only", commit, "app/creator_loop"],
+        cwd=REPOSITORY,
+        text=True,
+    ).splitlines()
+    return {
+        path: hashlib.sha256(
+            subprocess.check_output(
+                ["git", "show", commit + ":" + path], cwd=REPOSITORY
+            )
+        ).hexdigest()
+        for path in paths
+    }
+
+
 def package_docs(package: Path, commit: str) -> dict[str, object]:
     if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
         raise ValueError("Exact source commit is required")
@@ -91,12 +115,32 @@ def package_docs(package: Path, commit: str) -> dict[str, object]:
         if not 0 < source.stat().st_size <= 1024 * 1024:
             raise ValueError("Product document exceeds read budget")
         inputs[name] = source.read_text(encoding="utf-8")
+    bound_source_hashes = source_hashes(commit)
     # Build-time conversion only; the resulting files need no Python/Qt/browser service.
     from PySide6.QtGui import QFont, QTextDocument
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication([])
     (package / "docs").mkdir()
+    examples = package / "examples" / "B"
+    examples.mkdir(parents=True)
+    for source in (REPOSITORY / "docs/examples/B").iterdir():
+        if source.name not in {
+            "image.svg",
+            "image.png",
+            "creator-cloud.json",
+            "TEXT.md",
+            "IMAGE_CAPTION.md",
+            "VIDEO.md",
+            "VIDEO-plan.json",
+            "outputs.json",
+            "LICENSE.txt",
+        }:
+            raise ValueError("Unexpected release example file")
+        _real_path(source)
+        if not 0 < source.stat().st_size <= 1024 * 1024:
+            raise ValueError("Example exceeds package budget")
+        (examples / source.name).write_bytes(source.read_bytes())
     for name, text in inputs.items():
         output = (
             package / "USER_GUIDE.html"
@@ -114,8 +158,12 @@ def package_docs(package: Path, commit: str) -> dict[str, object]:
         )
         with output.open("x", encoding="utf-8") as f:
             f.write(html)
+    (package / "Open-CreatorLoop.ps1").write_bytes(
+        (REPOSITORY / "packaging" / "Open-CreatorLoop.ps1").read_bytes()
+    )
     info = {
         "git_commit": commit,
+        "source_hashes": bound_source_hashes,
         "target": "win-x64",
         "kind": "development-checkpoint",
         "user_guide": "USER_GUIDE.html",

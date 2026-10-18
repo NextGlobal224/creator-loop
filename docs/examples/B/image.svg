@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350">
+<rect width="1080" height="1350" fill="#f3efe5"/>
+<g font-family="Segoe UI,Arial,sans-serif">
+<rect x="70" y="65" width="440" height="56" rx="28" fill="#123e42"/>
+<text x="290" y="102" text-anchor="middle" font-size="23" font-weight="700" fill="white">TÌNH HUỐNG GIẢ ĐỊNH</text>
+<text x="70" y="225" font-size="65" font-weight="700" fill="#123e42">Một ảnh chụp.</text>
+<text x="70" y="310" font-size="65" font-weight="700" fill="#123e42">Còn thiếu bản gốc.</text>
+<rect x="110" y="380" width="860" height="505" rx="28" fill="#fff" stroke="#123e42" stroke-width="4"/>
+<rect x="110" y="380" width="860" height="80" rx="28" fill="#e0e9e5"/>
+<circle cx="160" cy="420" r="12" fill="#ce7858"/><circle cx="200" cy="420" r="12" fill="#d4b45f"/><circle cx="240" cy="420" r="12" fill="#518879"/>
+<text x="165" y="540" font-size="30" fill="#687572">Ảnh chụp được chuyển tiếp</text>
+<text x="165" y="625" font-size="47" font-weight="700" fill="#123e42">“Thay đổi lịch học…”</text>
+<path d="M165 680h650 M165 724h540" stroke="#d3dcd5" stroke-width="20" stroke-linecap="round"/>
+<rect x="165" y="770" width="590" height="65" rx="14" fill="#f9e6d8"/>
+<text x="195" y="814" font-size="29" font-weight="600" fill="#8a412b">Chưa có đường dẫn bài gốc</text>
+<text x="70" y="990" font-size="45" font-weight="700" fill="#123e42">Khoan gửi tiếp. Hỏi lại:</text>
+<text x="70" y="1060" font-size="42" fill="#123e42">“Bạn có đường dẫn gốc không?”</text>
+<path d="M70 1130h940" stroke="#bdcbc1" stroke-width="2"/>
+<text x="70" y="1190" font-size="27" fill="#465e59">Minh họa tự tạo • Không phải thông báo thật</text>
+<text x="70" y="1235" font-size="27" fill="#465e59">Chưa rõ không đồng nghĩa đúng hoặc sai.</text>
+</g></svg>

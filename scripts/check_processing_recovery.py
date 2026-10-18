@@ -13,10 +13,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from creator_loop.database import initialize
-from creator_loop.owned_process import OwnedWindowsProcess
-from creator_loop.paths import ensure_data_root
-from creator_loop.runtime_ownership import create_workspace_marker
+from creator_loop.backend.runtime.database import initialize
+from creator_loop.backend.runtime.owned_process import OwnedWindowsProcess
+from creator_loop.backend.runtime.paths import ensure_data_root
+from creator_loop.backend.runtime.runtime_ownership import create_workspace_marker
 
 
 def seed_runtime(root: Path, environment: dict[str, str]) -> tuple[Path, Path, Path]:
@@ -25,8 +25,8 @@ def seed_runtime(root: Path, environment: dict[str, str]) -> tuple[Path, Path, P
     dead.mkdir()
     code = """import sys
 from pathlib import Path
-from creator_loop.owned_process import OwnedWindowsProcess
-from creator_loop.runtime_ownership import create_workspace_marker,bind_workspace_child
+from creator_loop.backend.runtime.owned_process import OwnedWindowsProcess
+from creator_loop.backend.runtime.runtime_ownership import create_workspace_marker,bind_workspace_child
 root=Path(sys.argv[1]); work=Path(sys.argv[2]); component='qt-decoder/recovery-probe/fixture'
 marker=create_workspace_marker(root,work,component)
 (work/'request.json').write_text('{}')

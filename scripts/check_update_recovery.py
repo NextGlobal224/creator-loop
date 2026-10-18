@@ -15,11 +15,11 @@ from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-from creator_loop.app_lock import AppDataLock
-from creator_loop.database import SCHEMA_VERSION, validate
-from creator_loop.update_activation import _read_record
-from creator_loop.update_backup import _inventory
-from creator_loop.update_preparation import _journal
+from creator_loop.backend.runtime.app_lock import AppDataLock
+from creator_loop.backend.runtime.database import SCHEMA_VERSION, validate
+from creator_loop.backend.runtime.update_activation import _read_record
+from creator_loop.backend.runtime.update_backup import _inventory
+from creator_loop.backend.runtime.update_preparation import _journal
 
 
 def main() -> None:

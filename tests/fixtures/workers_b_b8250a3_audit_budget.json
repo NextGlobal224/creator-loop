@@ -1,0 +1,51 @@
+{
+  "origin_head": "b8250a30bc01093613bd9e81e9e703099f20cd59",
+  "worker_version": "13d35c5b-36dd-49ab-9ec8-65cdf87aa2fa",
+  "rejection": {
+    "error": "WORKERS_AI_FAILED",
+    "reason": "STAGE_OUTPUT_INVALID",
+    "retryable": false,
+    "http_status": 502,
+    "stage": "source_audit",
+    "stage_output": "{\"format\":\"WORKERS_AI_DIAGNOSTIC_V1\",\"provider_code\":null,\"usage\":{\"prompt_tokens\":4367,\"completion_tokens\":2200,\"total_tokens\":6567,\"neurons\":288.94915771484375},\"response_received\":true,\"stage_diagnostic\":{\"phase\":\"SDK_AFTER_BINDING\",\"binding_calls\":1,\"native_failure\":null},\"top_level_keys\":[\"choices\",\"usage\"],\"response_type\":\"undefined\",\"choice_content_type\":\"string\",\"choice_finish_reason\":\"length\",\"output_types\":[]}",
+    "stages": [
+      {
+        "stage": "analysis",
+        "usage": {
+          "prompt_tokens": 1034,
+          "completion_tokens": 840,
+          "total_tokens": 1874,
+          "neurons": 90.17251586914062
+        }
+      },
+      {
+        "stage": "writing",
+        "usage": {
+          "prompt_tokens": 5577,
+          "completion_tokens": 1370,
+          "total_tokens": 6947,
+          "neurons": 270.8580322265625
+        }
+      },
+      {
+        "stage": "editing",
+        "usage": {
+          "prompt_tokens": 5561,
+          "completion_tokens": 2217,
+          "total_tokens": 7778,
+          "neurons": 328.09893798828125
+        }
+      },
+      {
+        "stage": "source_audit",
+        "usage": {
+          "prompt_tokens": 4367,
+          "completion_tokens": 2200,
+          "total_tokens": 6567,
+          "neurons": 288.94915771484375
+        }
+      }
+    ]
+  },
+  "scope": "Actual sanitized audit length diagnostic, no partial native output repaired or quality acceptance."
+}

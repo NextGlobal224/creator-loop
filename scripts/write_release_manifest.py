@@ -11,8 +11,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from creator_loop import __version__
-from creator_loop.database import MIGRATIONS, SCHEMA_VERSION, _migration_sql
-from creator_loop.installation_stage import load_release_manifest
+from creator_loop.backend.runtime.database import (
+    MIGRATIONS,
+    SCHEMA_VERSION,
+    _migration_sql,
+)
+from creator_loop.backend.runtime.installation_stage import load_release_manifest
 
 
 def write_manifest(
@@ -47,6 +51,7 @@ def write_manifest(
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
     manifest = {
         "manifest_version": 1,
+        "release_channel": "development",
         "app_version": __version__,
         "git_commit": commit,
         "schema_from": 0,
@@ -64,13 +69,16 @@ def write_manifest(
             for name in ("PySide6", "PyInstaller")
         },
         "component_compatibility": {
-            "status": "Engine/model selection unresolved; no external engine required for smoke"
+            "status": "External engine/model compatibility unverified; components are not bundled; smoke does not run inference"
         },
         "migration_ids": list(MIGRATIONS),
         "migration_checksums": {
             migration: _migration_sql(migration)[1] for migration in MIGRATIONS
         },
         "files": files,
+        "source_hashes": json.loads(
+            (package / "build-info.json").read_text(encoding="utf-8")
+        ).get("source_hashes", {}),
         "provenance": {
             "repository": "NextGlobal224/creator-loop",
             "ci_run": run_url,

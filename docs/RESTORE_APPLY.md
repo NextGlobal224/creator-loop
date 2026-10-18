@@ -2,7 +2,8 @@
 
 Close the app and choose an explicit published backup ID and verified staged
 installation. This operation restores SQLite, then applies known forward
-migrations to schema 6. It does not downgrade the schema, delete media or restore
+migrations to the candidate's current schema (see the exact release manifest;
+B beta currently uses schema 10). It does not downgrade the schema, delete media or restore
 media bytes. **Every database change after the backup can be lost**, including
 edits that leave table counts unchanged. Preserve the backup and media separately.
 

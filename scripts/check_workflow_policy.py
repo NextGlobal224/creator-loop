@@ -20,3 +20,16 @@ for binding in ("--expected-commit", "--expected-run-url", "--tag"):
 print(
     "Workflow policy OK: read default, full history secret scan, actions pinned, V1 publish guard"
 )
+
+beta = Path(".github/workflows/publish_beta.yml").read_text(encoding="utf-8")
+assert "workflow_dispatch:" in beta and "pull_request_target:" not in beta
+for action in re.findall(r"^\s*- uses:\s*(\S+)", beta, re.M):
+    assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", action), (
+        f"Unpinned beta action: {action}"
+    )
+assert beta.index("scripts/check_release_gate.py") < beta.index("gh release create")
+assert "--prerelease" in beta and "--verify-tag" in beta
+assert "gh run download" in beta and "--expected-run-url" in beta
+assert "git merge-base --is-ancestor" in beta
+assert "release/*" not in beta  # no private logs/fixtures or rebuilt payload uploaded
+assert "--force" not in beta

@@ -1,0 +1,170 @@
+{
+  "origin_head": "ce273a140a160bb94ec18bae46e22e9d818aea00",
+  "origin_worker_version": "ad4f8c27-8030-4a48-8f1a-e845a3ede5f0",
+  "materials": [
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_id": null,
+      "asset_id": "02dde26a0828436fa24c468fa6f44d34",
+      "file_id": "1da0c5ef932840d9befe5a61d11adce9",
+      "sha256": "ec6b7c2b9c40394a2824651daa818a0db73575275b1380b9751b834a8f8da60f",
+      "media_type": "TEXT",
+      "text": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra.\nSource: UNESCO\nURL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course\nDiễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể.\nHướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này.\n",
+      "source_url": null,
+      "evidence_version_ids": [],
+      "scope": "TEXT_PASSAGE"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_id": null,
+      "asset_id": "fb7cc0a93386491da0501c111d0c7d58",
+      "file_id": "e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "sha256": "b4870ab706628ca1eb4a3ea0121da60db2fb1e54af22bab0e8c84fe40212cf48",
+      "media_type": "TEXT",
+      "text": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra.\nSource: Digital Inquiry Group / Civic Online Reasoning\nURL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/\nTrích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”\nDiễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.\nHướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral.\n",
+      "source_url": null,
+      "evidence_version_ids": [],
+      "scope": "TEXT_PASSAGE"
+    }
+  ],
+  "written": {
+    "hypothetical_opening": "Tình huống giả định: Bạn nhận được một ảnh chụp màn hình từ một người bạn trên Facebook, trong đó có một tuyên bố gây tranh cãi nhưng không kèm theo đường dẫn nguồn.",
+    "editorial_paragraphs": [
+      [
+        {
+          "source_quote_id": 3,
+          "text": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội; tuy nhiên trang giới thiệu không xác minh bất kỳ bài viết Facebook cụ thể nào.",
+          "premise_checks": [
+            {
+              "assertion": "UNESCO đã công bố một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội",
+              "quote_ids": [
+                3
+              ],
+              "supported": true
+            },
+            {
+              "assertion": "Trang giới thiệu không xác minh một bài Facebook cụ thể",
+              "quote_ids": [
+                3
+              ],
+              "supported": true
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "source_quote_id": 8,
+          "text": "Ba câu hỏi nền tảng được đề xuất để xem xét nội dung chưa quen thuộc là: “Who’s behind the information? What’s the evidence? What do other sources say?”",
+          "premise_checks": [
+            {
+              "assertion": "Ba câu hỏi nền tảng được đề xuất là “Who’s behind the information? What’s the evidence? What do other sources say?”",
+              "quote_ids": [
+                8
+              ],
+              "supported": true
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "source_quote_id": 9,
+          "text": "Áp dụng ba câu hỏi này trong tiếng Việt, chúng ta nên hỏi: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.",
+          "premise_checks": [
+            {
+              "assertion": "COR giới thiệu ba câu hỏi: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì",
+              "quote_ids": [
+                9
+              ],
+              "supported": true
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "source_quote_id": -1,
+          "text": "Bạn có thể vui lòng gửi lại link gốc, ngày đăng và ngữ cảnh đầy đủ của ảnh chụp màn hình này không?",
+          "premise_checks": []
+        }
+      ]
+    ]
+  },
+  "operations": {
+    "source_issues": [
+      "Repeated bilingual source questions were removed by rewriting segment 2."
+    ],
+    "edits": [
+      {
+        "index": 0,
+        "decision": "KEEP",
+        "replacement": []
+      },
+      {
+        "index": 1,
+        "decision": "KEEP",
+        "replacement": []
+      },
+      {
+        "index": 2,
+        "decision": "REWRITE",
+        "replacement": [
+          {
+            "source_quote_id": 9,
+            "text": "Nhóm Digital Inquiry Group (Civic Online Reasoning) giới thiệu ba câu hỏi cơ bản để xem xét nội dung trực tuyến chưa quen thuộc.",
+            "premise_checks": [
+              {
+                "assertion": "Nhóm Digital Inquiry Group (Civic Online Reasoning) giới thiệu ba câu hỏi cơ bản để xem xét nội dung trực tuyến chưa quen thuộc.",
+                "quote_ids": [
+                  9
+                ],
+                "supported": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "index": 3,
+        "decision": "KEEP",
+        "replacement": []
+      },
+      {
+        "index": 4,
+        "decision": "KEEP",
+        "replacement": []
+      }
+    ]
+  },
+  "failure": "native edit reply contained only branch index/decision/replacement, omitting parent-required premise_checks/support/quote_ids/note",
+  "stage_usage": [
+    {
+      "stage": "analysis",
+      "usage": {
+        "prompt_tokens": 1034,
+        "completion_tokens": 840,
+        "total_tokens": 1874,
+        "neurons": 90.17251586914062
+      }
+    },
+    {
+      "stage": "writing",
+      "usage": {
+        "prompt_tokens": 3686,
+        "completion_tokens": 1456,
+        "total_tokens": 5142,
+        "neurons": 216.5538330078125
+      }
+    },
+    {
+      "stage": "editing",
+      "usage": {
+        "prompt_tokens": 5448,
+        "completion_tokens": 2854,
+        "total_tokens": 8302,
+        "neurons": 367.935302734375
+      }
+    }
+  ]
+}
