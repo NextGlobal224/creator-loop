@@ -74,6 +74,28 @@ class BetaEvidenceTests(unittest.TestCase):
     def test_structured_gate_positive_is_fixture_only(self):
         self.check()
 
+    def test_reuse_rejects_shim_only_and_changed_backend_even_if_shim_unchanged(self):
+        from scripts.beta_release_evidence import REUSE_FILES
+
+        scope = next(
+            s for s in self.receipt["scopes"] if s["id"] == "requirement-12-beta"
+        )
+        shims = {"app/creator_loop/" + name: "a" * 64 for name in REUSE_FILES[12]}
+        scope.update(method="REUSED_UNCHANGED_SOURCE", source_files=shims)
+        self.manifest["source_hashes"] = {
+            **shims,
+            "app/creator_loop/backend/creator/drafts.py": "b" * 64,
+        }
+        with self.assertRaises(ValueError):
+            self.check()
+        scope["source_files"] = dict(self.manifest["source_hashes"])
+        self.check()
+        self.manifest["source_hashes"]["app/creator_loop/backend/creator/drafts.py"] = (
+            "c" * 64
+        )
+        with self.assertRaises(ValueError):
+            self.check()
+
     def test_missing_step_source_mock_stale_and_bool_one_refused(self):
         original = copy.deepcopy(self.receipt)
         mutations = [

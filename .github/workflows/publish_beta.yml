@@ -67,4 +67,5 @@ jobs:
           python scripts/check_release_gate.py --artifact "release/CreatorLoop-$COMMIT-win-x64.zip" --manifest release/beta-release-manifest.json --expected-commit "$COMMIT" --expected-run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" --tag "$TAG" --beta-evidence beta-evidence.json
       - name: Publish identical tested ZIP as pre-release
         run: |
-          gh release create "$TAG" "release/CreatorLoop-$COMMIT-win-x64.zip" release/beta-release-manifest.json beta-evidence.json --verify-tag --prerelease --notes-file release/BETA-NOTES.md
+          (cd release && sha256sum "CreatorLoop-$COMMIT-win-x64.zip" > SHA256SUMS)
+          gh release create "$TAG" "release/CreatorLoop-$COMMIT-win-x64.zip" release/SHA256SUMS release/beta-release-manifest.json beta-evidence.json --verify-tag --prerelease --notes-file release/BETA-NOTES.md

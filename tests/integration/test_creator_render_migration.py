@@ -8,6 +8,7 @@ from pathlib import Path
 from creator_loop.backend.creator.drafts import create_draft
 from creator_loop.backend.runtime.database import (
     MIGRATIONS,
+    SCHEMA_VERSION,
     _connect_write,
     initialize,
     migration_path,
@@ -52,7 +53,8 @@ class CreatorRenderMigrationTests(unittest.TestCase):
                             ("prior",),
                         )
                 self.assertEqual(
-                    len(list(path.parent.glob("*.pre-v9-*.sqlite3"))), int(version > 0)
+                    len(list(path.parent.glob(f"*.pre-v{SCHEMA_VERSION}-*.sqlite3"))),
+                    int(version > 0),
                 )
 
     def test_render_seal_lineage_and_incomplete_output_are_guarded(self):

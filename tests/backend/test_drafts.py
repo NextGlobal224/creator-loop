@@ -9,11 +9,13 @@ from pathlib import Path
 
 from creator_loop.backend.creator.drafts import (
     DraftAssertion,
+    DraftChoices,
     DraftClaimLink,
     DraftParent,
     append_draft_version,
     combine_drafts,
     create_draft,
+    read_draft_choices,
 )
 from creator_loop.backend.creator.projects import create_project
 from creator_loop.backend.knowledge.claims import EvidenceLink, create_claim
@@ -21,6 +23,66 @@ from creator_loop.backend.runtime.database import initialize
 
 
 class DraftTests(unittest.TestCase):
+    def test_choices_are_sealed_and_image_change_creates_new_exact_caption_version(
+        self,
+    ):
+        self.db.execute(
+            "INSERT INTO assets VALUES('image','IMAGE','Original illustration','now',NULL)"
+        )
+        self.db.execute(
+            "INSERT INTO asset_files(file_id,asset_id,role,storage_key,sha256,byte_size,mime_type,created_at) VALUES('img','image','ORIGINAL','storage/originals/i.png',?,1,'image/png','now')",
+            ("a" * 64,),
+        )
+        self.db.commit()
+        first = self._create(
+            format="IMAGE_CAPTION", choices=DraftChoices("Hướng đã chọn")
+        )
+        choice = DraftChoices(
+            "Hướng đã chọn",
+            "img",
+            "a" * 64,
+            "Original illustration",
+            "Author permits reuse",
+        )
+        second = append_draft_version(
+            self.db,
+            draft_version_id=first.draft_version_id,
+            body_text="Café 🏞 ở Huế",
+            format="IMAGE_CAPTION",
+            actor="creator",
+            claims=self.links,
+            assertions=[
+                DraftAssertion(0, 4, self.claim.claim_version_id, "UNREVIEWED"),
+                DraftAssertion(5, 6, None, "EDITORIAL"),
+            ],
+            choices=choice,
+        )
+        self.assertEqual(second.version_no, 2)
+        self.assertEqual(read_draft_choices(self.db, second.draft_version_id), choice)
+        self.assertIsNone(
+            read_draft_choices(self.db, first.draft_version_id).image_file_id
+        )
+        for sql in [
+            "UPDATE creator_draft_choices SET image_usage_note='changed'",
+            "DELETE FROM creator_draft_choices",
+            "INSERT OR REPLACE INTO creator_draft_choices SELECT * FROM creator_draft_choices",
+        ]:
+            with self.assertRaises(sqlite3.IntegrityError):
+                self.db.execute(sql)
+        plain = self._create()
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(
+                "INSERT INTO creator_draft_choices VALUES(?, 'Late', NULL,NULL,'','')",
+                (plain.draft_version_id,),
+            )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self._create(
+                format="IMAGE_CAPTION",
+                choices=DraftChoices(
+                    "Direction", "img", "b" * 64, "Source", "Permission"
+                ),
+            )
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

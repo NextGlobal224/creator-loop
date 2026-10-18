@@ -1,0 +1,142 @@
+{
+  "outputs": [
+    {
+      "format": "TEXT",
+      "draft_version_id": "2f27e21b698146b194e891ab5a4a3cc5",
+      "body_sha256": "bd7d14cbfb814e8484041e5f19710d0ab39b96f90a92d8c46eaf386fca902f52",
+      "file": "TEXT.md",
+      "mode": "AUTOMATIC",
+      "brief": {
+        "purpose": "Giúp người đọc nhận thức đúng về sự thật trước khi chia sẻ ảnh chụp màn hình",
+        "audience": "Người Việt dùng mạng xã hội",
+        "style": "Gần gũi, cụ thể, thận trọng",
+        "direction": "Trong một tình huống giả định, người dùng thấy một ảnh chụp màn hình trên Facebook mà không có đường dẫn nguồn, hãy khuyến khích họ tự thực hành ba bước: (1) Xác định ai là người hoặc tổ chức đứng sau thông tin (tìm kiếm tên, tài khoản, hồ sơ); (2) Kiểm tra bằng chứng được trích dẫn (tìm kiếm tiêu đề, số liệu, hình ảnh gốc trên các công cụ tìm kiếm); (3) So sánh với các nguồn tin đáng tin cậy khác (truy cập các trang tin uy tín, các báo cáo của UNESCO hoặc COR). Người dùng nên ghi lại kết quả, quyết định không chia sẻ nếu không thể xác minh, và nếu có thể, thêm chú thích nguồn gốc khi chia sẻ. Hành động này là tự nguyện, nhằm lấp đầy khoảng trống thông tin về quy trình kiểm chứng thực tiễn cho người Việt trên mạng xã hội.",
+        "backend": "CLOUDFLARE_WORKERS_AI",
+        "backend_version": "worker-dd120e55-8a1a-479b-8989-b5e65996fb59/@cf/openai/gpt-oss-120b/prompt-v32-sdk4-ai7-development-coverage/fbc8fc05739b"
+      },
+      "claims": [
+        "12a8ad56c56d4d5cbcee239fc04425d4",
+        "4533e7aebf744e0eb8f20a78f1cb662b",
+        "790d06ca7ead48e8b45767b4a553e757"
+      ],
+      "sources": [
+        {
+          "url": "https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course",
+          "quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra.\nSource: UNESCO\nURL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course\nDiễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể.\nHướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này.\n",
+          "claim_version": "12a8ad56c56d4d5cbcee239fc04425d4",
+          "evidence_version": "9263a25a74b24670ad3bd111a8e1e8b5"
+        },
+        {
+          "url": "https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/",
+          "quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra.\nSource: Digital Inquiry Group / Civic Online Reasoning\nURL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/\nTrích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”\nDiễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.\nHướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral.\n",
+          "claim_version": "4533e7aebf744e0eb8f20a78f1cb662b",
+          "evidence_version": "12631ccc7d90481ab49f6a27c2c5b12d"
+        },
+        {
+          "url": "https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course",
+          "quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra.\nSource: UNESCO\nURL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course\nDiễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể.\nHướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này.\n",
+          "claim_version": "4533e7aebf744e0eb8f20a78f1cb662b",
+          "evidence_version": "9263a25a74b24670ad3bd111a8e1e8b5"
+        },
+        {
+          "url": "https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/",
+          "quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra.\nSource: Digital Inquiry Group / Civic Online Reasoning\nURL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/\nTrích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”\nDiễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.\nHướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral.\n",
+          "claim_version": "790d06ca7ead48e8b45767b4a553e757",
+          "evidence_version": "12631ccc7d90481ab49f6a27c2c5b12d"
+        }
+      ],
+      "review": "UNREVIEWED; not publication approval"
+    },
+    {
+      "format": "IMAGE_CAPTION",
+      "draft_version_id": "5efd7685c72d4c5a8295861cb738c6e8",
+      "body_sha256": "eebb527d32704ed0b141ecc0a9ad77d6faeef39be2f46181ab3b12f5834d1c96",
+      "file": "IMAGE_CAPTION.md",
+      "mode": "MANUAL image association; unchanged model caption/manual hook",
+      "brief": {
+        "purpose": "Giúp người đọc nhận thức đúng về sự thật trước khi chia sẻ ảnh chụp màn hình",
+        "audience": "Người Việt dùng mạng xã hội",
+        "style": "Gần gũi, cụ thể, thận trọng",
+        "direction": "Chọn góc: nhận ảnh chụp thông báo đổi lịch học nhưng thiếu đường dẫn gốc. Mở bằng lời nhắc ngắn, xác định rõ tình huống giả định, đưa ba câu hỏi COR được ghi lại làm khung tham khảo, rồi đề xuất cách hỏi lại và đối chiếu. Các thao tác cụ thể là biên tập mới, không gán cho COR hoặc UNESCO. Kết bằng một tin nhắn người đọc có thể dùng. Không mô tả ảnh thực tế vì tư liệu không có Evidence hình.",
+        "backend": "CODEX_CLI_TEXT",
+        "backend_version": "c78fbf939ae8de1a2d5e/gpt-6.1-sol/high/prompt-v3-tools-disabled"
+      },
+      "claims": [
+        "011eef627a5942da933c6bfc36d5fdbd",
+        "22bcc81552684f798d8dfd7535fc2457"
+      ],
+      "sources": [
+        {
+          "url": "https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/",
+          "quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra.\nSource: Digital Inquiry Group / Civic Online Reasoning\nURL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/\nTrích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”\nDiễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.\nHướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral.\n",
+          "claim_version": "011eef627a5942da933c6bfc36d5fdbd",
+          "evidence_version": "12631ccc7d90481ab49f6a27c2c5b12d"
+        },
+        {
+          "url": "https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/",
+          "quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra.\nSource: Digital Inquiry Group / Civic Online Reasoning\nURL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/\nTrích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”\nDiễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.\nHướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral.\n",
+          "claim_version": "22bcc81552684f798d8dfd7535fc2457",
+          "evidence_version": "12631ccc7d90481ab49f6a27c2c5b12d"
+        },
+        {
+          "url": "https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course",
+          "quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra.\nSource: UNESCO\nURL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course\nDiễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể.\nHướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này.\n",
+          "claim_version": "22bcc81552684f798d8dfd7535fc2457",
+          "evidence_version": "9263a25a74b24670ad3bd111a8e1e8b5"
+        }
+      ],
+      "review": "UNREVIEWED; not publication approval",
+      "caption_origin_version": "7c90da78fee949ba817c22a1366d3033",
+      "original_automatic_caption_version": "783ac95c3655428c9f4cfe05b636f766"
+    },
+    {
+      "format": "VIDEO",
+      "draft_version_id": "1e9263a94f8e4e6d94caeb2ed08fb231",
+      "body_sha256": "a23c95de81ac754937f187c87deee6ea84c24304d578e5cb3f1a05d499e6c9bc",
+      "file": "VIDEO.md",
+      "mode": "AUTOMATIC",
+      "brief": {
+        "purpose": "Giúp người đọc nhận thức đúng về sự thật trước khi chia sẻ ảnh chụp màn hình",
+        "audience": "Người Việt dùng mạng xã hội",
+        "style": "Gần gũi, cụ thể, thận trọng",
+        "direction": "Một video ngắn 30 giây: tình huống giả định, hỏi nguồn gốc, đối chiếu căn cứ và giữ Chưa xác nhận nếu thiếu bằng chứng.",
+        "backend": "CODEX_CLI_TEXT",
+        "backend_version": "c78fbf939ae8de1a2d5e/gpt-6.1-sol/high/prompt-v3-tools-disabled"
+      },
+      "claims": [
+        "996a69d2225a43baa77cf38e19ef3a76"
+      ],
+      "sources": [
+        {
+          "url": "https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/",
+          "quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra.\nSource: Digital Inquiry Group / Civic Online Reasoning\nURL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/\nTrích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”\nDiễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.\nHướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral.\n",
+          "claim_version": "996a69d2225a43baa77cf38e19ef3a76",
+          "evidence_version": "12631ccc7d90481ab49f6a27c2c5b12d"
+        },
+        {
+          "url": "https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course",
+          "quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra.\nSource: UNESCO\nURL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course\nDiễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể.\nHướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này.\n",
+          "claim_version": "996a69d2225a43baa77cf38e19ef3a76",
+          "evidence_version": "9263a25a74b24670ad3bd111a8e1e8b5"
+        }
+      ],
+      "review": "UNREVIEWED; not publication approval"
+    }
+  ],
+  "image": {
+    "source": "Original vector illustration authored for this B release; no real institution/person/event depicted",
+    "svg": "image.svg",
+    "png": "image.png",
+    "license": "CC0-1.0",
+    "caption_match": "Illustrates the explicitly fictional missing-school-notice-link scenario in the unchanged caption",
+    "association": {
+      "proof": "Native schema10 consistent-copy save/reopen; canonical old versions unchanged",
+      "draft_version_id": "5efd7685c72d4c5a8295861cb738c6e8",
+      "body_sha256": "eebb527d32704ed0b141ecc0a9ad77d6faeef39be2f46181ab3b12f5834d1c96",
+      "file_id": "2b01eeb9f142463cb87e2aa6b188aefa",
+      "image_sha256": "68a100c8ea518c036639bd65ee686e652b9996d02e60ef5172bb0a1e49beb5dd",
+      "caption_file": "IMAGE_CAPTION.md"
+    }
+  },
+  "video_limit": "B script only; synthetic voice/MP4 quality remains unaccepted C scope"
+}

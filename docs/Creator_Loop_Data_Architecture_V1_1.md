@@ -162,6 +162,8 @@ V1 nhập số liệu thủ công qua PublicationRepository cho Post đã từng
 
 ## 7. Ràng buộc liên bảng và dữ liệu thiếu
 
+**Bổ sung baseline schema 10:** `creator_draft_choices` ghim hướng biên tập cùng file IMAGE/ORIGINAL, digest, nguồn ảnh và ghi chú căn cứ quyền sử dụng vào exact Draft Version IMAGE_CAPTION. Ghi trước seal, không UPDATE/DELETE/REPLACE hoặc đính kèm muộn. Đổi lựa chọn tạo Version mới kể cả caption không đổi; lịch sử cũ không backfill. File được kiểm byte khi lưu/mở lại. Ghi chú quyền là lời khai nguồn, không cấp review/Approval hoặc thay kiểm quyền lúc xuất bản. Draft cũ không có hàng lựa chọn vẫn đọc được, không suy diễn ảnh đã xem.
+
 **Bổ sung baseline schema 9:** [Creator/render workflows](CREATOR_RENDER_WORKFLOWS.md) định nghĩa các bảng provenance bổ sung cho phân tích/Draft và MP4 local. Chúng giữ exact versions và input digest, không thay bảng lõi hay cấp review/Selection/Approval. MP4 tổng hợp giữ lineage nhiều inputs trong bảng render, không gán `parent_file_id` qua Asset.
 
 Một số bất biến cần transaction/trigger/ứng dụng vì CHECK đơn bảng không đủ:

@@ -58,6 +58,64 @@ def fixture(root: Path) -> CreatorRequest:
 
 
 class ResearchPipelineTests(unittest.TestCase):
+    def test_image_attach_preserves_exact_caption_and_blocks_changed_bytes_on_reopen(
+        self,
+    ):
+        from creator_loop.backend.library.media_intake import intake_image_original
+
+        image = Path(__file__).resolve().parents[2] / "docs/examples/B/image.png"
+        imported = intake_image_original(image, root=self.root)
+        wid = self.pipeline.analyze(
+            replace(self.request, output_format="IMAGE_CAPTION")
+        )
+        first = self.pipeline.create_draft(
+            wid, body_text="Caption đã lưu; không sinh lại."
+        )
+        second = self.pipeline.create_draft(
+            wid,
+            image_file_id=imported.file_id,
+            image_provenance="Original release illustration",
+            image_usage_note="CC0-1.0",
+        )
+        self.assertEqual(second.body_text, first.body_text)
+        self.assertEqual(second.claim_version_ids, first.claim_version_ids)
+        self.assertEqual(second.version_no, first.version_no + 1)
+        self.assertEqual(
+            ResearchPipeline(self.root).draft(second.draft_version_id), second
+        )
+        self.assertEqual(
+            self.pipeline.create_draft(wid).draft_version_id, second.draft_version_id
+        )
+        (self.root / imported.storage_key).write_bytes(b"changed")
+        with self.assertRaises(ValueError):
+            self.pipeline.draft(second.draft_version_id)
+        # UI metadata cannot claim byte verification and must not hash on GUI thread.
+        self.assertEqual(
+            self.pipeline.draft_metadata(second.draft_version_id).image_file_id,
+            imported.file_id,
+        )
+
+    def test_manual_direction_is_saved_per_version_and_restored(self):
+        wid = self.pipeline.analyze(self.request)
+        first = self.pipeline.create_draft(
+            wid,
+            "Hướng được người viết điều chỉnh",
+            body_text="Nội dung thủ công cần review.",
+        )
+        reopened = ResearchPipeline(self.root).draft(first.draft_version_id)
+        self.assertEqual(reopened.direction, "Hướng được người viết điều chỉnh")
+        self.assertEqual(
+            self.pipeline.create_draft(wid).draft_version_id, first.draft_version_id
+        )
+        second = self.pipeline.create_draft(
+            wid, "Hướng điều chỉnh lần hai", body_text=first.body_text
+        )
+        self.assertEqual(second.version_no, first.version_no + 1)
+        self.assertEqual(
+            self.pipeline.draft(first.draft_version_id).direction, reopened.direction
+        )
+        self.assertEqual(second.body_text, first.body_text)
+
     def test_manual_exact_claim_assertions_and_same_body_citation_edit_are_versioned(
         self,
     ):

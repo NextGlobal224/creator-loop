@@ -9,6 +9,7 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from creator_loop.backend.runtime.creator_backup_runtime import hold_creator_evidence
 from creator_loop.backend.runtime.runtime_files import RuntimeHandle
 from creator_loop.backend.runtime.runtime_recovery import _identity_dead
 from creator_loop.backend.runtime.windows_paths import file_io_path
@@ -79,9 +80,13 @@ def hold_terminal_audio_runtime(
         raise RuntimeError("Worker runtime records require recovery before backup")
     with ExitStack() as held:
         held.enter_context(RuntimeHandle(runtime, directory=True))
+        creator = [p for p in extra if p.name.startswith("creator-")]
+        recheck_creator = hold_creator_evidence(root, db, creator, held)
         records: dict[str, tuple[dict[str, Any], dict[str, Any], set[str]]] = {}
         metadata: dict[tuple[str, str], dict[str, Any]] = {}
         for directory in extra:
+            if directory in creator:
+                continue
             if not re.fullmatch(
                 r"(?:transcribe|processing)-[0-9a-f]{32}|whisper-[a-z0-9_]{8}",
                 directory.name,
@@ -279,6 +284,7 @@ def hold_terminal_audio_runtime(
 
         def recheck_all() -> None:
             recheck_namespace()
+            recheck_creator()
             for name, (_, _, expected_names) in records.items():
                 if {
                     p.name for p in file_io_path(runtime / name).iterdir()

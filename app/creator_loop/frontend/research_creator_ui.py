@@ -47,6 +47,9 @@ class ResearchCreatorWorker(QThread):
         workflow_id: str = "",
         direction: str = "",
         body_text: str = "",
+        image_file_id: str | None = None,
+        image_provenance: str = "",
+        image_usage_note: str = "",
     ) -> None:
         super().__init__()
         self.pipeline, self.request, self.action = pipeline, request, action
@@ -55,6 +58,9 @@ class ResearchCreatorWorker(QThread):
             direction,
             body_text,
         )
+        self.image_file_id = image_file_id
+        self.image_provenance = image_provenance
+        self.image_usage_note = image_usage_note
 
     def run(self) -> None:
         try:
@@ -75,6 +81,9 @@ class ResearchCreatorWorker(QThread):
                     wid,
                     self.direction or self.request.direction,
                     body_text=self.body_text,
+                    image_file_id=self.image_file_id,
+                    image_provenance=self.image_provenance,
+                    image_usage_note=self.image_usage_note,
                 )
             self.completed.emit(
                 (
@@ -225,6 +234,26 @@ class ResearchCreatorDialog(QDialog):
         )
         self.body.setMaximumHeight(150)
         layout.addWidget(self.body)
+        self.image_choice = QComboBox()
+        self.image_choice.setObjectName("researchDraftImage")
+        self.image_choice.addItem("Không đính kèm ảnh", "")
+        for item in self.pipeline.image_options():
+            self.image_choice.addItem(
+                item["display_name"] + " — " + item["file_id"], item["file_id"]
+            )
+        self.image_provenance = QLineEdit()
+        self.image_provenance.setPlaceholderText(
+            "Nguồn/tác giả của ảnh đã nhập Library"
+        )
+        self.image_usage_note = QLineEdit()
+        self.image_usage_note.setPlaceholderText(
+            "Căn cứ quyền sử dụng; ghi chú này không cấp Approval"
+        )
+        image_form = QFormLayout()
+        image_form.addRow("Ảnh cho caption (Library)", self.image_choice)
+        image_form.addRow("Nguồn ảnh", self.image_provenance)
+        image_form.addRow("Quyền sử dụng ảnh", self.image_usage_note)
+        layout.addLayout(image_form)
         actions = QHBoxLayout()
         self.analyze_button = QPushButton("Phân tích đã chọn")
         self.analyze_button.setObjectName("researchAnalyze")
@@ -355,7 +384,9 @@ class ResearchCreatorDialog(QDialog):
             self.evidence.addItem(str(ev), ev)
         self.claim.clear()
         latest_draft = (
-            self.pipeline.draft(value["drafts"][0]) if value["drafts"] else None
+            self.pipeline.draft_metadata(value["drafts"][0])
+            if value["drafts"]
+            else None
         )
         for cv in dict.fromkeys(
             value["claims"]
@@ -364,8 +395,19 @@ class ResearchCreatorDialog(QDialog):
             self.claim.addItem(cv, cv)
         if latest_draft:
             self.body.setPlainText(latest_draft.body_text)
+            self.direction.setPlainText(
+                latest_draft.direction or value["direction_text"]
+            )
+            self.image_choice.setCurrentIndex(
+                max(0, self.image_choice.findData(latest_draft.image_file_id or ""))
+            )
+            self.image_provenance.setText(latest_draft.image_provenance)
+            self.image_usage_note.setText(latest_draft.image_usage_note)
         else:
             self.body.clear()
+            self.image_choice.setCurrentIndex(0)
+            self.image_provenance.clear()
+            self.image_usage_note.clear()
         self.body.document().setModified(False)
         self.status.setText(
             "Đã mở kết quả đã lưu; exact Evidence/Claim/Draft Versions giữ nguyên. Có thể chuyển chế độ và tiếp tục."
@@ -434,6 +476,9 @@ class ResearchCreatorDialog(QDialog):
             self.body.toPlainText()
             if action == "draft" and self.body.document().isModified()
             else "",
+            str(self.image_choice.currentData() or ""),
+            self.image_provenance.text(),
+            self.image_usage_note.text(),
         )
         self.worker = worker
         self.guard = OwnedThreadExit()

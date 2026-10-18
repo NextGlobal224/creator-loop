@@ -26,6 +26,18 @@ TRANSCRIPT_REVIEW_REQUESTED = 24
 
 
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--b-release-smoke":
+        from creator_loop.integration.b_release_smoke import run_b_release_smoke
+
+        try:
+            print(json.dumps(run_b_release_smoke(Path(sys.argv[2]))))
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            print(
+                json.dumps({"b_release_probe": "refused", "error": str(exc)}),
+                file=sys.stderr,
+            )
+            return 4
+        return 0
     if len(sys.argv) == 3 and sys.argv[1] == "--creator-workers-http":
         from creator_loop.backend.analysis.workers_transport import run_http
 

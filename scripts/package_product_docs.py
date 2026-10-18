@@ -12,6 +12,8 @@ from urllib.parse import quote
 REPOSITORY = Path(__file__).resolve().parents[1]
 DOCUMENTS = (
     "USER_GUIDE.md",
+    "B_BETA_GUIDE.md",
+    "CLOUDFLARE_B_SETUP.md",
     "FACEBOOK_LOCAL_GUIDE.md",
     "FACEBOOK_DEPENDENCIES.md",
     "LOCAL_COMPONENTS.md",
@@ -120,6 +122,25 @@ def package_docs(package: Path, commit: str) -> dict[str, object]:
 
     app = QApplication.instance() or QApplication([])
     (package / "docs").mkdir()
+    examples = package / "examples" / "B"
+    examples.mkdir(parents=True)
+    for source in (REPOSITORY / "docs/examples/B").iterdir():
+        if source.name not in {
+            "image.svg",
+            "image.png",
+            "creator-cloud.json",
+            "TEXT.md",
+            "IMAGE_CAPTION.md",
+            "VIDEO.md",
+            "VIDEO-plan.json",
+            "outputs.json",
+            "LICENSE.txt",
+        }:
+            raise ValueError("Unexpected release example file")
+        _real_path(source)
+        if not 0 < source.stat().st_size <= 1024 * 1024:
+            raise ValueError("Example exceeds package budget")
+        (examples / source.name).write_bytes(source.read_bytes())
     for name, text in inputs.items():
         output = (
             package / "USER_GUIDE.html"

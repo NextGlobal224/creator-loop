@@ -46,6 +46,11 @@ class DraftSnapshot:
     body_text: str
     format: str
     claim_version_ids: tuple[str, ...] = ()
+    direction: str = ""
+    image_file_id: str | None = None
+    image_sha256: str | None = None
+    image_provenance: str = ""
+    image_usage_note: str = ""
 
 
 @dataclass(frozen=True)

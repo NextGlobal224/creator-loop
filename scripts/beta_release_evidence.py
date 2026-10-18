@@ -157,9 +157,16 @@ def check_beta_evidence(
             if (
                 not needed
                 or not isinstance(source_files, dict)
-                or set(source_files) != needed
+                or not needed <= source_files.keys()
+                or source_files != manifest.get("source_hashes")
+                or not any(
+                    path.startswith("app/creator_loop/backend/")
+                    for path in source_files
+                )
             ):
-                raise ValueError("Exact reusable module source set required")
+                raise ValueError(
+                    "Complete packaged implementation identity required; shims alone are insufficient"
+                )
             if any(
                 not digest(sha) or manifest.get("source_hashes", {}).get(path) != sha
                 for path, sha in source_files.items()

@@ -22,9 +22,11 @@ from creator_loop.backend.analysis.content_analysis import (
 )
 from creator_loop.backend.creator.drafts import (
     DraftAssertion,
+    DraftChoices,
     DraftClaimLink,
     append_draft_version,
     create_draft,
+    read_draft_choices,
 )
 from creator_loop.backend.creator.projects import list_projects
 from creator_loop.backend.knowledge.claims import EvidenceLink, _timestamp, create_claim
@@ -80,6 +82,16 @@ class ResearchPipeline:
     def projects(self) -> list[Any]:
         with closing(open_readonly(self.root / "creator_loop.sqlite3")) as db:
             return list_projects(db)
+
+    def image_options(self) -> list[dict[str, str]]:
+        """Metadata only; actual Original bytes are verified by the save worker."""
+        with closing(open_readonly(self.root / "creator_loop.sqlite3")) as db:
+            return [
+                dict(zip(("file_id", "display_name"), row))
+                for row in db.execute(
+                    "SELECT f.file_id,a.display_name FROM asset_files f JOIN assets a USING(asset_id) WHERE a.media_type='IMAGE' AND a.deleted_at IS NULL AND f.role='ORIGINAL' ORDER BY a.created_at DESC"
+                )
+            ]
 
     def evidence_snapshot(self, version_id: str) -> dict[str, Any]:
         """Small exact-version metadata for B; no decoding/hashing on the UI."""
@@ -526,7 +538,13 @@ class ResearchPipeline:
             ]
             return result
 
-    def draft(self, draft_version_id: str) -> DraftSnapshot:
+    def draft_metadata(self, draft_version_id: str) -> DraftSnapshot:
+        """Detached UI metadata; no media byte verification or acceptance."""
+        return self.draft(draft_version_id, verify_media=False)
+
+    def draft(
+        self, draft_version_id: str, *, verify_media: bool = True
+    ) -> DraftSnapshot:
         with closing(open_readonly(self.root / "creator_loop.sqlite3")) as db:
             row = db.execute(
                 "SELECT v.draft_version_id,d.project_id,v.version_no,v.body_text,v.format FROM draft_versions v JOIN drafts d USING(draft_id) JOIN draft_version_seals s USING(draft_version_id) WHERE v.draft_version_id=?",
@@ -541,7 +559,22 @@ class ResearchPipeline:
                     (draft_version_id,),
                 )
             )
-            return DraftSnapshot(row[0], row[1], row[2], row[3], row[4], claims)
+            choice = read_draft_choices(db, draft_version_id)
+            if verify_media and choice and choice.image_file_id:
+                verify_original_file(db, choice.image_file_id, self.root)
+            return DraftSnapshot(
+                row[0],
+                row[1],
+                row[2],
+                row[3],
+                row[4],
+                claims,
+                choice.direction if choice else "",
+                choice.image_file_id if choice else None,
+                choice.image_sha256 if choice else None,
+                choice.image_provenance if choice else "",
+                choice.image_usage_note if choice else "",
+            )
 
     def create_draft(
         self,
@@ -552,14 +585,60 @@ class ResearchPipeline:
         actor: str = "creator",
         claims: Sequence[DraftClaimLink] | None = None,
         assertions: Sequence[DraftAssertion] | None = None,
+        image_file_id: str | None = None,
+        image_provenance: str = "",
+        image_usage_note: str = "",
     ) -> DraftSnapshot:
         workflow = self.load(workflow_id)
+        previous_draft = (
+            self.draft(workflow["drafts"][0]) if workflow["drafts"] else None
+        )
+        chosen = (
+            direction.strip()
+            or (previous_draft.direction if previous_draft else "")
+            or workflow["direction_text"]
+        )
+        image_digest = None
+        if image_file_id is None and previous_draft:
+            image_file_id = previous_draft.image_file_id
+            image_provenance = previous_draft.image_provenance
+            image_usage_note = previous_draft.image_usage_note
+        image_file_id = image_file_id or None
+        if image_file_id:
+            with closing(open_readonly(self.root / "creator_loop.sqlite3")) as image_db:
+                verify_original_file(image_db, image_file_id, self.root)
+                image_digest = image_db.execute(
+                    "SELECT sha256 FROM asset_files WHERE file_id=?", (image_file_id,)
+                ).fetchone()[0]
+        choices = DraftChoices(
+            chosen,
+            image_file_id,
+            image_digest,
+            image_provenance.strip(),
+            image_usage_note.strip(),
+        )
+        old_choices = None
+        if previous_draft:
+            with closing(
+                open_readonly(self.root / "creator_loop.sqlite3")
+            ) as choice_db:
+                old_choices = read_draft_choices(
+                    choice_db, previous_draft.draft_version_id
+                )
         reuse_existing = False
         if (
             workflow["drafts"]
             and not body_text
             and claims is None
             and assertions is None
+            and (
+                choices == old_choices
+                or (
+                    old_choices is None
+                    and image_file_id is None
+                    and chosen == workflow["direction_text"]
+                )
+            )
         ):
             # An unmodified manual editor must not regenerate a template over
             # the saved content merely because the Save button was clicked.
@@ -588,7 +667,6 @@ class ResearchPipeline:
                     verify_original_file(check, material["file_id"], self.root)
         if reuse_existing:
             return self.draft(workflow["drafts"][0])
-        chosen = direction.strip() or workflow["direction_text"]
         proposal = workflow.get("llm_proposal")
         if proposal and not body_text and chosen != workflow["direction_text"]:
             raise ValueError(
@@ -720,7 +798,19 @@ class ResearchPipeline:
                     )
                 )
                 if (
+                    not body_text
+                    and previous_draft
+                    and choices != old_choices
+                    and chosen
+                    == (previous_draft.direction or workflow["direction_text"])
+                ):
+                    # Attaching an image versions the exact existing caption/citations.
+                    body = current.body_text
+                    links = [DraftClaimLink(cid, use) for cid, use in old_links]
+                    authored_assertions = [DraftAssertion(*a) for a in old_assertions]
+                if (
                     current.body_text == body
+                    and old_choices == choices
                     and old_links
                     == {(link.claim_version_id, link.use_type) for link in links}
                     and old_assertions
@@ -738,6 +828,7 @@ class ResearchPipeline:
                     actor=actor if body_text else workflow["backend_name"],
                     claims=links,
                     assertions=authored_assertions,
+                    choices=choices,
                 )
             else:
                 saved = create_draft(
@@ -748,6 +839,7 @@ class ResearchPipeline:
                     actor=actor if body_text else workflow["backend_name"],
                     claims=links,
                     assertions=authored_assertions,
+                    choices=choices,
                 )
             db.execute(
                 "INSERT INTO creator_workflow_drafts VALUES(?,?,?)",

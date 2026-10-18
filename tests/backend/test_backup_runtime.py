@@ -19,6 +19,99 @@ MODEL = "5359861c739e955e79d9a303bcbc70fb988958b1"
 
 @unittest.skipUnless(sys.platform == "win32", "Native retained runtime leases")
 class RetainedBackupTests(unittest.TestCase):
+    def creator_records(self, status="SUCCEEDED"):
+        run = "6" * 32
+        self.db.execute(
+            "INSERT INTO processing_runs(run_id,asset_id,input_file_id,task_type,status,tool_name,tool_version,started_at,finished_at,created_at) VALUES(?,?,?,'CREATOR_GENERATION',?,'CLOUDFLARE_WORKERS_AI','test',?,?,?)",
+            (run, self.asset, self.video, status, T, T, T),
+        )
+        self.db.commit()
+        owner = self.root / "runtime" / ("creator-task-" + run)
+        owner.mkdir()
+        self.marker(
+            owner, self.gui, "CLOUDFLARE_WORKERS_AI/test", "CREATOR_WORKFLOW_OWNER"
+        )
+        workspace = self.root / "runtime" / ("creator-workers-stage-" + "7" * 32)
+        workspace.mkdir()
+        self.marker(
+            workspace, self.gui, "creator-workers/test/writing", "CREATOR_LLM_WORKSPACE"
+        )
+        child = {**self.task, "component_version": "creator-workers/test/writing"}
+        self.write(workspace, "child-ownership.json", child)
+        self.write(workspace, "request.json", {"bounded": "source fixture"})
+        self.write(workspace, "response.json", {"bounded": "output fixture"})
+        process = workspace / "process"
+        process.mkdir()
+        self.write(process, "ownership.json", child)
+        return owner, workspace
+
+    def test_terminal_b_success_failure_cancel_preserves_evidence_and_allows_backup(
+        self,
+    ):
+        from creator_loop.backend.runtime.database import validate
+
+        self.creator_records()
+        runtime = {
+            str(p.relative_to(self.root)): p.read_bytes()
+            for p in (self.root / "runtime").rglob("*")
+            if p.is_file()
+        }
+        for status in ("SUCCEEDED", "FAILED", "CANCELLED"):
+            with self.subTest(status=status):
+                self.db.execute(
+                    "UPDATE processing_runs SET status=? WHERE task_type='CREATOR_GENERATION'",
+                    (status,),
+                )
+                self.db.commit()
+                with (
+                    self.guarded(),
+                    patch(
+                        "creator_loop.backend.runtime.creator_backup_runtime._identity_dead",
+                        return_value=True,
+                    ),
+                ):
+                    create_update_backup(self.root)
+                for key, value in runtime.items():
+                    self.assertEqual((self.root / key).read_bytes(), value)
+                self.db.execute("PRAGMA foreign_keys=ON")
+                validate(self.db)
+
+    def test_live_unknown_tampered_b_records_refuse_backup(self):
+        _, workspace = self.creator_records()
+        with (
+            self.guarded(),
+            patch(
+                "creator_loop.backend.runtime.creator_backup_runtime._identity_dead",
+                return_value=False,
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            create_update_backup(self.root)
+        extra = workspace / "unknown.json"
+        extra.write_text("{}")
+        with (
+            self.guarded(),
+            patch(
+                "creator_loop.backend.runtime.creator_backup_runtime._identity_dead",
+                return_value=True,
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            create_update_backup(self.root)
+        extra.unlink()
+        body = json.loads((workspace / "child-ownership.json").read_text())
+        body["component_version"] = "unbound"
+        self.write(workspace, "child-ownership.json", body)
+        with (
+            self.guarded(),
+            patch(
+                "creator_loop.backend.runtime.creator_backup_runtime._identity_dead",
+                return_value=True,
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            create_update_backup(self.root)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

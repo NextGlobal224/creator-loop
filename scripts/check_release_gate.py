@@ -19,6 +19,7 @@ from creator_loop.backend.runtime.installation_stage import (
     load_release_manifest,
 )
 
+from scripts.b_release_evidence import check_b_evidence
 from scripts.beta_release_evidence import check_beta_evidence
 from scripts.package_product_docs import DOCUMENTS
 
@@ -75,11 +76,14 @@ def check_release_gate(
     ):
         raise ValueError("Tag/commit does not match the tested artifact manifest")
     compatibility = manifest["component_compatibility"]
-    if compatibility.get("status") != (
+    b_only = beta and manifest.get("release_scope") == "B"
+    if manifest.get("release_scope") not in (None, "B"):
+        raise ValueError("Unknown release scope")
+    if not b_only and compatibility.get("status") != (
         "VERIFIED_BETA_LOCAL_RUNTIME" if beta else "VERIFIED_V1"
     ):
         raise ValueError("Engine/model compatibility is unresolved or unverified")
-    for kind in ("engine", "model"):
+    for kind in () if b_only else ("engine", "model"):
         component = compatibility.get(kind)
         if not isinstance(component, dict) or any(
             not isinstance(component.get(key), str) or not component[key].strip()
@@ -113,7 +117,7 @@ def check_release_gate(
     if beta:
         if beta_evidence is None or beta_evidence.stat().st_size > MAX_MANIFEST_BYTES:
             raise ValueError("Exact beta eligibility evidence is required")
-        check_beta_evidence(
+        (check_b_evidence if b_only else check_beta_evidence)(
             json.loads(beta_evidence.read_text(encoding="utf-8")), manifest, tag
         )
         if "beta" not in notes or "not accepted" not in notes:

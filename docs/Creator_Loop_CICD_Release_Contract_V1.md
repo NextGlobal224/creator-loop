@@ -79,4 +79,23 @@ Repository skeleton, `.gitignore`, docs baseline, workflow có kiểm tra thực
 
 ### Beta publication sequencing
 
+### B-only beta profile — explicit user authority 18/10/2026
+
+The user separately authorizes publishing B without reopening A discovery or paid C.
+This is additive `release_channel=beta, release_scope=B`, validated by
+`b_release_evidence.py`; absence of that explicit scope retains the full-beta checker.
+Stable/full-beta gates and their 24 requirements are unchanged. B receipt requires
+all modes/formats, real image with unchanged caption, source/version/choice/reopen,
+manual publication guards, exact package config→Worker/model→compatible live run,
+independent source review, required CI, exact native B UI/lifecycle/upgrade/backup/
+restore/privacy tests and packaged original output bytes. B native artifact criteria
+cannot be substituted by source tests or reused receipts. Reuse must bind actual
+implementation/source/config and retain original live origins; no fabricated new run.
+The full project remains partial; excluded A-new-scan, C-render/voice-quality,
+full-beta and stable-V1 plus the three stable deferrals must remain explicit.
+The same reviewed-main/tagged-build/identical-ZIP publication and redownload sequence
+below applies. No AI APPROVE, waived protection or publication to Facebook.
+
+### Tagged beta publication (all profiles)
+
 Beta tags use `v<actual numeric app version>-beta.<positive sequence>`; this does not change the binary's numeric app_version. Tag from reviewed main triggers the unchanged required CI build; stable auto-publication skips beta tags. Agent downloads that immutable tagged ZIP, completes native eligibility and writes a sanitized structured receipt binding commit/build-run/original manifest/ZIP/EXE. Only then dispatch `publish_beta.yml`: validate exact tag/main/build jobs, finalize metadata without rebuilding ZIP, check every file and all beta scopes, publish identical bytes with `--prerelease`. Missing/stale/source-only/mock QA is refused. Default manifest writer remains development. Stable checker/24 criteria are retained; exactly three user-approved stable deferrals are enumerated, never entire requirement-row exclusions. No new scope or review/branch-protection bypass is authorized by the receipt.

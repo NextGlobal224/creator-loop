@@ -41,6 +41,23 @@ class SavedDraftVersion:
     version_no: int
 
 
+@dataclass(frozen=True)
+class DraftChoices:
+    direction: str
+    image_file_id: str | None = None
+    image_sha256: str | None = None
+    image_provenance: str = ""
+    image_usage_note: str = ""
+
+
+def read_draft_choices(db: sqlite3.Connection, version_id: str) -> DraftChoices | None:
+    row = db.execute(
+        "SELECT direction_text,image_file_id,image_sha256,image_provenance,image_usage_note FROM creator_draft_choices WHERE draft_version_id=?",
+        (version_id,),
+    ).fetchone()
+    return DraftChoices(*row) if row else None
+
+
 def _active_project(db: sqlite3.Connection, project_id: str) -> None:
     if (
         db.execute(
@@ -102,6 +119,7 @@ def _insert_version(
     claims: Sequence[DraftClaimLink],
     assertions: Sequence[DraftAssertion],
     parents: Sequence[DraftParent],
+    choices: DraftChoices | None = None,
 ) -> SavedDraftVersion:
     version_id = uuid4().hex
     if len({parent.draft_version_id for parent in parents}) != len(parents):
@@ -161,6 +179,18 @@ def _insert_version(
                 assertion.review_state,
             ),
         )
+    if choices is not None:
+        db.execute(
+            "INSERT INTO creator_draft_choices VALUES(?,?,?,?,?,?)",
+            (
+                version_id,
+                choices.direction,
+                choices.image_file_id,
+                choices.image_sha256,
+                choices.image_provenance,
+                choices.image_usage_note,
+            ),
+        )
     db.execute(
         "INSERT INTO draft_version_seals VALUES(?,?)", (version_id, _timestamp())
     )
@@ -177,6 +207,7 @@ def create_draft(
     claims: Sequence[DraftClaimLink] = (),
     assertions: Sequence[DraftAssertion] = (),
     parents: Sequence[DraftParent] = (),
+    choices: DraftChoices | None = None,
 ) -> SavedDraftVersion:
     """Create one alternative and its complete sealed snapshot atomically."""
     _validate_input(body_text, format, actor, claims, assertions)
@@ -198,6 +229,7 @@ def create_draft(
             claims=claims,
             assertions=assertions,
             parents=parents,
+            choices=choices,
         )
 
 
@@ -210,6 +242,7 @@ def append_draft_version(
     actor: str,
     claims: Sequence[DraftClaimLink] = (),
     assertions: Sequence[DraftAssertion] = (),
+    choices: DraftChoices | None = None,
 ) -> SavedDraftVersion:
     """Append to the expected current snapshot; prior associations stay sealed."""
     _validate_input(body_text, format, actor, claims, assertions)
@@ -240,11 +273,14 @@ def append_draft_version(
             (a.start, a.end, a.claim_version_id or "", a.review_state)
             for a in assertions
         )
+        if choices is None:
+            choices = read_draft_choices(db, draft_version_id)
         if (
             row[3] == body_text
             and row[4] == format.strip()
             and old_claims == {(c.claim_version_id, c.use_type) for c in claims}
             and old_assertions == new_assertions
+            and read_draft_choices(db, draft_version_id) == choices
         ):
             raise ValueError("No Draft snapshot changes")
         return _insert_version(
@@ -258,6 +294,7 @@ def append_draft_version(
             claims=claims,
             assertions=assertions,
             parents=[DraftParent(draft_version_id, "EDIT")],
+            choices=choices,
         )
 
 

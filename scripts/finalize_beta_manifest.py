@@ -26,9 +26,16 @@ def finalize(
         release_channel="beta",
         release_tag=tag,
         component_compatibility=receipt.get("component_compatibility"),
-        release_notes="Beta: local Facebook keyword collection, immutable Source/TEXT capture and dedup. Physical 8 GB RAM/disk pressure, representative Vietnamese quality and external PUBLISHED/Observation are NOT ACCEPTED and deferred to stable.",
-        recovery_notes="Keep prior installation and consistent pre-migration SQLite backup. Schema 7 preserves old source/version/review data; do not run schema-6 app on migrated DB. Retain Original/media separately; browser credentials stay in private data root. Beta stable scopes are NOT ACCEPTED.",
+        release_notes=(
+            "B-only beta: analysis, editorial direction and versioned TEXT/IMAGE_CAPTION/VIDEO Drafts; Cloudflare TEXT integration. A new scan, C render/voice quality, full beta and stable V1 are NOT ACCEPTED. "
+            if receipt.get("scope") == "B"
+            else "Beta: local Facebook collection and immutable research snapshots. "
+        )
+        + "Physical 8 GB RAM/disk pressure, representative Vietnamese ASR quality and external PUBLISHED/Observation are NOT ACCEPTED and deferred to stable.",
+        recovery_notes=f"Keep prior installation and consistent pre-migration SQLite backup. Schema {body['schema_to']}; readable schema range {body['schema_read_min']}–{body['schema_read_max']}. Never open a migrated DB with an incompatible app; restore compatible backup plus prior installation only after confirming loss of newer DB changes. DB backup excludes media; retain Original/media separately. Credentials stay in private data root. Stable scopes are NOT ACCEPTED.",
     )
+    if receipt.get("scope") == "B":
+        body["release_scope"] = "B"
     temporary = output.with_suffix(".validation.tmp")
     temporary.write_text(
         json.dumps(body, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"

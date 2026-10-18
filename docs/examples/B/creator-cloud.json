@@ -1,0 +1,1 @@
+{"endpoint":"https://creator-loop-ai-beta.creator-loop-ai-beta.workers.dev/b/generate","model":"@cf/openai/gpt-oss-120b","worker_version":"bcc58e3c-35bc-4d06-a601-52fc8fed929b","key_file":"secrets/creator-cloud-key"}
