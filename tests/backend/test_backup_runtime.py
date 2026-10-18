@@ -19,6 +19,92 @@ MODEL = "5359861c739e955e79d9a303bcbc70fb988958b1"
 
 @unittest.skipUnless(sys.platform == "win32", "Native retained runtime leases")
 class RetainedBackupTests(unittest.TestCase):
+    def test_inert_reuse_receipts_are_preserved_but_live_tampered_unknown_refused(self):
+        import hashlib
+        from contextlib import ExitStack
+
+        from creator_loop.backend.runtime.reuse_backup_runtime import (
+            hold_reuse_evidence,
+        )
+
+        directory = self.root / "runtime" / ("analysis-reuse-" + "5" * 32)
+        directory.mkdir()
+        target, origin = (
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+        )
+        model = "@cf/openai/gpt-oss-120b"
+        self.marker(
+            directory,
+            self.gui,
+            "creator-workers/worker-" + target + "/" + model + "/test/analysis-reuse",
+            "CREATOR_LLM_WORKSPACE",
+        )
+        self.write(directory, "request.json", {"stage": "analysis"})
+        self.write(
+            directory,
+            "response.json",
+            {
+                "worker_version": origin,
+                "model": model,
+                "stage_result": {"stage": "analysis"},
+            },
+        )
+
+        def digest(name):
+            return hashlib.sha256((directory / name).read_bytes()).hexdigest()
+
+        compatibility = {
+            "stage": "analysis",
+            "origin_worker_version": origin,
+            "target_worker_version": target,
+            "model": model,
+            "request_sha256": digest("request.json"),
+            "analysis_contract_sha256": "a" * 64,
+        }
+        self.write(directory, "compatibility.json", compatibility)
+        self.write(
+            directory,
+            "receipt.json",
+            {
+                "format": "WORKERS_ANALYSIS_REUSE_V1",
+                **compatibility,
+                "response_sha256": digest("response.json"),
+                "compatibility_sha256": digest("compatibility.json"),
+            },
+        )
+        before = {p.name: p.read_bytes() for p in directory.iterdir()}
+        with (
+            ExitStack() as held,
+            patch(
+                "creator_loop.backend.runtime.reuse_backup_runtime._identity_dead",
+                return_value=True,
+            ),
+        ):
+            hold_reuse_evidence(self.root, [directory], held)()
+            with self.assertRaises(PermissionError):
+                (directory / "response.json").write_bytes(b"tampered")
+        self.assertEqual(before, {p.name: p.read_bytes() for p in directory.iterdir()})
+        with (
+            ExitStack() as held,
+            patch(
+                "creator_loop.backend.runtime.reuse_backup_runtime._identity_dead",
+                return_value=False,
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            hold_reuse_evidence(self.root, [directory], held)
+        (directory / "request.json").write_text("{}")
+        with (
+            ExitStack() as held,
+            patch(
+                "creator_loop.backend.runtime.reuse_backup_runtime._identity_dead",
+                return_value=True,
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            hold_reuse_evidence(self.root, [directory], held)
+
     def creator_records(self, status="SUCCEEDED"):
         run = "6" * 32
         self.db.execute(
