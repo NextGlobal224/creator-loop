@@ -12,7 +12,7 @@ test('unsupported-benefit writing without a citation-role violation reaches the 
   for(const paragraph of written.editorial_paragraphs)for(const segment of paragraph){segment.source_quote_id=-1;segment.premise_checks=[];}
   const analysis={observations:[{material_id:actual.materials[0].material_id,quote:actual.materials[0].text.split('\n')[0],observation:'Protocol replay only'}],inferences:[],direction:'Protocol replay only'};
   const plan={...written,editorial_paragraphs:Object.fromEntries(editorialRoles.map((r,i)=>[r.key,written.editorial_paragraphs[i]]))};
-  const packet={prompt:'Offline replay',writing_prompt:'Selected notes\n'+JSON.stringify({format:'TEXT',materials:actual.materials}),schema:{properties:{observations:{type:'array'},inferences:{type:'array'},direction:{type:'string'}}},stage:'editing',previous:[{stage:'analysis',value:analysis,usage:{}},{stage:'writing',value:plan,usage:{}}]};
+  const packet={prompt:'Offline replay',writing_prompt:'Selected notes\n'+JSON.stringify({format:'TEXT',purpose:'Giúp người đọc nhận thức đúng về sự thật trước khi chia sẻ ảnh chụp màn hình',materials:actual.materials}),schema:{properties:{observations:{type:'array'},inferences:{type:'array'},direction:{type:'string'}}},stage:'editing',previous:[{stage:'analysis',value:analysis,usage:{}},{stage:'writing',value:plan,usage:{}}]};
   let calls=0,captured;
   const response=await worker.fetch(new Request('https://example.test/b/generate',{method:'POST',headers:{authorization:'Bearer fixture','content-type':'application/json'},body:JSON.stringify(packet)}),{CREATOR_KEY:'fixture',CREATOR_MODEL:'@cf/openai/gpt-oss-120b',CREATOR_VERSION:{id:'fixture'},AI:{run:async(_,options)=>{
     calls++;captured=options.messages[1].content;

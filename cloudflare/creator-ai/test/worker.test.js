@@ -8,7 +8,9 @@ function compileSourcedArticle(value,catalog){
   return compilePlainArticle({...value,editorial_paragraphs:value.editorial_paragraphs.map(p=>p.map(({premise_checks,...segment})=>segment))},catalog);
 }
 import {checkedWriting,articleRequirements,editorialRoles} from "../src/grounding.js";
-const data={format:"TEXT",purpose:"Kiểm chứng",materials:[{material_id:"m",text:"Ghi chú nguồn công khai"}]};
+// These legacy protocol fixtures explicitly exercise the screenshot brief.
+// Generic Project/native-input coverage lives in project-policy.test.js.
+const data={format:"TEXT",purpose:"Giúp người đọc nhận thức đúng về sự thật trước khi chia sẻ ảnh chụp màn hình",materials:[{material_id:"m",text:"Ghi chú nguồn công khai"}]};
 test("actual v24 metadata-leak output remains rejected despite source citation and prior empty audit",()=>{
   const actual=readFileSync(new URL("../../../tests/fixtures/workers_b_v24_metadata_failed.txt",import.meta.url),"utf8");
   assert.ok(actual.includes("Hướng biên tập:"));assert.ok(publicArticleIssues(actual).length);
@@ -25,7 +27,7 @@ function draft(){
     "Nếu vẫn thiếu căn cứ, hãy giữ Chưa xác nhận và nhắn người gửi: bạn có đường dẫn gốc để mình kiểm tra không?",
   ]};return {typed,body:compileEditedArticle(typed),written:{...typed,editorial_paragraphs:typed.editorial_paragraphs.map(text=>[{text,source_quote_id:-1,premise_checks:[]}])}};
 }
-function requirementReceipts(offset=0){return articleRequirements.map((r,i)=>({index:offset+i,verdict:"ADDRESSED",segment_indexes:r.id==="PROJECT_CLOSING_MESSAGE"?[4]:[1,2,3,4],reason:"Synthetic task coverage only; not a semantic quality assessment."}));}
+function requirementReceipts(offset=0){return articleRequirements.map((r,i)=>({index:offset+i,verdict:"ADDRESSED",segment_indexes:r.id==="PROJECT_CLOSING_MESSAGE"?[4]:[0,1,2,3,4],reason:"Synthetic task coverage only; not a semantic quality assessment."}));}
 function audit(body,issues=[]){return {finding_checks:requirementReceipts(),article_sha256:createHash("sha256").update(body).digest("hex"),segments:body.split(/\n\s*\n/u).map((_,index)=>({index,kind:index===0?"HYPOTHETICAL":"ADVICE",issues:index===0?issues:[]}))};}
 function asPlan(value){return value && Array.isArray(value.editorial_paragraphs)?{...value,editorial_paragraphs:Object.fromEntries(editorialRoles.map((role,i)=>[role.key,value.editorial_paragraphs[i]]))}:value;}
 function request(extra={}){if(extra.previous)extra={...extra,previous:extra.previous.map(p=>p.stage==="writing"?{...p,value:asPlan(p.value)}:p)};return new Request("https://example.test/b/generate",{method:"POST",headers:{authorization:"Bearer fixture","content-type":"application/json"},body:JSON.stringify({prompt:"notes",writing_prompt:writingPrompt,schema,...extra})});}

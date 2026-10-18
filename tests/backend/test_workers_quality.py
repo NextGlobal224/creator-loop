@@ -1,16 +1,110 @@
 import copy
 import json
+import unicodedata
 import unittest
 from pathlib import Path
 
 from creator_loop.backend.analysis.workers_quality import (
     ARTICLE_REQUIREMENT_IDS,
+    requires_hypothetical_opening,
     validate_quality_audit,
     worker_audit_findings,
 )
 
 
 class WorkersQualityTests(unittest.TestCase):
+    def test_project_profile_is_exact_and_normalized_not_a_keyword_guess(self):
+        legacy = "Giúp người đọc nhận thức đúng về sự thật trước khi chia sẻ ảnh chụp màn hình"
+        self.assertTrue(
+            requires_hypothetical_opening(unicodedata.normalize("NFD", legacy))
+        )
+        self.assertFalse(requires_hypothetical_opening(legacy, "Kết bằng bản tóm tắt"))
+        self.assertFalse(
+            requires_hypothetical_opening(
+                "Hướng dẫn chia sẻ ảnh chụp màn hình trên điện thoại"
+            )
+        )
+
+    def test_optional_fiction_still_needs_its_label(self):
+        body = "Bạn bước vào một bảo tàng tưởng tượng."
+        audit = {
+            "draft_body": body,
+            "issues": [],
+            "finding_checks": [],
+            "paragraphs": [
+                {"text": body, "kind": "HYPOTHETICAL", "factual_passages": []}
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "hypothetical passage"):
+            validate_quality_audit(
+                {"draft_body": body, "factual_claims": []},
+                audit,
+                require_hypothetical=False,
+            )
+
+    def test_generic_project_accepts_a_cited_factual_opening(self):
+        fact = "Bảo tàng mở cửa từ thứ ba đến chủ nhật."
+        content = {"draft_body": fact, "factual_claims": [{"text": fact}]}
+        audit = {
+            "draft_body": fact,
+            "issues": [],
+            "finding_checks": [],
+            "paragraphs": [
+                {"text": fact, "kind": "SOURCE_FACT", "factual_passages": [fact]}
+            ],
+        }
+        validate_quality_audit(content, audit, require_hypothetical=False)
+        with self.assertRaisesRegex(ValueError, "explicit label"):
+            validate_quality_audit(content, audit)
+        with self.assertRaisesRegex(ValueError, "Claim annotation"):
+            validate_quality_audit(
+                {**content, "factual_claims": []}, audit, require_hypothetical=False
+            )
+
+    def test_global_checks_cover_opening_and_every_segment_within_paragraph(self):
+        pieces = [
+            self.paragraphs[0],
+            self.paragraphs[1],
+            "Bạn có thể ghi lại điều còn chưa rõ.",
+            self.paragraphs[2],
+        ]
+        body = "\n\n".join([pieces[0], " ".join(pieces[1:3]), pieces[3]])
+        audit = copy.deepcopy(self.audit)
+        audit["draft_body"] = body
+        audit["paragraphs"][1]["text"] = " ".join(pieces[1:3])
+        findings = ["PROJECT_NO_UNSOURCED_RULE", "PROJECT_NONREPETITIVE_DEVELOPMENT"]
+        audit["finding_checks"] = [
+            {
+                "finding": finding,
+                "verdict": "ADDRESSED",
+                "reason": "Synthetic exact-coverage fixture",
+                "segments": [
+                    {"index": i, "text": text} for i, text in enumerate(pieces)
+                ],
+            }
+            for finding in findings
+        ]
+        content = {**self.content, "draft_body": body}
+        validate_quality_audit(content, audit, findings)
+        for finding in findings:
+            invalid = copy.deepcopy(audit)
+            next(c for c in invalid["finding_checks"] if c["finding"] == finding)[
+                "verdict"
+            ] = "NOT_APPLICABLE"
+            with (
+                self.subTest(finding=finding),
+                self.assertRaisesRegex(ValueError, "Project requirement"),
+            ):
+                validate_quality_audit(content, invalid, findings)
+        for omitted in (0, 2):
+            invalid = copy.deepcopy(audit)
+            invalid["finding_checks"][0]["segments"].pop(omitted)
+            with (
+                self.subTest(omitted=omitted),
+                self.assertRaisesRegex(ValueError, "global audit omitted"),
+            ):
+                validate_quality_audit(content, invalid, findings)
+
     def test_actual_f103545_audit_needs_every_editorial_paragraph(self):
         path = Path(__file__).parents[1] / "fixtures/workers_b_f103545_repetition.json"
         actual = json.loads(path.read_text(encoding="utf-8"))
@@ -30,14 +124,22 @@ class WorkersQualityTests(unittest.TestCase):
             "segments": [{"index": 3, "text": paragraphs[3]}],
         }
         audit["finding_checks"].append(check)
-        with self.assertRaisesRegex(ValueError, "development check"):
+        with self.assertRaisesRegex(
+            ValueError, "development check|global audit omitted|Project requirement"
+        ):
             validate_quality_audit(actual["content"], audit, findings)
         check["segments"] = [
             {"index": i, "text": text} for i, text in enumerate(paragraphs) if i
         ]
         check["verdict"] = "NOT_APPLICABLE"
-        with self.assertRaisesRegex(ValueError, "development check"):
+        with self.assertRaisesRegex(
+            ValueError, "development check|global audit omitted|Project requirement"
+        ):
             validate_quality_audit(actual["content"], audit, findings)
+        for receipt in audit["finding_checks"]:
+            receipt["segments"] = [
+                {"index": i, "text": text} for i, text in enumerate(paragraphs)
+            ]
         check["verdict"] = "UNRESOLVED"
         with self.assertRaisesRegex(ValueError, "unresolved"):
             validate_quality_audit(actual["content"], audit, findings)

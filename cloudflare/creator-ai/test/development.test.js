@@ -22,8 +22,8 @@ test('actual f103545 empty audit cannot substitute for all-paragraph development
   assert.equal(bindAudit(composed.body,hash,raw,composed.segments,findings),null,'Old real audit lacks the new mandatory check');
   // Isolate development coverage with synthetic valid dispositions for the
   // other mandatory Project checks; original failed audit remains unchanged.
-  raw.finding_checks.forEach((check,i)=>{check.verdict='ADDRESSED';check.segment_indexes=findings[i]==='PROJECT_CLOSING_MESSAGE'?[4]:[1,2,3,4];});
-  const all=[1,2,3,4];
+  raw.finding_checks.forEach((check,i)=>{check.verdict='ADDRESSED';check.segment_indexes=findings[i]==='PROJECT_CLOSING_MESSAGE'?[4]:[0,1,2,3,4];});
+  const all=[0,1,2,3,4];
   const check={index:2,verdict:'NOT_APPLICABLE',reason:'Synthetic protocol disposition, not semantic QA',segment_indexes:all};
   raw.finding_checks.push(check);
   assert.equal(bindAudit(composed.body,hash,raw,composed.segments,findings),null,'Editorial development cannot be waived');

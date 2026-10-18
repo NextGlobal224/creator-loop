@@ -54,6 +54,9 @@ export function bindAudit(body,articleHash,audit,segments,editorFindings=[]) {
      !Array.isArray(segments) || !Array.isArray(audit.segments) || audit.segments.length!==segments.length ||
      audit.segments.some((item,i)=>!item || Object.keys(item).sort().join(",")!=="index,issues,kind" || item.index!==i ||
        !["HYPOTHETICAL","ADVICE","SOURCE_FACT"].includes(item.kind) || !Array.isArray(item.issues) || item.issues.some(issue=>typeof issue!=="string" || !issue.trim()))) return null;
+  // Fiction is optional for a general Project, but never unlabelled or mixed
+  // into a source-fact opening under a paragraph-level exemption.
+  if(audit.segments.some((item,i)=>item.kind==="HYPOTHETICAL" && (segments[i].paragraph_index!==0 || segments.filter(s=>s.paragraph_index===0).length!==1 || !hasHypotheticalOpening(segments[i].text))))return null;
   // Every composed segment is audited once. Reattach its exact original text;
   // the model classifies IDs, never copies source sentences or paragraph prose.
   if(segments.some((segment,i)=>segment.index!==i || !paragraphs[segment.paragraph_index]?.includes(segment.text) || (segment.citation && audit.segments[i].kind!=="SOURCE_FACT")) ||
@@ -75,6 +78,7 @@ export function bindAudit(body,articleHash,audit,segments,editorFindings=[]) {
     if(check.verdict==="NOT_APPLICABLE" || paragraphs.slice(1).some((_,i)=>!check.segment_indexes.some(j=>segments[j].paragraph_index===i+1)))return null;
   }
   for(const [i,finding] of editorFindings.entries()){
+    if(["PROJECT_NO_UNSOURCED_RULE","PROJECT_NONREPETITIVE_DEVELOPMENT"].includes(finding) && (audit.finding_checks[i].segment_indexes.length!==segments.length || segments.some(s=>!audit.finding_checks[i].segment_indexes.includes(s.index))))return null;
     if(finding.startsWith("PROJECT_") && audit.finding_checks[i].verdict==="NOT_APPLICABLE")return null;
     if(finding==="PROJECT_NO_UNSOURCED_RULE" && paragraphs.slice(1).some((_,p)=>!audit.finding_checks[i].segment_indexes.some(j=>segments[j].paragraph_index===p+1)))return null;
     if(finding==="PROJECT_CLOSING_MESSAGE" && !audit.finding_checks[i].segment_indexes.some(j=>segments[j].paragraph_index===paragraphs.length-1))return null;
@@ -85,7 +89,7 @@ export function bindAudit(body,articleHash,audit,segments,editorFindings=[]) {
     ...finding_checks.filter(c=>c.verdict==="UNRESOLVED").map(c=>c.finding),
     ...uncitedAssertionIssues(body,segments.flatMap(s=>s.citation?[s.citation]:[]))],paragraphs:paragraphs.map((text,i)=>{
     const items=audit.segments.filter((_,j)=>segments[j].paragraph_index===i);
-    return {text,kind:i===0?items[0]?.kind:items.some(item=>item.kind==="SOURCE_FACT")?"SOURCE_FACT":"ADVICE",
+    return {text,kind:items.some(item=>item.kind==="SOURCE_FACT")?"SOURCE_FACT":i===0 && items.every(item=>item.kind==="HYPOTHETICAL")?"HYPOTHETICAL":"ADVICE",
       factual_passages:audit.segments.flatMap((item,j)=>segments[j].paragraph_index===i && item.kind==="SOURCE_FACT"?[segments[j].text]:[])};
   })};
 }
@@ -156,10 +160,11 @@ export function quoteCatalog(materials) {
 }
 
 export function compileSourcedArticle(value, catalog) {
-  if (!value || Object.keys(value).sort().join(",")!=="editorial_paragraphs,hypothetical_opening" ||
-      !Array.isArray(value.editorial_paragraphs) || value.editorial_paragraphs.length!==4) throw new Error("Invalid sourced article");
+  const generic=value && Object.hasOwn(value,"opening");
+  if (!value || Object.keys(value).sort().join(",")!==(generic?"editorial_paragraphs,opening":"editorial_paragraphs,hypothetical_opening") ||
+      !Array.isArray(value.editorial_paragraphs) || value.editorial_paragraphs.length!==4 || generic && (!Array.isArray(value.opening) || !value.opening.length || value.opening.length>12)) throw new Error("Invalid sourced article");
   const claims=[],auditable=[];
-  const paragraphs=value.editorial_paragraphs.map((segments,paragraphIndex)=>{
+  const paragraphs=(generic?[value.opening,...value.editorial_paragraphs]:value.editorial_paragraphs).map((segments,paragraphIndex)=>{
     if (!Array.isArray(segments) || !segments.length || segments.length>12) throw new Error("Invalid segments");
     return segments.map(segment=>{
       if (!segment || Object.keys(segment).sort().join(",")!=="source_quote_id,text" ||
@@ -168,19 +173,19 @@ export function compileSourcedArticle(value, catalog) {
           segment.source_quote_id>=catalog.length) throw new Error("Invalid source segment");
       const text=segment.text.trim();
       const citation=segment.source_quote_id>=0?{text,material_ids:[catalog[segment.source_quote_id].material_id],source_quote:catalog[segment.source_quote_id].source_quote}:null;
-      auditable.push({paragraph_index:paragraphIndex+1,text,citation});
+      auditable.push({paragraph_index:paragraphIndex+(generic?0:1),text,citation});
       if (segment.source_quote_id>=0) {
         claims.push(citation);
       }
       return text;
     }).join(" ");
   });
-  const body=compileEditedArticle({hypothetical_opening:value.hypothetical_opening,editorial_paragraphs:paragraphs});
+  const body=generic?paragraphs.join("\n\n"):compileEditedArticle({hypothetical_opening:value.hypothetical_opening,editorial_paragraphs:paragraphs});
   if (claims.length>30 || claims.some(c=>body.split(c.text).length!==2)) throw new Error("Ambiguous cited passage");
-  return {body,claims,segments:[{paragraph_index:0,text:body.split("\n\n")[0]},...auditable].map((segment,index)=>({index,...segment}))};
+  return {body,claims,segments:(generic?auditable:[{paragraph_index:0,text:body.split("\n\n")[0]},...auditable]).map((segment,index)=>({index,...segment})),...(generic?{fictional_opening:false}:{})};
 }
 
-export function validAudit(annotation, audit) {
+export function validAudit(annotation, audit, requireHypothetical=true) {
   const body = annotation.draft_body;
   const paragraphs = body.split(/\n\s*\n/u).map(p=>p.trim()).filter(Boolean);
   if (!audit || Object.keys(audit).sort().join(",")!=="draft_body,finding_checks,issues,paragraphs" ||
@@ -191,7 +196,7 @@ export function validAudit(annotation, audit) {
   return audit.paragraphs.every((item,i)=>{
     if (!item || Object.keys(item).sort().join(",")!=="factual_passages,kind,text" ||
         item.text!==paragraphs[i] || !["HYPOTHETICAL","ADVICE","SOURCE_FACT"].includes(item.kind) ||
-        (i===0 && item.kind!=="HYPOTHETICAL") || !Array.isArray(item.factual_passages) ||
+        (i===0 && requireHypothetical && item.kind!=="HYPOTHETICAL") || (item.kind==="HYPOTHETICAL" && (i!==0 || !hasHypotheticalOpening(item.text))) || (hasHypotheticalOpening(item.text) && item.kind!=="HYPOTHETICAL") || !Array.isArray(item.factual_passages) ||
         (item.kind==="SOURCE_FACT" && !item.factual_passages.length)) return false;
     return item.factual_passages.every(fact=>typeof fact==="string" && fact.trim() &&
       item.text.split(fact).length===2 && annotation.factual_claims.some(claim=>typeof claim.text==="string" && claim.text.includes(fact)));

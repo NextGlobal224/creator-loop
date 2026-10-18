@@ -99,16 +99,11 @@ class ProviderConfigurationTests(unittest.TestCase):
                     "finding_checks": [
                         {
                             "finding": requirement,
-                            "verdict": (
-                                "ADDRESSED"
-                                if requirement == "PROJECT_NONREPETITIVE_DEVELOPMENT"
-                                else "NOT_APPLICABLE"
-                            ),
+                            "verdict": "ADDRESSED",
                             "reason": "Synthetic protocol coverage, not a quality verdict.",
                             "segments": [
                                 {"index": i, "text": text}
                                 for i, text in enumerate(paragraphs)
-                                if i
                             ],
                         }
                         for requirement in ARTICLE_REQUIREMENT_IDS
@@ -265,7 +260,7 @@ class ProviderConfigurationTests(unittest.TestCase):
                 "creator_loop.backend.analysis.workers_creator.post_owned",
                 side_effect=replies(waived),
             ) as transport:
-                with self.assertRaisesRegex(ValueError, "development check"):
+                with self.assertRaisesRegex(ValueError, "Project requirement"):
                     provider.generate(request, [material])
                 self.assertEqual(transport.call_count, 4)
             old_edit = json.loads(stale[2])

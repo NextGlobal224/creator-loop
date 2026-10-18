@@ -18,6 +18,7 @@ from creator_loop.backend.analysis.creator_llm import (
 )
 from creator_loop.backend.analysis.generation_prompt import generation_prompt
 from creator_loop.backend.analysis.workers_quality import (
+    requires_hypothetical_opening,
     validate_quality_audit,
     worker_audit_findings,
 )
@@ -329,6 +330,9 @@ class WorkersCreator:
             result,
             envelope.get("quality_audit"),
             worker_audit_findings(previous[2]),
+            require_hypothetical=requires_hypothetical_opening(
+                request.purpose, request.direction
+            ),
         )
         result["provenance"] = {
             "backend": self.name,

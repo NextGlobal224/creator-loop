@@ -5,6 +5,7 @@ Every paragraph must be classified; factual passages still need exact citations.
 """
 
 import re
+import unicodedata
 from typing import Any
 
 ARTICLE_REQUIREMENT_IDS = [
@@ -12,6 +13,15 @@ ARTICLE_REQUIREMENT_IDS = [
     "PROJECT_CLOSING_MESSAGE",
     "PROJECT_NONREPETITIVE_DEVELOPMENT",
 ]
+
+
+def requires_hypothetical_opening(purpose: str, direction: str = "") -> bool:
+    """Compatibility profile for the exact historical brief, not a topic guess."""
+    return not direction.strip() and unicodedata.normalize(
+        "NFC", purpose
+    ).strip().lower() == (
+        "giúp người đọc nhận thức đúng về sự thật trước khi chia sẻ ảnh chụp màn hình"
+    )
 
 
 def worker_audit_findings(edit_stage: Any) -> list[str]:
@@ -43,12 +53,18 @@ def worker_audit_findings(edit_stage: Any) -> list[str]:
 
 
 def validate_quality_audit(
-    content: dict[str, Any], audit: Any, editor_findings: Any = ()
+    content: dict[str, Any],
+    audit: Any,
+    editor_findings: Any = (),
+    *,
+    require_hypothetical: bool = True,
 ) -> None:
     body = content["draft_body"]
     # This provider explicitly commissions an invented opening, not a news report.
     # Reject a lost label; never add one after generation to disguise a real claim.
-    if not re.match(r"^(Giả sử\b|Tình huống giả định:)", body.strip(), re.IGNORECASE):
+    if require_hypothetical and not re.match(
+        r"^(Giả sử\b|Tình huống giả định:)", body.strip(), re.IGNORECASE
+    ):
         raise ValueError("Worker hypothetical opening lost its explicit label")
     if (
         not isinstance(audit, dict)
@@ -82,6 +98,8 @@ def validate_quality_audit(
         ):
             raise ValueError("Worker editorial finding unresolved or changed")
         seen: set[int] = set()
+        if finding.startswith("PROJECT_") and check["verdict"] != "ADDRESSED":
+            raise ValueError("Worker Project requirement unresolved or waived")
         for segment in check["segments"]:
             if (
                 not isinstance(segment, dict)
@@ -95,6 +113,17 @@ def validate_quality_audit(
             ):
                 raise ValueError("Worker editorial finding lost exact passage")
             seen.add(segment["index"])
+        if finding in {
+            "PROJECT_NO_UNSOURCED_RULE",
+            "PROJECT_NONREPETITIVE_DEVELOPMENT",
+        }:
+            ordered = sorted(check["segments"], key=lambda segment: segment["index"])
+            if [segment["index"] for segment in ordered] != list(
+                range(len(ordered))
+            ) or re.sub(
+                r"\s+", " ", " ".join(segment["text"] for segment in ordered)
+            ).strip() != re.sub(r"\s+", " ", body).strip():
+                raise ValueError("Worker global audit omitted immutable segments")
         if finding == "PROJECT_NONREPETITIVE_DEVELOPMENT" and (
             check["verdict"] != "ADDRESSED"
             or any(
@@ -128,7 +157,14 @@ def validate_quality_audit(
             or not isinstance(item["factual_passages"], list)
         ):
             raise ValueError("Worker source audit coverage/classification invalid")
-        if position == 0 and item["kind"] != "HYPOTHETICAL":
+        labelled = bool(
+            re.match(r"^(Giả sử\b|Tình huống giả định:)", text, re.IGNORECASE)
+        )
+        if (item["kind"] == "HYPOTHETICAL" and (position != 0 or not labelled)) or (
+            labelled and item["kind"] != "HYPOTHETICAL"
+        ):
+            raise ValueError("Worker hypothetical passage lost label or classification")
+        if position == 0 and require_hypothetical and item["kind"] != "HYPOTHETICAL":
             raise ValueError("Worker opening was not audited as hypothetical")
         facts = item["factual_passages"]
         if item["kind"] == "SOURCE_FACT" and not facts:

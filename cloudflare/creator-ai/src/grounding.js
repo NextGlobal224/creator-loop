@@ -1,6 +1,7 @@
 // Source-first generation inputs and explicit edit decisions. These constraints
 // do not implement semantic entailment; that still needs real output/source QA.
 import {publicCopyRevisions} from './quality.js';
+import {projectPolicy,generalEditorialRoles,generalArticleRequirements} from './project-policy.js';
 
 // Keep original catalog indexes stable. Explicit note metadata/editorial
 // proposals remain visible as context, but cannot supply a public factual cite.
@@ -22,11 +23,16 @@ export const editorialRoles=[
   {key:"supported_perspective",purpose:"Explain one source-grounded consideration in natural Vietnamese. If the source introduces questions, explain them once; do not promote introduction into recommendation or add instructions inside the same cited assertion."},
   {key:"closing_message",purpose:"Give the actual short sendable message requesting missing original information or context, matching the selected Project; no subsequent generic advice."},
 ];
-export function plannedWritingSchema(catalog){
+export function plannedWritingSchema(catalog,policy={fictionalOpening:true}){
   const segment=sourcedSegmentSchema(catalog);
+  if(!policy.fictionalOpening)return {type:'object',properties:{opening:{type:'array',minItems:1,maxItems:12,items:segment},editorial_paragraphs:{type:'object',properties:Object.fromEntries(generalEditorialRoles.map(role=>[role.key,{type:'array',minItems:1,maxItems:12,items:segment,description:role.purpose}])),required:generalEditorialRoles.map(r=>r.key),additionalProperties:false}},required:['opening','editorial_paragraphs'],additionalProperties:false};
   return {type:"object",properties:{hypothetical_opening:{type:"string",minLength:1,description:"One explicitly fictional scene beginning Tình huống giả định:."},editorial_paragraphs:{type:"object",properties:Object.fromEntries(editorialRoles.map(role=>[role.key,{type:"array",minItems:1,maxItems:12,items:segment,description:role.purpose}])),required:editorialRoles.map(r=>r.key),additionalProperties:false}},required:["hypothetical_opening","editorial_paragraphs"],additionalProperties:false};
 }
-export function plannedWriting(value){
+export function plannedWriting(value,policy={fictionalOpening:true}){
+  if(!policy.fictionalOpening){
+    if(!value || Object.keys(value).sort().join(',')!=='editorial_paragraphs,opening' || !Array.isArray(value.opening) || !value.opening.length || value.opening.length>12 || !value.editorial_paragraphs || Array.isArray(value.editorial_paragraphs) || Object.keys(value.editorial_paragraphs).sort().join(',')!==generalEditorialRoles.map(r=>r.key).sort().join(',') || generalEditorialRoles.some(r=>!Array.isArray(value.editorial_paragraphs[r.key]) || !value.editorial_paragraphs[r.key].length || value.editorial_paragraphs[r.key].length>12))throw new Error('Invalid Project editorial roles');
+    return {opening:value.opening,editorial_paragraphs:generalEditorialRoles.map(r=>value.editorial_paragraphs[r.key])};
+  }
   if(!value || Object.keys(value).sort().join(",")!=="editorial_paragraphs,hypothetical_opening" || !value.editorial_paragraphs || Array.isArray(value.editorial_paragraphs) || Object.keys(value.editorial_paragraphs).sort().join(",")!==editorialRoles.map(r=>r.key).sort().join(",") || editorialRoles.some(r=>!Array.isArray(value.editorial_paragraphs[r.key]) || !value.editorial_paragraphs[r.key].length || value.editorial_paragraphs[r.key].length>12))throw new Error("Invalid named editorial roles");
   // Order only declared model sections; never add, delete or rewrite prose.
   return {hypothetical_opening:value.hypothetical_opening,editorial_paragraphs:editorialRoles.map(r=>value.editorial_paragraphs[r.key])};
@@ -38,10 +44,11 @@ export const articleRequirements = [
 ];
 export function evidenceInput(sourceContext, catalog, analysis) {
   const data=JSON.parse(sourceContext);
+  const policy=projectPolicy(data);
   return {
     project:{purpose:data.purpose,audience:data.audience,style:data.style,direction:data.direction},
-    article_requirements:articleRequirements,
-    editorial_structure:editorialRoles,
+    article_requirements:policy.fictionalOpening?articleRequirements:generalArticleRequirements,
+    editorial_structure:policy.fictionalOpening?editorialRoles:generalEditorialRoles,
     evidence:{authority:"PROVIDED_SNAPSHOT_ONLY",linked_pages_are_not_retrieved:true,
       materials:data.materials.map(m=>({material_id:m.material_id,source_url:m.source_url,scope:m.scope,text:m.text})),
       quote_catalog:catalog.map((quote,id)=>({id,...quote,citation_role:factualQuote(quote)?"SOURCE_EXCERPT":"CONTEXT_NOT_FACTUAL_EVIDENCE"})),
@@ -75,6 +82,10 @@ export function checkedSegment(segment,catalog) {
 export const generatedPremiseInstructions=" Before wording each segment, enumerate its factual assertions AND presuppositions in premise_checks, including availability/applicability of tools and expected outcomes hidden inside advice. Exact supporting quote IDs are required for each premise. Omit a segment with any unsupported premise; do not merely label it advice. An uncited voluntary request has no factual premises and premise_checks:[]. A cited segment has at least one supported premise, each backed by its source_quote_id. ONE SEGMENT, ONE SUPPORTING EXCERPT: every premise_checks entry in that segment must include its source_quote_id in quote_ids. If two assertions need different excerpts, split them into separate segments with their own citations, or omit the unsupported assertion. Do not bundle an institutional source fact with a note author's editorial instruction under one citation. These are public evidence annotations, not private reasoning. This applies separately to every replacement: support for the original does not establish a new assertion introduced by rewriting.";
 
 export function checkedWriting(value,catalog) {
+  if(value && Object.hasOwn(value,'opening')){
+    if(Object.keys(value).sort().join(',')!=='editorial_paragraphs,opening' || !Array.isArray(value.opening) || !value.opening.length || !Array.isArray(value.editorial_paragraphs))throw new Error('Invalid Project checked writing');
+    return {opening:value.opening.map(s=>checkedSegment(s,catalog)),editorial_paragraphs:value.editorial_paragraphs.map(p=>{if(!Array.isArray(p))throw new Error('Invalid checked paragraph');return p.map(s=>checkedSegment(s,catalog));})};
+  }
   if(!value || Object.keys(value).sort().join(",")!=="editorial_paragraphs,hypothetical_opening" || !Array.isArray(value.editorial_paragraphs))throw new Error("Invalid checked writing");
   return {...value,editorial_paragraphs:value.editorial_paragraphs.map(p=>{
     if(!Array.isArray(p))throw new Error("Invalid checked paragraph");
@@ -111,7 +122,7 @@ export function revisionIssues(initial, final, checks, catalog) {
     }
     if((c.support==="SOURCE_SUPPORTED" && !c.quote_ids.length) ||
        (["SUGGESTION","HYPOTHETICAL"].includes(c.support) && c.quote_ids.length)) issues.push("Editing support classification and evidence IDs disagree");
-    if(c.support==="HYPOTHETICAL" && i!==0) issues.push("Only the opening can use the fictional-scene exemption");
+    if(c.support==="HYPOTHETICAL" && original.paragraph_index!==0) issues.push("Only the opening can use the fictional-scene exemption");
     if(c.support==="INSUFFICIENT" && c.decision==="KEEP") issues.push("Editing retained an assertion it found insufficiently supported");
     if(c.decision==="REMOVE"){
       if(c.final_segment_indexes.length || final.body.includes(original.text)) issues.push("Editing declared removal but retained original text or mapping");
@@ -144,7 +155,7 @@ export function operationSchema(count,catalog,initial=null) {
     item.oneOf=initial.segments.flatMap((segment,index)=>{
       const sole=initial.segments.filter(s=>s.paragraph_index===segment.paragraph_index).length===1;
       const decisions=[...(mandatory.has(index)?[]:["KEEP"]),"REWRITE",...(sole?[]:["REMOVE"])];
-      return decisions.map(decision=>({properties:{index:{const:index},decision:{const:decision},replacement:decision==="REWRITE"?{minItems:1,...(index===0?{maxItems:1,items:{properties:{source_quote_id:{const:-1},premise_checks:{const:[]}}}}:{})}:{maxItems:0}},required:["index","decision","replacement"]}));
+      return decisions.map(decision=>({properties:{index:{const:index},decision:{const:decision},replacement:decision==="REWRITE"?{minItems:1,...(index===0 && initial.fictional_opening!==false?{maxItems:1,items:{properties:{source_quote_id:{const:-1},premise_checks:{const:[]}}}}:{})}:{maxItems:0}},required:["index","decision","replacement"]}));
     });
   }
   return {type:"object",properties:{source_issues:{type:"array",items:{type:"string"}},edits:{type:"array",minItems:count,maxItems:count,items:item}},required:["source_issues","edits"],additionalProperties:false};
@@ -178,16 +189,16 @@ export function applyEditOperations(value,initial,catalog) {
     if(edit.decision==="REWRITE" && produced.map(s=>s.text.trim()).join(" ").normalize("NFC").replace(/\s+/gu," ")===original.text.trim().normalize("NFC").replace(/\s+/gu," "))throw new Error("REWRITE did not change the original passage");
     for(const segment of produced){
       if(!segment || Object.keys(segment).sort().join(",")!=="source_quote_id,text" || typeof segment.text!=="string" || !segment.text.trim() || segment.text.includes("\n") || !Number.isInteger(segment.source_quote_id) || segment.source_quote_id< -1 || segment.source_quote_id>=catalog.length)throw new Error("Invalid edit replacement");
-      if(i===0 && segment.source_quote_id!==-1)throw new Error("Fictional opening cannot acquire a citation");
+      if(i===0 && initial.fictional_opening!==false && segment.source_quote_id!==-1)throw new Error("Fictional opening cannot acquire a citation");
       if(segment.source_quote_id>=0 && !factualQuote(catalog[segment.source_quote_id]))throw new Error("Edited factual citation cannot use note metadata/editorial context");
       paragraphs[original.paragraph_index].push({segment,original_index:i});
     }
     pending.push(check);
   }
-  if(paragraphs[0].length!==1 || paragraphs.slice(1).some(p=>!p.length))throw new Error("Editing omitted a required paragraph");
+  if((initial.fictional_opening!==false?paragraphs[0].length!==1:!paragraphs[0].length) || paragraphs.slice(1).some(p=>!p.length))throw new Error("Editing omitted a required paragraph");
   const mapped=pending.map(check=>({...check,final_segment_indexes:[]}));
   let index=0;
   for(const paragraph of paragraphs)for(const item of paragraph)mapped[item.original_index].final_segment_indexes.push(index++);
   const sourceIssues=[...new Set([...value.source_issues,...value.edits.filter(edit=>edit.support==="INSUFFICIENT" && typeof edit.note==="string" && edit.note.trim()).map(edit=>edit.note)])];
-  return {source_issues:sourceIssues,source_checks:mapped,hypothetical_opening:paragraphs[0][0].segment.text,editorial_paragraphs:paragraphs.slice(1).map(p=>p.map(item=>item.segment))};
+  return {source_issues:sourceIssues,source_checks:mapped,...(initial.fictional_opening===false?{opening:paragraphs[0].map(item=>item.segment)}:{hypothetical_opening:paragraphs[0][0].segment.text}),editorial_paragraphs:paragraphs.slice(1).map(p=>p.map(item=>item.segment))};
 }
