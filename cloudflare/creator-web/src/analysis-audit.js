@@ -3,6 +3,18 @@ import {quoteCatalog} from '../../creator-ai/src/quality.js';
 import {checkPremises} from '../../creator-ai/src/grounding.js';
 
 const label='Giả thuyết chưa xác nhận:';
+// Match workers-ai-provider@4.0.0 processText precedence. Inspect only the
+// final JSON channel; never extract hidden reasoning, fences or partial JSON.
+function nativeJSON(result){
+ const content=result?.choices?.[0]?.message?.content;
+ if(typeof content==='string'&&content.length){
+  if(result.choices.length!==1||result.choices[0].finish_reason!=='stop'||result.choices[0].message.tool_calls?.length)throw Error('Incomplete native JSON choice');
+  return {value:JSON.parse(content),replace:value=>({...result,choices:[{...result.choices[0],message:{...result.choices[0].message,content:JSON.stringify(value)}}]})};
+ }
+ const value=typeof result?.response==='string'?JSON.parse(result.response):result?.response;
+ if(!value||typeof value!=='object'||Array.isArray(value))throw Error('Missing native JSON response');
+ return {value,replace:value=>({...result,response:typeof result.response==='string'?JSON.stringify(value):value})};
+}
 export function analysisFields(analysis){
  if(!analysis||!Array.isArray(analysis.observations)||!analysis.observations.length||!Array.isArray(analysis.inferences)||typeof analysis.direction!=='string'||!analysis.direction.trim())throw Error('Invalid immutable analysis');
  return [...analysis.observations.map((o,i)=>({field:`observations.${i}`,text:o.observation,material_id:o.material_id,quote:o.quote})),...analysis.inferences.map((text,i)=>({field:`inferences.${i}`,text})),{field:'direction',text:analysis.direction}];
@@ -37,9 +49,10 @@ export async function analysisProfile(packet){
  const analysis=packet.previous?.[0]?.value;
  const fields=packet.stage==='analysis'?null:validateAnalysis(analysis,source.materials);
  const hash=fields?await analysisHash(analysis):null;
- let receipt=null;
+ let receipt=null,diagnostic=null,rejectedJSON=null;
  return {
   async run(binding,model,input,options){
+   receipt=null;diagnostic=null;rejectedJSON=null;
    const native=structuredClone(input),schema=native.response_format?.json_schema;
    if(!schema||native.response_format.type!=='json_schema')throw Error('Expected native structured schema');
    if(packet.stage==='analysis'){
@@ -52,18 +65,27 @@ export async function analysisProfile(packet){
     native.messages.push({role:'user',content:JSON.stringify({immutable_analysis_sha256:hash,immutable_analysis_fields:fields,exact_quote_catalog:catalog})});
    }
    const result=await binding.run(model,native,options);
+   diagnostic={response_received:!!result,response_channel:typeof result?.choices?.[0]?.message?.content==='string'?'choices':Object.hasOwn(result??{},'response')?'response':'unknown',validation:'NOT_REQUIRED'};
+   try{
    if(packet.stage==='analysis'){
-    const value=typeof result.response==='string'?JSON.parse(result.response):result.response;validateAnalysis(value,source.materials);
+    const {value}=nativeJSON(result);rejectedJSON=value;validateAnalysis(value,source.materials);
    }
    if(packet.stage==='source_audit'){
-    const value=typeof result.response==='string'?JSON.parse(result.response):result.response;
+    const {value,replace}=nativeJSON(result);
+    rejectedJSON=value;
     receipt=value.analysis_audit;
     validateCoverage(receipt,hash,fields,catalog);
     const {analysis_audit,...article}=value;
-    return {...result,response:typeof result.response==='string'?JSON.stringify(article):article};
+    diagnostic.validation='PASS';rejectedJSON=null;return replace(article);
    }
+   if(packet.stage==='analysis')diagnostic.validation='PASS';
+   rejectedJSON=null;
    return result;
+   }catch(error){diagnostic.validation='REJECTED';throw error;}
   },
   receipt:()=>receipt,
+  diagnostic:()=>diagnostic,
+  // Only parsed final JSON, never reasoning/headers/provider exception text.
+  rejectedJSON:()=>rejectedJSON,
  };
 }

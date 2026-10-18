@@ -22,3 +22,27 @@ test('fourth call binds separate receipt and preserves existing article JSON',as
  const packet={stage:'source_audit',previous:[{value:analysis}],writing_prompt:'fixture\n'+JSON.stringify({materials})};const profile=await analysisProfile(packet);const fields=analysisFields(analysis),hash=await analysisHash(analysis),article={article_sha256:'fixture',segments:[]};let input;
  const result=await profile.run({run:async(_,value)=>{input=value;return {response:{...article,analysis_audit:receipt(hash,fields)},usage:{neurons:1}};}},'model',{messages:[{role:'system',content:'Original article audit'}],response_format:{type:'json_schema',json_schema:{type:'object',properties:{},required:[]}}});assert.deepEqual(result.response,article);assert.equal(profile.receipt().analysis_sha256,hash);assert.equal(input.response_format.json_schema.properties.analysis_audit.properties.checks.minItems,3);
 });
+test('native choices channel audit preserves metadata and strips only the explicit receipt',async()=>{
+ const packet={stage:'source_audit',previous:[{value:analysis}],writing_prompt:'fixture\n'+JSON.stringify({materials})};
+ const fields=analysisFields(analysis),hash=await analysisHash(analysis),article={article_sha256:'fixture',segments:[]};
+ const profile=await analysisProfile(packet);
+ const original={id:'native-fixture',usage:{neurons:1},choices:[{index:0,finish_reason:'stop',message:{role:'assistant',reasoning_content:'PRIVATE REASONING FIXTURE',content:JSON.stringify({...article,analysis_audit:receipt(hash,fields)})}}]};
+ const result=await profile.run({run:async()=>original},'model',{messages:[{role:'system',content:'Audit'}],response_format:{type:'json_schema',json_schema:{type:'object',properties:{},required:[]}}});
+ assert.deepEqual(JSON.parse(result.choices[0].message.content),article);assert.equal(result.choices[0].message.reasoning_content,original.choices[0].message.reasoning_content);assert.deepEqual(result.usage,original.usage);assert.equal(result.response,undefined);assert.ok(JSON.parse(original.choices[0].message.content).analysis_audit);assert.equal(profile.receipt().analysis_sha256,hash);
+});
+test('native analysis choices never salvage malformed or incomplete output or weaken grounding',async()=>{
+ const packet={stage:'analysis',previous:[],writing_prompt:'fixture\n'+JSON.stringify({materials})};
+ const input={messages:[{role:'system',content:'Analysis'}],response_format:{type:'json_schema',json_schema:{type:'object',properties:{inferences:{}},required:[]}}};
+ const native=(value,finish_reason='stop')=>({choices:[{finish_reason,message:{content:value}}]});
+ const valid=native(JSON.stringify(analysis)),profile=await analysisProfile(packet);
+ assert.equal(await profile.run({run:async()=>valid},'model',input),valid);
+ assert.deepEqual(profile.diagnostic(),{response_received:true,response_channel:'choices',validation:'PASS'});assert.equal(profile.rejectedJSON(),null);
+ for(const result of [native('```json\n'+JSON.stringify(analysis)+'\n```'),native(JSON.stringify(analysis),'length'),native(JSON.stringify({...analysis,inferences:['Giả thuyết: chưa đủ nhãn']})),native(JSON.stringify({...analysis,observations:[{...analysis.observations[0],quote:'invented'}]})),{...valid,choices:[...valid.choices,...valid.choices]}])await assert.rejects(()=>profile.run({run:async()=>result},'model',input));
+});
+test('rejected profile retains only parsed final JSON, never native reasoning or headers',async()=>{
+ const packet={stage:'analysis',previous:[],writing_prompt:'fixture\n'+JSON.stringify({materials})},profile=await analysisProfile(packet);
+ const invalid={...analysis,inferences:['Giả thuyết: missing explicit label']};
+ const result={headers:{authorization:'PRIVATE_HEADER_FIXTURE'},choices:[{finish_reason:'stop',message:{reasoning_content:'PRIVATE_REASONING_FIXTURE',content:JSON.stringify(invalid)}}]};
+ await assert.rejects(()=>profile.run({run:async()=>result},'model',{messages:[{role:'system',content:'Analysis'}],response_format:{type:'json_schema',json_schema:{properties:{inferences:{}}}}}));
+ assert.deepEqual(profile.rejectedJSON(),invalid);assert.deepEqual(profile.diagnostic(),{response_received:true,response_channel:'choices',validation:'REJECTED'});assert.doesNotMatch(JSON.stringify([profile.diagnostic(),profile.rejectedJSON()]),/PRIVATE_/);
+});

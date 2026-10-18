@@ -50,6 +50,14 @@ origin/CSRF checks and secure expiring sessions. Free limits fail closed; no pai
 fallback. New deployment/quality/review/required CI/release evidence is required;
 this architecture note is not product acceptance.
 
+The Web analysis profile reads the pinned provider's final JSON channels
+(`choices[0].message.content` before `response`), with complete single-choice
+checks. It validates the immutable analysis and separates only the explicit
+analysis audit receipt from the fourth response. Hidden reasoning is never
+exported. A rejected parsed JSON response and fixed diagnostic fields remain
+in the authenticated job for diagnosis; they do not authorize a retry or a
+Draft commit. Fixture channel coverage does not prove live output quality.
+
 Sources checked 18 October 2026:
 [Python packages](https://developers.cloudflare.com/workers/languages/python/packages/),
 [Python FFI](https://developers.cloudflare.com/workers/languages/python/ffi/),
