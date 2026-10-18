@@ -1,0 +1,15 @@
+{
+  "name": "creator-loop-b-web",
+  "main": "src/entry.py",
+  "compatibility_date": "2026-10-13",
+  "compatibility_flags": ["python_workers"],
+  "rules": [{"type":"ESModule","globs":["**/*.mjs"]}],
+  "workers_dev": true,
+  "observability": {"enabled": false},
+  "durable_objects": {"bindings": [{"name": "DATABASE", "class_name": "Database"}]},
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["Database"]}],
+  "assets": {"directory": "public", "binding": "ASSETS", "run_worker_first": true},
+  "ai": {"binding": "AI"},
+  "version_metadata": {"binding": "CREATOR_VERSION"},
+  "vars": {"CREATOR_MODEL": "@cf/openai/gpt-oss-120b"}
+}

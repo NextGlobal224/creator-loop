@@ -1,5 +1,11 @@
 # Creator Loop — Data Architecture V1.1 (baseline triển khai)
 
+**Additive B Web scope (18 October 2026):** [B Web deployment baseline](B_WEB_ARCHITECTURE.md)
+defines the explicitly authorized cloud runtime. It preserves this domain schema,
+exact versions/seals/reviews and SQLite as the sole canonical domain database;
+media objects remain outside that database. Windows roots are not migrated or
+remapped implicitly. This extension does not change A/C or stable acceptance.
+
 **Cập nhật:** 29/09/2026  
 **Mục tiêu:** quản lý chắc chuỗi **tư liệu → bằng chứng → nhận định → sáng tạo → duyệt → xuất bản → đo lường** trên một máy; giữ đường mở rộng cho phân tích xu hướng về sau.  
 **Trạng thái:** đặc tả logic và Schema Dictionary trước khi viết migration SQLite. Tài liệu này thay thế các bản phác thảo trước trong cuộc trao đổi.
