@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {composeFormat,editFormat} from '../src/format-stages.js';
 import {stage} from '../src/ai-bridge.js';
 import worker from '../../creator-ai/src/index.js';
-import {preparePending,reconcilePending} from '../public/pending.mjs';
+import {preparePending,reconcilePending,savedSelection,changedDraftText} from '../public/pending.mjs';
 
 const catalog=[{material_id:'m',source_quote:'Bảo tàng mở cửa từ thứ Ba đến Chủ nhật.'}];
 const fact={text:catalog[0].source_quote,source_quote_id:0,premise_checks:[{assertion:catalog[0].source_quote,quote_ids:[0],supported:true}]};
@@ -18,6 +18,15 @@ test('lost ACK keeps payload/identity and is reconciled only by job lookup',()=>
  assert.deepEqual(reconcilePending(404,{}),{clear:false,absent:true});
  assert.throws(()=>reconcilePending(503,{}));
  const fresh=preparePending({purpose:'After explicit discard'},null,()=> 'new-id');assert.equal(fresh.key,'new-id');
+});
+test('reload opens latest manual exact version, preserves old selection and no-op does not restore AI proposal',()=>{
+ const old={draft_version_id:'v1',version_no:1,body_text:'Old AI proposal',direction:'old',image_file_id:'old-image'};
+ const edited={draft_version_id:'v2',version_no:2,body_text:'Actual manual edit',direction:'chosen',image_file_id:'new-image',image_provenance:'source',image_usage_note:'rights'};
+ const workflow={versions:[old,edited],llm_proposal:{draft_body:old.body_text},direction_text:'old',output_format:'IMAGE_CAPTION'};
+ assert.deepEqual(savedSelection(workflow),edited);assert.deepEqual(savedSelection(workflow,'v1'),old);assert.equal(savedSelection(workflow,'proposal'),null);
+ assert.equal(changedDraftText(workflow,edited,{...edited}),false);
+ assert.equal(changedDraftText(workflow,edited,{...edited,body_text:old.body_text}),true);
+ assert.equal(changedDraftText(workflow,edited,{...edited,image_file_id:'different'}),true);
 });
 test('non-article format preserves exact cited bytes and immutable segment identities',()=>{
  const before=initial(),after=editFormat(operations(),before,catalog);
