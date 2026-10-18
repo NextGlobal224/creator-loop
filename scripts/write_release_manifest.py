@@ -11,8 +11,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 from creator_loop import __version__
-from creator_loop.database import MIGRATIONS, SCHEMA_VERSION, _migration_sql
-from creator_loop.installation_stage import load_release_manifest
+from creator_loop.backend.runtime.database import (
+    MIGRATIONS,
+    SCHEMA_VERSION,
+    _migration_sql,
+)
+from creator_loop.backend.runtime.installation_stage import load_release_manifest
 
 
 def write_manifest(

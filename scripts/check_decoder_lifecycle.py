@@ -9,8 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from creator_loop.owned_process import OwnedWindowsProcess
-from creator_loop.windows_owned_file import OwnedWindowsFile
+from creator_loop.backend.runtime.owned_process import OwnedWindowsProcess
+from creator_loop.backend.runtime.windows_owned_file import OwnedWindowsFile
 from PySide6.QtGui import QImage
 
 

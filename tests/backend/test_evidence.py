@@ -1,0 +1,604 @@
+import json
+import sqlite3
+import tempfile
+import unittest
+from dataclasses import replace
+from pathlib import Path
+
+from creator_loop.backend.knowledge.evidence import (
+    Evidence,
+    EvidenceRepository,
+    EvidenceVersion,
+)
+from creator_loop.backend.runtime.database import initialize
+
+
+class EvidenceRepositoryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+
+        self.db_path = Path(self.temp.name) / "evidence.sqlite3"
+        initialize(self.db_path)
+
+        self.db = sqlite3.connect(self.db_path)
+        self.db.execute("PRAGMA foreign_keys=ON")
+        self.addCleanup(self.db.close)
+
+        self.db.execute(
+            """
+            INSERT INTO assets (
+                asset_id, media_type, display_name, created_at, deleted_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "asset-1",
+                "VIDEO",
+                "Synthetic video",
+                "2026-09-30T00:00:00Z",
+                None,
+            ),
+        )
+
+        self.db.execute(
+            """
+            INSERT INTO asset_files (
+                file_id, asset_id, role, storage_key, sha256,
+                byte_size, mime_type, parent_file_id,
+                processing_run_id, created_at,
+                width_px, height_px, duration_ms
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "file-1",
+                "asset-1",
+                "ORIGINAL",
+                "originals/synthetic.mp4",
+                "sha256:test",
+                100,
+                "video/mp4",
+                None,
+                None,
+                "2026-09-30T00:00:00Z",
+                1920,
+                1080,
+                60000,
+            ),
+        )
+
+        self.repo = EvidenceRepository(self.db)
+
+    def test_repository_owns_only_its_transaction_scope(self) -> None:
+        # Persist the fixture, then create caller work that the repository must
+        # neither commit on success nor roll back on validation/SQL failures.
+        self.db.commit()
+        self.db.execute(
+            "INSERT INTO projects(project_id,title,status,created_at) VALUES(?,?,?,?)",
+            ("caller-project", "Caller work", "ACTIVE", "2026-10-02T00:00:00Z"),
+        )
+        first = replace(self._prepare_append(), version_no=1)
+        other = sqlite3.connect(self.db_path)
+        self.addCleanup(other.close)
+        self.assertTrue(self.db.in_transaction)
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM evidences").fetchone()[0], 0
+        )
+        before = self._version_rows()
+        with self.assertRaisesRegex(ValueError, "next version"):
+            self.repo.append_version(first)
+        self.db.execute(
+            """CREATE TEMP TRIGGER reject_version BEFORE INSERT ON evidence_versions
+               BEGIN SELECT RAISE(ABORT,'version blocked'); END"""
+        )
+        second = replace(first, version_no=2)
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "version blocked"):
+            self.repo.append_version(second)
+        failed_evidence = Evidence(
+            "failed-evidence", "asset-1", "SPEECH", first.created_at, None
+        )
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "version blocked"):
+            self.repo.create_with_version(
+                failed_evidence,
+                replace(
+                    first,
+                    evidence_id=failed_evidence.evidence_id,
+                    evidence_version_id="failed-version",
+                ),
+            )
+        self.assertTrue(self.db.in_transaction)
+        self.assertEqual(self._version_rows(), before)
+        self.assertEqual(
+            self.db.execute("SELECT count(*) FROM evidences").fetchone()[0], 1
+        )
+        self.assertEqual(
+            self.db.execute("SELECT count(*) FROM projects").fetchone()[0], 1
+        )
+        self.db.execute("DROP TRIGGER reject_version")
+        self.repo.append_version(second)
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM evidence_versions").fetchone()[0], 0
+        )
+        self.db.commit()
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM evidence_versions").fetchone()[0], 2
+        )
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM projects").fetchone()[0], 1
+        )
+
+    def test_repository_commits_its_own_transaction_and_rolls_back_failed_create(
+        self,
+    ) -> None:
+        self.db.commit()
+        second = self._prepare_append()
+        self.assertFalse(self.db.in_transaction)
+        self.repo.append_version(second)
+        other = sqlite3.connect(self.db_path)
+        self.addCleanup(other.close)
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM evidence_versions").fetchone()[0], 2
+        )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.repo.create_with_version(
+                Evidence(
+                    "failed-evidence", "asset-1", "SPEECH", second.created_at, None
+                ),
+                replace(second, evidence_id="failed-evidence", version_no=1),
+            )
+        self.assertFalse(self.db.in_transaction)
+        self.assertEqual(
+            other.execute("SELECT count(*) FROM evidences").fetchone()[0], 1
+        )
+
+    def test_create_evidence_with_first_version_and_provenance(self) -> None:
+        evidence = Evidence(
+            evidence_id="evidence-1",
+            asset_id="asset-1",
+            evidence_type="SPEECH",
+            created_at="2026-09-30T00:00:00Z",
+            deleted_at=None,
+        )
+
+        version = EvidenceVersion(
+            evidence_version_id="evidence-version-1",
+            evidence_id="evidence-1",
+            asset_id="asset-1",
+            version_no=1,
+            anchor_file_id="file-1",
+            content="Synthetic spoken evidence",
+            locator_type="TIME_RANGE",
+            locator_data=json.dumps(
+                {
+                    "start_ms": 1000,
+                    "end_ms": 3000,
+                    "track": "audio",
+                }
+            ),
+            producer_type="HUMAN",
+            processing_run_id=None,
+            created_by="creator",
+            created_at="2026-09-30T00:00:00Z",
+        )
+
+        self.repo.create_with_version(evidence, version)
+
+        row = self.db.execute(
+            """
+            SELECT
+                e.evidence_id,
+                e.asset_id,
+                v.version_no,
+                v.anchor_file_id,
+                v.locator_type,
+                v.producer_type,
+                v.created_by
+            FROM evidences e
+            JOIN evidence_versions v
+              ON v.evidence_id = e.evidence_id
+            WHERE e.evidence_id = ?
+            """,
+            ("evidence-1",),
+        ).fetchone()
+
+        self.assertEqual(
+            row,
+            (
+                "evidence-1",
+                "asset-1",
+                1,
+                "file-1",
+                "TIME_RANGE",
+                "HUMAN",
+                "creator",
+            ),
+        )
+
+    def test_invalid_locator_is_rejected_before_write(self) -> None:
+        evidence = Evidence(
+            evidence_id="evidence-bad",
+            asset_id="asset-1",
+            evidence_type="SPEECH",
+            created_at="2026-09-30T00:00:00Z",
+            deleted_at=None,
+        )
+
+        version = EvidenceVersion(
+            evidence_version_id="evidence-version-bad",
+            evidence_id="evidence-bad",
+            asset_id="asset-1",
+            version_no=1,
+            anchor_file_id="file-1",
+            content="Bad locator",
+            locator_type="TIME_RANGE",
+            locator_data=json.dumps(
+                {
+                    "start_ms": 50000,
+                    "end_ms": 70000,
+                    "track": "audio",
+                }
+            ),
+            producer_type="MODEL",
+            processing_run_id=None,
+            created_by="model-test",
+            created_at="2026-09-30T00:00:00Z",
+        )
+
+        with self.assertRaises(ValueError):
+            self.repo.create_with_version(evidence, version)
+
+        count = self.db.execute(
+            "SELECT count(*) FROM evidences WHERE evidence_id=?",
+            ("evidence-bad",),
+        ).fetchone()[0]
+
+        self.assertEqual(count, 0)
+
+    def test_cross_asset_anchor_is_rejected_without_partial_evidence(self) -> None:
+        self.db.execute(
+            """
+            INSERT INTO assets (
+                asset_id, media_type, display_name, created_at, deleted_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "asset-other",
+                "VIDEO",
+                "Other synthetic video",
+                "2026-09-30T00:00:00Z",
+                None,
+            ),
+        )
+
+        self.db.execute(
+            """
+            INSERT INTO asset_files (
+                file_id,
+                asset_id,
+                role,
+                storage_key,
+                sha256,
+                byte_size,
+                mime_type,
+                parent_file_id,
+                processing_run_id,
+                created_at,
+                width_px,
+                height_px,
+                duration_ms
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "file-other",
+                "asset-other",
+                "ORIGINAL",
+                "originals/other.mp4",
+                "b" * 64,
+                200,
+                "video/mp4",
+                None,
+                None,
+                "2026-09-30T00:00:00Z",
+                1920,
+                1080,
+                60000,
+            ),
+        )
+        self.db.commit()
+
+        evidence = Evidence(
+            evidence_id="evidence-cross",
+            asset_id="asset-1",
+            evidence_type="SPEECH",
+            created_at="2026-09-30T00:00:00Z",
+            deleted_at=None,
+        )
+
+        version = EvidenceVersion(
+            evidence_version_id="evidence-cross-v1",
+            evidence_id="evidence-cross",
+            asset_id="asset-1",
+            version_no=1,
+            anchor_file_id="file-other",
+            content="Must never be written",
+            locator_type="TIME_RANGE",
+            locator_data='{"start_ms":0,"end_ms":1000,"track":"audio"}',
+            producer_type="HUMAN",
+            processing_run_id=None,
+            created_by="creator",
+            created_at="2026-09-30T00:00:00Z",
+        )
+
+        with self.assertRaises(ValueError):
+            self.repo.create_with_version(evidence, version)
+
+        evidence_count = self.db.execute(
+            "SELECT count(*) FROM evidences WHERE evidence_id=?",
+            ("evidence-cross",),
+        ).fetchone()[0]
+
+        version_count = self.db.execute(
+            """
+            SELECT count(*)
+            FROM evidence_versions
+            WHERE evidence_version_id=?
+            """,
+            ("evidence-cross-v1",),
+        ).fetchone()[0]
+
+        self.assertEqual(evidence_count, 0)
+        self.assertEqual(version_count, 0)
+
+    def test_append_version_preserves_history_and_requires_next_number(self) -> None:
+        evidence = Evidence(
+            evidence_id="evidence-history",
+            asset_id="asset-1",
+            evidence_type="SPEECH",
+            created_at="2026-09-30T00:00:00Z",
+            deleted_at=None,
+        )
+
+        first = EvidenceVersion(
+            evidence_version_id="evidence-history-v1",
+            evidence_id="evidence-history",
+            asset_id="asset-1",
+            version_no=1,
+            anchor_file_id="file-1",
+            content="Original transcript",
+            locator_type="TIME_RANGE",
+            locator_data='{"start_ms":0,"end_ms":1000,"track":"audio"}',
+            producer_type="MODEL",
+            processing_run_id=None,
+            created_by="whisper",
+            created_at="2026-09-30T00:00:00Z",
+        )
+
+        self.repo.create_with_version(evidence, first)
+
+        second = EvidenceVersion(
+            evidence_version_id="evidence-history-v2",
+            evidence_id="evidence-history",
+            asset_id="asset-1",
+            version_no=2,
+            anchor_file_id="file-1",
+            content="Creator verified transcript",
+            locator_type="TIME_RANGE",
+            locator_data='{"start_ms":0,"end_ms":1000,"track":"audio"}',
+            producer_type="HUMAN",
+            processing_run_id=None,
+            created_by="creator",
+            created_at="2026-09-30T00:01:00Z",
+        )
+
+        self.repo.append_version(second)
+
+        rows = self.db.execute(
+            """
+            SELECT version_no, content, producer_type
+            FROM evidence_versions
+            WHERE evidence_id=?
+            ORDER BY version_no
+            """,
+            ("evidence-history",),
+        ).fetchall()
+
+        self.assertEqual(
+            rows,
+            [
+                (1, "Original transcript", "MODEL"),
+                (2, "Creator verified transcript", "HUMAN"),
+            ],
+        )
+
+        skipped = EvidenceVersion(
+            evidence_version_id="evidence-history-v4",
+            evidence_id="evidence-history",
+            asset_id="asset-1",
+            version_no=4,
+            anchor_file_id="file-1",
+            content="Must not be written",
+            locator_type="TIME_RANGE",
+            locator_data='{"start_ms":0,"end_ms":1000,"track":"audio"}',
+            producer_type="HUMAN",
+            processing_run_id=None,
+            created_by="creator",
+            created_at="2026-09-30T00:02:00Z",
+        )
+
+        with self.assertRaises(ValueError):
+            self.repo.append_version(skipped)
+
+        count = self.db.execute(
+            """
+            SELECT count(*)
+            FROM evidence_versions
+            WHERE evidence_id=?
+            """,
+            ("evidence-history",),
+        ).fetchone()[0]
+
+        self.assertEqual(count, 2)
+
+    def _prepare_append(self) -> EvidenceVersion:
+        evidence = Evidence(
+            evidence_id="evidence-append",
+            asset_id="asset-1",
+            evidence_type="SPEECH",
+            created_at="2026-09-30T00:00:00Z",
+            deleted_at=None,
+        )
+        first = EvidenceVersion(
+            evidence_version_id="evidence-append-v1",
+            evidence_id=evidence.evidence_id,
+            asset_id=evidence.asset_id,
+            version_no=1,
+            anchor_file_id="file-1",
+            content="Original transcript",
+            locator_type="TIME_RANGE",
+            locator_data='{"start_ms":0,"end_ms":1000,"track":"audio"}',
+            producer_type="HUMAN",
+            processing_run_id=None,
+            created_by="creator",
+            created_at="2026-09-30T00:00:00Z",
+        )
+        self.repo.create_with_version(evidence, first)
+        return replace(
+            first,
+            evidence_version_id="evidence-append-v2",
+            version_no=2,
+            content="Corrected transcript",
+            created_at="2026-09-30T00:01:00Z",
+        )
+
+    def _create_append_anchor(
+        self, file_id: str, duration_ms: int | None, asset_id: str = "asset-1"
+    ) -> None:
+        self.db.execute(
+            """
+            INSERT INTO asset_files (
+                file_id, asset_id, role, storage_key, sha256,
+                byte_size, mime_type, created_at, duration_ms
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                file_id,
+                asset_id,
+                "ORIGINAL",
+                f"storage/originals/{file_id}.mp4",
+                "b" * 64,
+                100,
+                "video/mp4",
+                "2026-09-30T00:00:00Z",
+                duration_ms,
+            ),
+        )
+        self.db.commit()
+
+    def _version_rows(self) -> list[tuple]:
+        return self.db.execute(
+            "SELECT * FROM evidence_versions ORDER BY version_no"
+        ).fetchall()
+
+    def test_append_duration_allows_range_within_known_duration(self) -> None:
+        version = replace(
+            self._prepare_append(),
+            locator_data='{"start_ms":1000,"end_ms":60000,"track":"audio"}',
+        )
+        before = self._version_rows()
+
+        self.repo.append_version(version)
+
+        after = self._version_rows()
+        self.assertEqual(len(after), 2)
+        self.assertEqual(after[:1], before)
+        row = self.db.execute(
+            """
+            SELECT version_no, anchor_file_id, locator_data, content
+            FROM evidence_versions WHERE evidence_version_id=?
+            """,
+            (version.evidence_version_id,),
+        ).fetchone()
+        self.assertEqual(
+            row, (2, "file-1", version.locator_data, "Corrected transcript")
+        )
+
+    def test_append_duration_rejects_range_beyond_known_duration(self) -> None:
+        version = replace(
+            self._prepare_append(),
+            locator_data='{"start_ms":1000,"end_ms":60001,"track":"audio"}',
+        )
+        before = self._version_rows()
+
+        with self.assertRaisesRegex(ValueError, "Time range exceeds duration"):
+            self.repo.append_version(version)
+
+        self.assertEqual(self._version_rows(), before)
+
+    def test_append_duration_uses_shorter_selected_anchor(self) -> None:
+        version = replace(
+            self._prepare_append(),
+            anchor_file_id="file-short",
+            locator_data='{"start_ms":1000,"end_ms":3000,"track":"audio"}',
+        )
+        self._create_append_anchor("file-short", 2000)
+        before = self._version_rows()
+
+        with self.assertRaisesRegex(ValueError, "Time range exceeds duration"):
+            self.repo.append_version(version)
+
+        self.assertEqual(self._version_rows(), before)
+
+    def test_append_duration_keeps_null_duration_unknown(self) -> None:
+        version = replace(
+            self._prepare_append(),
+            anchor_file_id="file-unknown",
+            locator_data='{"start_ms":1000,"end_ms":70000,"track":"audio"}',
+        )
+        self._create_append_anchor("file-unknown", None)
+        before = self._version_rows()
+
+        self.repo.append_version(version)
+
+        after = self._version_rows()
+        self.assertEqual(len(after), 2)
+        self.assertEqual(after[:1], before)
+        row = self.db.execute(
+            """
+            SELECT v.version_no, v.anchor_file_id, v.locator_data, f.duration_ms
+            FROM evidence_versions v
+            JOIN asset_files f ON f.file_id = v.anchor_file_id
+            WHERE v.evidence_version_id=?
+            """,
+            (version.evidence_version_id,),
+        ).fetchone()
+        self.assertEqual(row, (2, "file-unknown", version.locator_data, None))
+
+    def test_append_duration_rejects_cross_asset_anchor(self) -> None:
+        version = replace(self._prepare_append(), anchor_file_id="file-other")
+        self.db.execute(
+            """
+            INSERT INTO assets (asset_id, media_type, display_name, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("asset-other", "VIDEO", "Other video", "2026-09-30T00:00:00Z"),
+        )
+        self._create_append_anchor("file-other", 60000, "asset-other")
+        before = self._version_rows()
+
+        with self.assertRaisesRegex(ValueError, "Anchor file belongs to another Asset"):
+            self.repo.append_version(version)
+
+        self.assertEqual(self._version_rows(), before)
+
+    def test_append_duration_rejects_missing_anchor(self) -> None:
+        version = replace(self._prepare_append(), anchor_file_id="file-missing")
+        before = self._version_rows()
+
+        with self.assertRaisesRegex(ValueError, "Anchor file does not exist"):
+            self.repo.append_version(version)
+
+        self.assertEqual(self._version_rows(), before)

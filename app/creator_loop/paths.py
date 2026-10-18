@@ -1,35 +1,6 @@
-"""Resolve persistent user data separately from the replaceable installation."""
+"""Compatibility alias; implementation lives in backend.runtime.paths."""
 
-import os
-from pathlib import Path
+import sys
+from importlib import import_module
 
-from creator_loop.windows_paths import file_io_path
-
-
-def data_root() -> Path:
-    override = os.environ.get("CREATOR_LOOP_DATA_ROOT")
-    if override:
-        return Path(override).expanduser().resolve()
-    if os.name == "nt":
-        base = os.environ.get("LOCALAPPDATA")
-        if not base:
-            raise RuntimeError(
-                "LOCALAPPDATA is unavailable; set CREATOR_LOOP_DATA_ROOT"
-            )
-        return Path(base) / "CreatorLoop"
-    return Path.home() / ".local" / "share" / "CreatorLoop"
-
-
-def ensure_data_root(root: Path) -> None:
-    file_io_path(root).mkdir(parents=True, exist_ok=True)
-    for name in (
-        "storage/originals",
-        "storage/derived",
-        "models",
-        "components",
-        "manifests",
-        "backups",
-        "logs",
-        "runtime",
-    ):
-        file_io_path(root / name).mkdir(parents=True, exist_ok=True)
+sys.modules[__name__] = import_module("creator_loop.backend.runtime.paths")

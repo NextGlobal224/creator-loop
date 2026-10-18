@@ -15,8 +15,9 @@ from contextlib import closing
 from functools import lru_cache
 from pathlib import Path
 
-from creator_loop.database import SCHEMA_VERSION, validate
-from test_update_preparation import UpdatePreparationTests
+from creator_loop.backend.runtime.database import SCHEMA_VERSION, validate
+
+from tests.backend.test_update_preparation import UpdatePreparationTests
 
 
 @lru_cache(maxsize=1)

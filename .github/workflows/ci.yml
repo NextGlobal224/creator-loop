@@ -33,7 +33,28 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           python -m compileall -q app tests packaging
-          python -m unittest discover -s tests -v
+          python -m unittest discover -s tests -t . -v
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4, pinned
+        with:
+          node-version: '22'
+      - name: Install locked B Worker SDK dependencies
+        timeout-minutes: 3
+        working-directory: cloudflare/creator-ai
+        run: timeout 120s npm ci --ignore-scripts --no-audit --no-fund
+      - name: B Worker SDK/source audit regressions
+        timeout-minutes: 2
+        run: timeout 45s node --test cloudflare/creator-ai/test/*.test.js
+      - name: B Worker production dependency audit
+        timeout-minutes: 2
+        working-directory: cloudflare/creator-ai
+        run: timeout 60s npm audit --omit=dev
+      - name: Build B Worker without deploying or calling a model
+        timeout-minutes: 2
+        working-directory: cloudflare/creator-ai
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+          WRANGLER_WRITE_LOGS: 'false'
+        run: timeout 90s npx --no-install wrangler deploy --dry-run --outdir .worker-build
       - name: Source smoke
         env:
           PYTHONPATH: app
@@ -79,17 +100,27 @@ jobs:
         env:
           PYTHONPATH: app
         shell: powershell
-        timeout-minutes: 16
+        timeout-minutes: 33
         run: |
           $ErrorActionPreference = 'Stop'
-          & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds 900 -CommandArgs @('-u','scripts/run_suite_with_diagnostics.py')
-          $testExit = $LASTEXITCODE
-          $run = Get-ChildItem .local-test-logs -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'result.json') } | Sort-Object Name -Descending | Select-Object -First 1
-          if ($run) {
-            Get-Content (Join-Path $run.FullName 'result.json')
-            Get-Content (Join-Path $run.FullName 'output.log') -Tail 60
+          # CI diagnostics: 968 tests completed before the former global 900s
+          # limit. Keep all tests, durable timing/stacks and bounded processes.
+          $groups = @(
+            @{ Name = 'backend'; Timeout = 900 },
+            @{ Name = 'frontend'; Timeout = 300 },
+            @{ Name = 'integration'; Timeout = 720 }
+          )
+          foreach ($group in $groups) {
+            & .\scripts\run_test_with_timeout.ps1 -Executable python -TimeoutSeconds $group.Timeout -CommandArgs @('-u','scripts/run_suite_with_diagnostics.py','--group',$group.Name)
+            $testExit = $LASTEXITCODE
+            $run = Get-ChildItem .local-test-logs -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'result.json') } | Sort-Object Name -Descending | Select-Object -First 1
+            if ($run) {
+              Get-Content (Join-Path $run.FullName 'result.json')
+              Get-Content (Join-Path $run.FullName 'output.log') -Tail 60
+            }
+            if ($testExit -ne 0) { exit $testExit }
           }
-          exit $testExit
+          exit 0
       - name: Preserve bounded test logs
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
@@ -99,7 +130,7 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
       - name: Build one-directory application
-        run: python -m PyInstaller --noconfirm --clean --onedir --name CreatorLoop --paths app --runtime-hook packaging/windows_long_paths.py --add-data "migrations/0001_initial.sql;migrations" --add-data "migrations/0002_claim_citation_seal.sql;migrations" --add-data "migrations/0003_draft_snapshot_seal.sql;migrations" --add-data "migrations/0004_selection_snapshot_seal.sql;migrations" --add-data "migrations/0005_publication_snapshot_guards.sql;migrations" --add-data "migrations/0006_observation_metric_validation.sql;migrations" --add-data "migrations/0007_source_captures.sql;migrations" --add-data "migrations/0008_facebook_research.sql;migrations" --add-data "app/creator_loop/resources;creator_loop/resources" --add-data "licenses;licenses" --collect-all playwright packaging/entrypoint.py
+        run: python -m PyInstaller --noconfirm --clean --onedir --name CreatorLoop --paths app --runtime-hook packaging/windows_long_paths.py --add-data "migrations/0001_initial.sql;migrations" --add-data "migrations/0002_claim_citation_seal.sql;migrations" --add-data "migrations/0003_draft_snapshot_seal.sql;migrations" --add-data "migrations/0004_selection_snapshot_seal.sql;migrations" --add-data "migrations/0005_publication_snapshot_guards.sql;migrations" --add-data "migrations/0006_observation_metric_validation.sql;migrations" --add-data "migrations/0007_source_captures.sql;migrations" --add-data "migrations/0008_facebook_research.sql;migrations" --add-data "migrations/0009_creator_render_workflows.sql;migrations" --add-data "app/creator_loop/resources;creator_loop/resources" --add-data "licenses;licenses" --collect-all playwright --collect-submodules creator_loop packaging/entrypoint.py
       - name: Add offline product guidance before packaging
         run: python scripts/package_product_docs.py --package dist/CreatorLoop --commit '${{ github.sha }}'
       - name: Pack and smoke the exact ZIP

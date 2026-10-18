@@ -12,9 +12,13 @@ from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-from creator_loop.database import SCHEMA_VERSION, open_readonly, validate
-from creator_loop.paths import ensure_data_root
-from creator_loop.update_activation import verify_prepared_backup
+from creator_loop.backend.runtime.database import (
+    SCHEMA_VERSION,
+    open_readonly,
+    validate,
+)
+from creator_loop.backend.runtime.paths import ensure_data_root
+from creator_loop.backend.runtime.update_activation import verify_prepared_backup
 
 
 def main() -> None:

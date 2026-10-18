@@ -21,10 +21,10 @@ def main() -> None:
     if sys.platform != "win32":
         raise SystemExit("Playback artifact probe requires Windows")
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
-    from creator_loop.isolated_decode import decode_isolated
-    from creator_loop.isolated_playback import IsolatedMediaPlayer
-    from creator_loop.owned_process import OwnedWindowsProcess, _api
-    from creator_loop.paths import ensure_data_root
+    from creator_loop.backend.runtime.owned_process import OwnedWindowsProcess, _api
+    from creator_loop.backend.runtime.paths import ensure_data_root
+    from creator_loop.backend.video.isolated_decode import decode_isolated
+    from creator_loop.backend.video.isolated_playback import IsolatedMediaPlayer
     from PySide6.QtMultimedia import QAudioBufferOutput, QAudioOutput, QMediaPlayer
     from PySide6.QtMultimediaWidgets import QVideoWidget
     from PySide6.QtWidgets import QApplication, QWidget
@@ -58,7 +58,9 @@ def main() -> None:
             **kwargs,
         )
 
-    with patch("creator_loop.isolated_decode.OwnedWindowsProcess", candidate):
+    with patch(
+        "creator_loop.backend.video.isolated_decode.OwnedWindowsProcess", candidate
+    ):
         decoded, _image = decode_isolated(source, root, mode="video", start_ms=0)
     duration = decoded["duration_ms"]
 
@@ -97,7 +99,9 @@ def main() -> None:
         lambda buffer: samples.append(buffer.frameCount()) if buffer.isValid() else None
     )
     player.errorOccurred.connect(lambda code, message: errors.append(message))
-    with patch("creator_loop.isolated_playback.OwnedWindowsProcess", candidate):
+    with patch(
+        "creator_loop.backend.video.isolated_playback.OwnedWindowsProcess", candidate
+    ):
         player.play()
     assert player.process is not None, errors
     assert player.process.executable == executable
@@ -124,7 +128,9 @@ def main() -> None:
     # A separate real candidate is cancelled immediately after assignment.
     cancel_owner = QWidget()
     cancelled, cancel_video = player_for(cancel_owner)
-    with patch("creator_loop.isolated_playback.OwnedWindowsProcess", candidate):
+    with patch(
+        "creator_loop.backend.video.isolated_playback.OwnedWindowsProcess", candidate
+    ):
         cancelled.play()
     assert cancelled.process is not None
     monitor = kernel.OpenProcess(0x00101000, False, cancelled.process.record["pid"])

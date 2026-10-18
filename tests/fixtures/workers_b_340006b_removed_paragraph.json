@@ -1,0 +1,175 @@
+{
+  "head": "340006b32f4e06268872c5bd05cb8c55d3f3313f",
+  "writing": {
+    "hypothetical_opening": "Tình huống giả định: Người dùng A nhận được một ảnh chụp màn hình bài viết trên Facebook về một sự kiện y tế, nhưng không có đường link gốc.",
+    "editorial_paragraphs": [
+      [
+        {
+          "premise_checks": [
+            {
+              "assertion": "cần đọc nguồn và ngữ cảnh trước khi đưa kết luận",
+              "quote_ids": [
+                4
+              ],
+              "supported": true
+            }
+          ],
+          "source_quote_id": 4,
+          "text": "Trước khi nhấn nút chia sẻ, hãy đọc kỹ nguồn và ngữ cảnh của nội dung; không nên đưa ra kết luận chỉ dựa trên ảnh chụp màn hình."
+        }
+      ],
+      [
+        {
+          "premise_checks": [
+            {
+              "assertion": "COR đề xuất ba câu hỏi để xem xét nội dung trực tuyến",
+              "quote_ids": [
+                8
+              ],
+              "supported": true
+            }
+          ],
+          "source_quote_id": 8,
+          "text": "Bạn có thể dùng ba câu hỏi của COR: ai đứng sau thông tin, bằng chứng gì được đưa ra, và các nguồn khác nói gì?"
+        }
+      ],
+      [
+        {
+          "premise_checks": [],
+          "source_quote_id": -1,
+          "text": "Khi nhận được ảnh chụp màn hình không có đường link, hãy thực hiện ba bước trên: xác định người đăng, kiểm tra bằng chứng kèm, rồi so sánh với nguồn tin khác trước khi quyết định chia sẻ."
+        }
+      ],
+      [
+        {
+          "premise_checks": [],
+          "source_quote_id": -1,
+          "text": "Nếu vẫn chưa rõ nguồn gốc, bạn có thể nhắn lại người gửi: “Bạn có thể cho mình link gốc, ngày đăng và nguồn tin đầy đủ được không?”"
+        }
+      ]
+    ]
+  },
+  "edits": {
+    "source_issues": [],
+    "edits": [
+      {
+        "index": 0,
+        "premise_checks": [],
+        "support": "HYPOTHETICAL",
+        "quote_ids": [],
+        "decision": "KEEP",
+        "note": "Mở đầu giả định, không có tiền đề thực tế cần chứng cứ.",
+        "replacement": []
+      },
+      {
+        "index": 1,
+        "premise_checks": [
+          {
+            "assertion": "cần đọc nguồn và ngữ cảnh trước khi đưa kết luận",
+            "quote_ids": [
+              4
+            ],
+            "supported": true
+          }
+        ],
+        "support": "SOURCE_SUPPORTED",
+        "quote_ids": [
+          4
+        ],
+        "decision": "KEEP",
+        "note": "Câu khuyên được trích từ hướng biên tập của UNESCO.",
+        "replacement": []
+      },
+      {
+        "index": 2,
+        "premise_checks": [
+          {
+            "assertion": "COR đề xuất ba câu hỏi để xem xét nội dung trực tuyến: ai đứng sau thông tin, bằng chứng gì được đưa ra, và các nguồn khác nói gì",
+            "quote_ids": [
+              8
+            ],
+            "supported": true
+          }
+        ],
+        "support": "SOURCE_SUPPORTED",
+        "quote_ids": [
+          8
+        ],
+        "decision": "KEEP",
+        "note": "Ba câu hỏi được trích nguyên văn từ Digital Inquiry Group.",
+        "replacement": []
+      },
+      {
+        "index": 3,
+        "premise_checks": [
+          {
+            "assertion": "Khi nhận được ảnh chụp màn hình không có đường link, hãy thực hiện ba bước trên: xác định người đăng, kiểm tra bằng chứng kèm, rồi so sánh với nguồn tin khác trước khi quyết định chia sẻ.",
+            "quote_ids": [],
+            "supported": false
+          }
+        ],
+        "support": "INSUFFICIENT",
+        "quote_ids": [],
+        "decision": "REMOVE",
+        "note": "Không có bằng chứng nguồn cho quy trình này.",
+        "replacement": []
+      },
+      {
+        "index": 4,
+        "premise_checks": [],
+        "support": "SUGGESTION",
+        "quote_ids": [],
+        "decision": "KEEP",
+        "note": "Yêu cầu người gửi cung cấp link gốc, ngày đăng và nguồn tin là đề xuất tự nguyện.",
+        "replacement": []
+      }
+    ]
+  },
+  "catalog": [
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra."
+    },
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Source: UNESCO"
+    },
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "URL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course"
+    },
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Diễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể."
+    },
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_quote": "Hướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này."
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra."
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Source: Digital Inquiry Group / Civic Online Reasoning"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "URL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Trích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Diễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì."
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_quote": "Hướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral."
+    }
+  ],
+  "observation": "Editor removes sole segment inparagraph3 forunsupportedprocedure; existingguard correctlyrequires4nonemptyparagraphs. EditorstillmisattributesmanualnoteeditorialguidancetoUNESCO; lowreasoningwritingalso repeatsparagraph2inparagraph3."
+}

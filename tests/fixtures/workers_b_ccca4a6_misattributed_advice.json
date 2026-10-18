@@ -1,0 +1,221 @@
+{
+  "origin_head": "ccca4a6c530ba79cd5bc91f5fbeb19970d13cbe1",
+  "origin_worker_version": "e781eb22-65e3-417c-bb39-8fcf59b68130",
+  "materials": [
+    {
+      "material_id": "file:1da0c5ef932840d9befe5a61d11adce9",
+      "source_id": null,
+      "asset_id": "02dde26a0828436fa24c468fa6f44d34",
+      "file_id": "1da0c5ef932840d9befe5a61d11adce9",
+      "sha256": "ec6b7c2b9c40394a2824651daa818a0db73575275b1380b9751b834a8f8da60f",
+      "media_type": "TEXT",
+      "text": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải toàn bộ handbook; chưa được người dùng kiểm tra.\nSource: UNESCO\nURL: https://www.unesco.org/en/articles/journalism-fake-news-disinformation-ipdc-launching-new-model-course\nDiễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể.\nHướng biên tập: cần đọc nguồn và ngữ cảnh trước khi đưa kết luận; tránh lời hứa rằng vài thao tác có thể luôn xác định thật/giả. Không có số liệu hiệu quả, độ viral hoặc nhận xét về tài khoản cá nhân trong ghi chú này.\n",
+      "source_url": null,
+      "evidence_version_ids": [],
+      "scope": "TEXT_PASSAGE"
+    },
+    {
+      "material_id": "file:e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "source_id": null,
+      "asset_id": "fb7cc0a93386491da0501c111d0c7d58",
+      "file_id": "e72b0742f1c148abbc9a54f2ad3d4a7e",
+      "sha256": "b4870ab706628ca1eb4a3ea0121da60db2fb1e54af22bab0e8c84fe40212cf48",
+      "media_type": "TEXT",
+      "text": "Ghi chú nghiên cứu nhập thủ công, đọc ngày 13/10/2026. Đây là snapshot ghi chú của Codex, không phải bản lưu toàn bộ website; chưa được người dùng kiểm tra.\nSource: Digital Inquiry Group / Civic Online Reasoning\nURL: https://cor.inquirygroup.org/curriculum/collections/a-little-of-everything/\nTrích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”\nDiễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.\nHướng biên tập đề xuất: một tình huống ảnh chụp màn hình thiếu đường dẫn; người đọc thực hành ba bước trước khi chia sẻ. Đây là ví dụ tự viết, không khẳng định một vụ việc Facebook có thật, không suy nguyên nhân viral.\n",
+      "source_url": null,
+      "evidence_version_ids": [],
+      "scope": "TEXT_PASSAGE"
+    }
+  ],
+  "body": "Tình huống giả định: Bạn nhận được một ảnh chụp màn hình từ một người bạn trên Facebook, nhưng không có bất kỳ đường dẫn nào đến nguồn gốc của nội dung.\n\nUNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành để kiểm tra dữ kiện và xác minh nội dung trên mạng xã hội; tuy nhiên trang giới thiệu không cung cấp thông tin để xác thực một bài đăng Facebook cụ thể.\n\nDigital Inquiry Group (COR) khuyến nghị người dùng tự hỏi ba câu khi gặp nội dung chưa rõ nguồn.\n\nTheo COR, ba câu hỏi này có thể được diễn giải thành: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì; người đọc nên ghi lại câu trả lời cho mỗi câu hỏi trước khi quyết định chia sẻ.\n\nBạn có thể trả lời người gửi: “Bạn có thể cung cấp link gốc, ngày đăng và ngữ cảnh đầy đủ của ảnh chụp màn hình này không? Cảm ơn!”",
+  "claims": [
+    {
+      "claim_version_id": "8263511d10b44abaaaf2af52fe87371e",
+      "material_ids": [
+        "file:1da0c5ef932840d9befe5a61d11adce9"
+      ],
+      "source_quote": "Diễn giải phần giới thiệu đã đọc: UNESCO giới thiệu một giáo trình về rối loạn thông tin, có công cụ thực hành kiểm tra dữ kiện và xác minh trên mạng xã hội. Trang giới thiệu không xác minh một bài Facebook cụ thể.",
+      "text": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành để kiểm tra dữ kiện và xác minh nội dung trên mạng xã hội; tuy nhiên trang giới thiệu không cung cấp thông tin để xác thực một bài đăng Facebook cụ thể."
+    },
+    {
+      "claim_version_id": "8ea2f67e78934e13a6b133cfab42bd41",
+      "material_ids": [
+        "file:e72b0742f1c148abbc9a54f2ad3d4a7e"
+      ],
+      "source_quote": "Trích nguyên văn từ phần giới thiệu đã đọc: “Who’s behind the information? What’s the evidence? What do other sources say?”",
+      "text": "Digital Inquiry Group (COR) khuyến nghị người dùng tự hỏi ba câu khi gặp nội dung chưa rõ nguồn."
+    },
+    {
+      "claim_version_id": "196234f5b2734cc89ebd62b4c9f6f747",
+      "material_ids": [
+        "file:e72b0742f1c148abbc9a54f2ad3d4a7e"
+      ],
+      "source_quote": "Diễn giải: COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến chưa quen thuộc: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.",
+      "text": "Theo COR, ba câu hỏi này có thể được diễn giải thành: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì; người đọc nên ghi lại câu trả lời cho mỗi câu hỏi trước khi quyết định chia sẻ."
+    }
+  ],
+  "audit": {
+    "draft_body": "Tình huống giả định: Bạn nhận được một ảnh chụp màn hình từ một người bạn trên Facebook, nhưng không có bất kỳ đường dẫn nào đến nguồn gốc của nội dung.\n\nUNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành để kiểm tra dữ kiện và xác minh nội dung trên mạng xã hội; tuy nhiên trang giới thiệu không cung cấp thông tin để xác thực một bài đăng Facebook cụ thể.\n\nDigital Inquiry Group (COR) khuyến nghị người dùng tự hỏi ba câu khi gặp nội dung chưa rõ nguồn.\n\nTheo COR, ba câu hỏi này có thể được diễn giải thành: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì; người đọc nên ghi lại câu trả lời cho mỗi câu hỏi trước khi quyết định chia sẻ.\n\nBạn có thể trả lời người gửi: “Bạn có thể cung cấp link gốc, ngày đăng và ngữ cảnh đầy đủ của ảnh chụp màn hình này không? Cảm ơn!”",
+    "finding_checks": [
+      {
+        "finding": "Repeated bilingual source questions remain in the public Draft (segment 2).",
+        "reason": "The duplicated bilingual list of questions was removed; segment 2 now contains only the Vietnamese statement of the three questions, eliminating the repetition.",
+        "segments": [
+          {
+            "index": 2,
+            "text": "Digital Inquiry Group (COR) khuyến nghị người dùng tự hỏi ba câu khi gặp nội dung chưa rõ nguồn."
+          }
+        ],
+        "verdict": "ADDRESSED"
+      },
+      {
+        "finding": "PROJECT_NO_UNSOURCED_RULE",
+        "reason": "The article does not invent any verification rule, minimum source count, or promised result; all factual statements are directly supported by sources (e.g., segment 1).",
+        "segments": [
+          {
+            "index": 1,
+            "text": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành để kiểm tra dữ kiện và xác minh nội dung trên mạng xã hội; tuy nhiên trang giới thiệu không cung cấp thông tin để xác thực một bài đăng Facebook cụ thể."
+          }
+        ],
+        "verdict": "NOT_APPLICABLE"
+      },
+      {
+        "finding": "PROJECT_CLOSING_MESSAGE",
+        "reason": "Segment 4 provides a concrete short message asking the original sender for the missing link, posting date, and context, fulfilling the closing‑message requirement.",
+        "segments": [
+          {
+            "index": 4,
+            "text": "Bạn có thể trả lời người gửi: “Bạn có thể cung cấp link gốc, ngày đăng và ngữ cảnh đầy đủ của ảnh chụp màn hình này không? Cảm ơn!”"
+          }
+        ],
+        "verdict": "ADDRESSED"
+      },
+      {
+        "finding": "PROJECT_NONREPETITIVE_DEVELOPMENT",
+        "reason": "Each paragraph introduces a distinct idea: scenario (0), UNESCO tool description (1), COR’s three questions (2), suggestion to record answers (3), and the request message (4); no paragraph repeats another.",
+        "segments": [
+          {
+            "index": 0,
+            "text": "Tình huống giả định: Bạn nhận được một ảnh chụp màn hình từ một người bạn trên Facebook, nhưng không có bất kỳ đường dẫn nào đến nguồn gốc của nội dung."
+          },
+          {
+            "index": 1,
+            "text": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành để kiểm tra dữ kiện và xác minh nội dung trên mạng xã hội; tuy nhiên trang giới thiệu không cung cấp thông tin để xác thực một bài đăng Facebook cụ thể."
+          },
+          {
+            "index": 2,
+            "text": "Digital Inquiry Group (COR) khuyến nghị người dùng tự hỏi ba câu khi gặp nội dung chưa rõ nguồn."
+          },
+          {
+            "index": 3,
+            "text": "Theo COR, ba câu hỏi này có thể được diễn giải thành: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì; người đọc nên ghi lại câu trả lời cho mỗi câu hỏi trước khi quyết định chia sẻ."
+          },
+          {
+            "index": 4,
+            "text": "Bạn có thể trả lời người gửi: “Bạn có thể cung cấp link gốc, ngày đăng và ngữ cảnh đầy đủ của ảnh chụp màn hình này không? Cảm ơn!”"
+          }
+        ],
+        "verdict": "ADDRESSED"
+      }
+    ],
+    "issues": [],
+    "paragraphs": [
+      {
+        "factual_passages": [],
+        "kind": "HYPOTHETICAL",
+        "text": "Tình huống giả định: Bạn nhận được một ảnh chụp màn hình từ một người bạn trên Facebook, nhưng không có bất kỳ đường dẫn nào đến nguồn gốc của nội dung."
+      },
+      {
+        "factual_passages": [
+          "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành để kiểm tra dữ kiện và xác minh nội dung trên mạng xã hội; tuy nhiên trang giới thiệu không cung cấp thông tin để xác thực một bài đăng Facebook cụ thể."
+        ],
+        "kind": "SOURCE_FACT",
+        "text": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành để kiểm tra dữ kiện và xác minh nội dung trên mạng xã hội; tuy nhiên trang giới thiệu không cung cấp thông tin để xác thực một bài đăng Facebook cụ thể."
+      },
+      {
+        "factual_passages": [
+          "Digital Inquiry Group (COR) khuyến nghị người dùng tự hỏi ba câu khi gặp nội dung chưa rõ nguồn."
+        ],
+        "kind": "SOURCE_FACT",
+        "text": "Digital Inquiry Group (COR) khuyến nghị người dùng tự hỏi ba câu khi gặp nội dung chưa rõ nguồn."
+      },
+      {
+        "factual_passages": [
+          "Theo COR, ba câu hỏi này có thể được diễn giải thành: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì; người đọc nên ghi lại câu trả lời cho mỗi câu hỏi trước khi quyết định chia sẻ."
+        ],
+        "kind": "SOURCE_FACT",
+        "text": "Theo COR, ba câu hỏi này có thể được diễn giải thành: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì; người đọc nên ghi lại câu trả lời cho mỗi câu hỏi trước khi quyết định chia sẻ."
+      },
+      {
+        "factual_passages": [],
+        "kind": "ADVICE",
+        "text": "Bạn có thể trả lời người gửi: “Bạn có thể cung cấp link gốc, ngày đăng và ngữ cảnh đầy đủ của ảnh chụp màn hình này không? Cảm ơn!”"
+      }
+    ]
+  },
+  "failure": "COR recommendation/recording procedure absent in selected question-only snapshot; paragraphs2/3 underdeveloped/redundant; NO_UNSOURCED_RULE waived with only safeparagraph1.",
+  "written": {
+    "hypothetical_opening": "Tình huống giả định: Bạn nhận được một ảnh chụp màn hình từ một người bạn trên Facebook, nhưng không có bất kỳ đường dẫn nào đến nguồn gốc của nội dung.",
+    "editorial_paragraphs": [
+      [
+        {
+          "source_quote_id": 3,
+          "text": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành để kiểm tra dữ kiện và xác minh nội dung trên mạng xã hội; tuy nhiên trang giới thiệu không cung cấp thông tin để xác thực một bài đăng Facebook cụ thể.",
+          "premise_checks": [
+            {
+              "assertion": "UNESCO đã công bố một giáo trình về rối loạn thông tin, trong đó có các công cụ thực hành để kiểm tra dữ kiện và xác minh nội dung trên mạng xã hội.",
+              "quote_ids": [
+                3
+              ],
+              "supported": true
+            },
+            {
+              "assertion": "Trang giới thiệu không cung cấp thông tin để xác thực một bài đăng Facebook cụ thể.",
+              "quote_ids": [
+                3
+              ],
+              "supported": true
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "source_quote_id": 8,
+          "text": "Digital Inquiry Group (COR) khuyến nghị người dùng tự hỏi ba câu: “Who’s behind the information? What’s the evidence? What do other sources say?” khi gặp nội dung chưa rõ nguồn.",
+          "premise_checks": [
+            {
+              "assertion": "COR đề xuất ba câu hỏi: “Who’s behind the information? What’s the evidence? What do other sources say?”",
+              "quote_ids": [
+                8
+              ],
+              "supported": true
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "source_quote_id": 9,
+          "text": "Theo COR, ba câu hỏi này có thể được diễn giải thành: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì; người đọc nên ghi lại câu trả lời cho mỗi câu hỏi trước khi quyết định chia sẻ.",
+          "premise_checks": [
+            {
+              "assertion": "Ba câu hỏi này được diễn giải thành: ai đứng sau thông tin, căn cứ nào được đưa ra và nguồn khác nói gì.",
+              "quote_ids": [
+                9
+              ],
+              "supported": true
+            }
+          ]
+        }
+      ],
+      [
+        {
+          "source_quote_id": -1,
+          "text": "Bạn có thể trả lời người gửi: “Bạn có thể cung cấp link gốc, ngày đăng và ngữ cảnh đầy đủ của ảnh chụp màn hình này không? Cảm ơn!”",
+          "premise_checks": []
+        }
+      ]
+    ]
+  }
+}
