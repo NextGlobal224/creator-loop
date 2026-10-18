@@ -26,6 +26,14 @@ test('live-failure boundaries are explicit in each Web stage without repairing m
   else assert.match(captured.messages[0].content,/never emit an identical REWRITE/);
  }
 });
+test('analysis correction preserves factual no-fiction Projects and explicit manual direction',async()=>{
+ for(const project of [{purpose:'Giới thiệu lịch mở cửa bảo tàng',direction:'Chỉ dùng dữ kiện đã có, không tạo tình huống giả định.'},{purpose:'Giúp người đọc nhận thức đúng về sự thật trước khi chia sẻ ảnh chụp màn hình',direction:''}]){
+  const profile=await analysisProfile({stage:'analysis',previous:[],writing_prompt:'fixture\n'+JSON.stringify({...project,materials})});let captured;
+  await profile.run({run:async(_,input)=>{captured=input;return {response:analysis};}},'model',{messages:[{role:'system',content:'Respect explicit Project'}],response_format:{type:'json_schema',json_schema:{properties:{inferences:{}},required:[]}}});
+  assert.match(captured.messages[0].content,/including factual\/no-fiction briefs/);
+  assert.equal(captured.messages[0].content.includes('For this specifically commissioned screenshot-sharing Project'),!project.direction);
+ }
+});
 test('actual failed direction and unsupported observation are audited as immutable fields without rewriting',async()=>{
  const bad={...analysis,direction:'Sử dụng công cụ kiểm tra dữ kiện được UNESCO đề xuất để tìm bằng chứng hỗ trợ hoặc phản bác.'};
  const fields=analysisFields(bad),hash=await analysisHash(bad),r=receipt(hash,fields);r.checks[2]={field:'direction',verdict:'UNRESOLVED',premise_checks:[{assertion:bad.direction,quote_ids:[],supported:false}],reason:'Note does not provide this institutional recommendation',issues:['Unsupported attribution']};assert.throws(()=>validateCoverage(r,hash,fields,catalog));assert.equal(fields[2].text,bad.direction);
