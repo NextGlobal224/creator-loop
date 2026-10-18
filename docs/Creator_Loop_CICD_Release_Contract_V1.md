@@ -1,5 +1,27 @@
 # Creator Loop — CI/CD & Release Contract V1
 
+## Additive B Web beta channel — user authority 18 October 2026
+
+The [B Web deployment baseline](B_WEB_ARCHITECTURE.md) is an additional target,
+not a Windows ZIP relabelled as a website. Required current GitHub checks and
+independent technical review still gate integration. New Web tags use
+`b-web-v<web version>-beta.<sequence>` and point to reviewed `main`. Such a tag
+does not replace any `v0.1.0-beta.2` asset or imply a new desktop binary version.
+The Web release contains the exact verified Worker bundle/static assets,
+source/dependency/checksum/deployment manifests and a Vietnamese guide.
+No live secret, DB, private media, QA session or private log enters public assets.
+
+Before publication require fail-closed evidence for authenticated deployed
+UI/API/media, durable SQLite/media and coordinated backup/confirmed restore,
+idempotency/progress/cancel/unknown-outcome safety, both modes × all three Draft
+formats, actual source-grounded output quality/save/reopen/version/review, and
+independent access without Windows/localhost/Tunnel. Bind source, bundle hashes,
+required CI run/review and exact Cloudflare version/model/live outputs. Local
+fixtures/health/401 do not substitute for these gates. Preserve human publication
+approval, all stable/full-beta gates, Windows beta.2 and A/C states. Rollback uses
+a known compatible Worker version; restore of older DB state requires explicit
+confirmation and preservation of the previous checkpoint/media. No paid fallback.
+
 **Cập nhật:** 29/09/2026. **Phụ thuộc:** `Creator_Loop_Data_Architecture_V1_1.md` là nguồn chuẩn luật dữ liệu. Đây là contract cho ứng dụng Windows local-first, không phải quy trình deploy server. Chưa tạo Bootstrap Gate 1.
 
 ## 1. Nguyên tắc phát hành

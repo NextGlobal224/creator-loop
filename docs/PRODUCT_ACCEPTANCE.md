@@ -536,6 +536,13 @@ Timeout cấp tiến trình và log đã có [runner Windows](../scripts/run_tes
 
 ## Quy tắc báo hoàn tất
 
+B Web is an explicitly authorized additional B-only deployment target. Its
+requirements and separate release gate are in [B_WEB_ARCHITECTURE](B_WEB_ARCHITECTURE.md)
+and the CI/CD contract's additive B Web channel. Current status: implementation
+WIP; local six-mode/format fixtures and storage/auth checks do not establish live
+cloud output quality or release eligibility. Preserve all 24 stable criteria,
+Windows beta.2 and existing A/C pauses/deferrals.
+
 Chỉ báo **product hoàn tất** khi cả 24 dòng bắt buộc có phần triển khai, kiểm tra luồng sử dụng thực tế, CI required trên đúng commit, bản chạy/build cùng hướng dẫn, và toàn bộ release gate V1 đã được xác minh. Nếu thiếu, ghi **đang triển khai**, **bị chặn** hoặc **chờ nghiệm thu** với bằng chứng và bước tiếp theo. Một PR xanh hoặc một Gate đạt không thay thế điều kiện cuối.
 
 ## Phân mốc beta và V1 ổn định

@@ -48,6 +48,16 @@ jobs:
         timeout-minutes: 2
         working-directory: cloudflare/creator-ai
         run: timeout 60s npm audit --omit=dev
+      - name: B Web source guards and exact bundle build
+        timeout-minutes: 4
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+          WRANGLER_WRITE_LOGS: 'false'
+        run: |
+          timeout 60s node --test cloudflare/creator-web/test/*.mjs
+          python -m pip install --require-hashes -r cloudflare/creator-web/requirements-build.txt --target cloudflare/creator-web/.build-sdk
+          timeout 120s python cloudflare/creator-web/build.py
+          timeout 90s node cloudflare/creator-ai/node_modules/wrangler/bin/wrangler.js deploy --config cloudflare/creator-web/wrangler.jsonc --dry-run --outdir ./dist
       - name: Build B Worker without deploying or calling a model
         timeout-minutes: 2
         working-directory: cloudflare/creator-ai

@@ -1,5 +1,10 @@
 # Creator Loop — Repository, Installation & User Data Layout V1
 
+The explicitly authorized B Web deployment adds the runtime described in
+[B_WEB_ARCHITECTURE](B_WEB_ARCHITECTURE.md): immutable Worker code, durable owner
+SQLite checkpoint and separate immutable media storage; temporary files are
+disposable projections. Windows installations/data remain separate and unchanged.
+
 **Cập nhật:** 29/09/2026. Đường dẫn dưới đây là **vai trò logic**, không ép ổ đĩa/thư mục cố định. Installer hoặc bản portable phải công bố vị trí data root, kiểm quyền ghi và backup trước update.
 
 ## 1. Ba vùng độc lập

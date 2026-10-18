@@ -496,7 +496,7 @@ class ResearchPipeline:
             if row is None:
                 raise ValueError("Workflow not found")
             result = dict(row)
-            from creator_loop.backend.creator.local_generation import (
+            from creator_loop.backend.creator.generation_records import (
                 decode_analysis,
                 display_analysis,
             )
