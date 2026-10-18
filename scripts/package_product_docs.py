@@ -89,6 +89,18 @@ def source_hashes(commit: str) -> dict[str, str]:
     }
 
 
+def _example_bytes(source: Path, commit: str) -> bytes:
+    """Git blobs preserve saved Draft bytes across Windows checkout EOL conversion."""
+    _real_path(source)
+    relative = source.relative_to(REPOSITORY).as_posix()
+    raw = subprocess.check_output(
+        ["git", "show", commit + ":" + relative], cwd=REPOSITORY
+    )
+    if not 0 < len(raw) <= 1024 * 1024:
+        raise ValueError("Example exceeds package budget")
+    return raw
+
+
 def package_docs(package: Path, commit: str) -> dict[str, object]:
     if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
         raise ValueError("Exact source commit is required")
@@ -140,7 +152,7 @@ def package_docs(package: Path, commit: str) -> dict[str, object]:
         _real_path(source)
         if not 0 < source.stat().st_size <= 1024 * 1024:
             raise ValueError("Example exceeds package budget")
-        (examples / source.name).write_bytes(source.read_bytes())
+        (examples / source.name).write_bytes(_example_bytes(source, commit))
     for name, text in inputs.items():
         output = (
             package / "USER_GUIDE.html"
