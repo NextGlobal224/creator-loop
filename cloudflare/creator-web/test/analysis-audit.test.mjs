@@ -11,7 +11,20 @@ test('immutable analysis audit requires every field/hash/order and no unsupporte
   const r=receipt(hash,fields);mutate(r);assert.throws(()=>validateCoverage(r,hash,fields,catalog));
  }
  assert.throws(()=>validateAnalysis({...analysis,inferences:['Giả thuyết: hiệu quả chưa biết']},materials));
+ for(const suffix of ['', ' ', '\t'])assert.throws(()=>validateAnalysis({...analysis,inferences:['Giả thuyết chưa xác nhận:'+suffix]},materials));
+ assert.doesNotThrow(()=>validateAnalysis({...analysis,inferences:[]},materials));
  assert.throws(()=>validateAnalysis({...analysis,observations:[{...analysis.observations[0],quote:'not in original'}]},materials));
+});
+test('live-failure boundaries are explicit in each Web stage without repairing model JSON',async()=>{
+ for(const stage of ['analysis','writing','editing']){
+  const packet={stage,previous:stage==='analysis'?[]:[{value:analysis}],writing_prompt:'fixture\n'+JSON.stringify({materials})},profile=await analysisProfile(packet);let captured;
+  const result={response:analysis};assert.equal(await profile.run({run:async(_,input)=>{captured=input;return result;}},'model',{messages:[{role:'system',content:'Original constraints'}],response_format:{type:'json_schema',json_schema:{properties:{inferences:{}},required:[]}}}),result);
+  if(stage==='analysis'){
+   const rule=captured.response_format.json_schema.properties.inferences.items;
+   assert.equal(new RegExp(rule.pattern).test('Giả thuyết chưa xác nhận:'),false);assert.equal(new RegExp(rule.pattern).test(analysis.inferences[0]),true);assert.match(captured.messages[0].content,/inferences:\[\]/);
+  }else if(stage==='writing')assert.match(captured.messages[0].content,/direction is NOT evidence/);
+  else assert.match(captured.messages[0].content,/never emit an identical REWRITE/);
+ }
 });
 test('actual failed direction and unsupported observation are audited as immutable fields without rewriting',async()=>{
  const bad={...analysis,direction:'Sử dụng công cụ kiểm tra dữ kiện được UNESCO đề xuất để tìm bằng chứng hỗ trợ hoặc phản bác.'};
