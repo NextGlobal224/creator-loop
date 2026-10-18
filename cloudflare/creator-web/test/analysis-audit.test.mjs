@@ -38,6 +38,7 @@ test('native analysis choices never salvage malformed or incomplete output or we
  assert.equal(await profile.run({run:async()=>valid},'model',input),valid);
  assert.deepEqual(profile.diagnostic(),{response_received:true,response_channel:'choices',validation:'PASS'});assert.equal(profile.rejectedJSON(),null);
  for(const result of [native('```json\n'+JSON.stringify(analysis)+'\n```'),native(JSON.stringify(analysis),'length'),native(JSON.stringify({...analysis,inferences:['Giả thuyết: chưa đủ nhãn']})),native(JSON.stringify({...analysis,observations:[{...analysis.observations[0],quote:'invented'}]})),{...valid,choices:[...valid.choices,...valid.choices]}])await assert.rejects(()=>profile.run({run:async()=>result},'model',input));
+ await assert.rejects(()=>profile.run({run:async()=>({...native({text:JSON.stringify(analysis)}),response:analysis})},'model',input),/Unsupported native choice/);
 });
 test('rejected profile retains only parsed final JSON, never native reasoning or headers',async()=>{
  const packet={stage:'analysis',previous:[],writing_prompt:'fixture\n'+JSON.stringify({materials})},profile=await analysisProfile(packet);

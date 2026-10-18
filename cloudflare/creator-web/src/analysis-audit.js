@@ -7,6 +7,7 @@ const label='Giả thuyết chưa xác nhận:';
 // final JSON channel; never extract hidden reasoning, fences or partial JSON.
 function nativeJSON(result){
  const content=result?.choices?.[0]?.message?.content;
+ if(content!=null&&typeof content!=='string')throw Error('Unsupported native choice content');
  if(typeof content==='string'&&content.length){
   if(result.choices.length!==1||result.choices[0].finish_reason!=='stop'||result.choices[0].message.tool_calls?.length)throw Error('Incomplete native JSON choice');
   return {value:JSON.parse(content),replace:value=>({...result,choices:[{...result.choices[0],message:{...result.choices[0].message,content:JSON.stringify(value)}}]})};
