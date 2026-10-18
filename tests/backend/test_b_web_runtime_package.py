@@ -52,7 +52,7 @@ class WebRuntimePackageTests(unittest.TestCase):
             "utf-8",
         )
         source = (
-            Path(__file__).resolve().parents[1]
+            Path(__file__).resolve().parents[2]
             / "cloudflare/creator-web/package_runtime.py"
         )
         (web / "package_runtime.py").write_bytes(source.read_bytes())
