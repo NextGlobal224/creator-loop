@@ -54,12 +54,12 @@ test('caption and VIDEO cannot retain acknowledged unsupported premises in a sof
   assert.throws(()=>editFormat(ops,before,catalog),/Insufficient original assertion/,format);
  }
 });
-test('TEXT FFI uses exactly the existing Worker stage native packet',async()=>{
+test('Web TEXT retains Windows stage protocol with explicit analysis profile',async()=>{
  const source={purpose:'Giới thiệu lịch tham quan bảo tàng',audience:'Gia đình',style:'Rõ ràng',direction:'Giới thiệu lịch đã biết',format:'TEXT',materials:[{material_id:'m',text:catalog[0].source_quote,scope:'TEXT_PASSAGE',source_url:'https://example.org/fixture'}]};
  const packet={prompt:'fixture',writing_prompt:'fixture\n'+JSON.stringify(source),schema:{properties:{observations:{type:'array'},inferences:{type:'array'},direction:{type:'string'}}},stage:'analysis',previous:[]};
  const analysis={observations:[{material_id:'m',quote:catalog[0].source_quote,observation:catalog[0].source_quote}],inferences:[],direction:source.direction};
  const captured=[];const AI={run:async(_,input)=>{captured.push(input);return {response:analysis,usage:{prompt_tokens:1,completion_tokens:1}};}};
  const native=await worker.fetch(new Request('https://fixture.test/b/generate',{method:'POST',headers:{authorization:'Bearer fixture','content-type':'application/json'},body:JSON.stringify(packet)}),{AI,CREATOR_MODEL:'@cf/openai/gpt-oss-120b',CREATOR_KEY:'fixture',CREATOR_VERSION:{id:'fixture'}});
  const ffi=JSON.parse(await stage(AI,'@cf/openai/gpt-oss-120b',JSON.stringify({...packet,format:'TEXT'}),'fixture'));
- assert.equal(native.status,200);assert.equal(ffi.ok,true);assert.equal(ffi.model_calls,1);assert.deepEqual(captured[0],captured[1]);assert.deepEqual((await native.json()).stage_result,ffi.stage_result);
+ assert.equal(native.status,200);assert.equal(ffi.ok,true);assert.equal(ffi.model_calls,1);assert.notDeepEqual(captured[0],captured[1]);assert.equal(captured[1].response_format.json_schema.properties.inferences.items.pattern,'^Giả thuyết chưa xác nhận:');assert.deepEqual((await native.json()).stage_result,ffi.stage_result);
 });

@@ -845,6 +845,18 @@ class Database(DurableObject):
                         raise ValueError("Stage chain incomplete/reordered")
                     previous.append(item)
             content = json.loads(result["result"]["response"])
+            analysis_receipt = result.get("analysis_audit")
+            if (
+                not isinstance(analysis_receipt, dict)
+                or not isinstance(analysis_receipt.get("checks"), list)
+                or not analysis_receipt["checks"]
+                or any(
+                    check.get("issues") != []
+                    or check.get("verdict") not in ("SUPPORTED", "EDITORIAL_ONLY")
+                    for check in analysis_receipt["checks"]
+                )
+            ):
+                raise ValueError("Explicit immutable analysis audit missing")
             stages = result.get("stages")
             if (
                 not isinstance(stages, list)
@@ -907,6 +919,7 @@ class Database(DurableObject):
                             "requests": job["calls"],
                             "worker_version": str(self.env.CREATOR_VERSION.id),
                             "quality_audit": result["quality_audit"],
+                            "analysis_audit": analysis_receipt,
                             "stages": stages,
                         },
                         job["input_fingerprint"],
