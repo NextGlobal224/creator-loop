@@ -3,7 +3,7 @@ on:
   pull_request:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ['v*', 'b-web-v*']
 permissions:
   contents: read
 jobs:

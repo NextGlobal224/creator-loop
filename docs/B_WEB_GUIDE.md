@@ -73,3 +73,14 @@ giữ nguyên DO namespace/migration và media. Nếu cần quay DB về mốc c
 confirmed restore kèm backup phù hợp; không hứa downgrade schema bằng code cũ.
 Release Web phải công bố exact source/CI/deployment/bundle/checksum/evidence;
 chưa có các bằng chứng đó thì không gọi bản Web hoàn tất.
+# Phạm vi beta thủ công ưu tiên — 19/10/2026
+
+Profile `B_WEB_MANUAL_BETA` dành cho **Thủ công → TEXT** và **Thủ công →
+IMAGE_CAPTION**. Đăng nhập URL HTTPS, chọn Project, nhập/tải tư liệu, đọc phân tích
+và nguồn, tự chọn hướng rồi tạo và sửa Draft. Ảnh phải xem/tải được và có nguồn,
+quyền dùng; sau tải lại hoặc đăng nhập lại phải giữ nguồn, ảnh, version và review.
+Chưa có đủ hai đầu ra đạt chất lượng và release gắn deployment thì chưa nghiệm thu.
+
+Tự động vẫn giữ trong backlog/tính năng hiện có. VIDEO kế thừa sau khi C đạt
+contract và tích hợp qua B được kiểm chứng; không chạy VIDEO để nghiệm thu beta
+này. Beta thủ công không là toàn bộ B hoặc A/B/C hoàn tất. Luôn duyệt trước đăng.

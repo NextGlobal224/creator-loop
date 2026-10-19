@@ -6,12 +6,18 @@ import base64
 import hashlib
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
+
+try:
+    from scripts.b_web_profiles import FULL_PROFILE, required_pairs
+except ModuleNotFoundError:
+    from b_web_profiles import FULL_PROFILE, required_pairs
 
 ORIGIN = "https://creator-loop-b-web.creator-loop-ai-beta.workers.dev"
 
@@ -111,36 +117,78 @@ def browser_probe(targets: list[dict], password: str) -> dict:
             screenshot = "b-web-" + item["mode"] + "-" + item["format"] + ".png"
             page.screenshot(path=screenshot, full_page=True)
             screenshots.append(screenshot)
-        page.reload()
-        item = targets[-1]
-        page.wait_for_function(
-            "id => [...document.querySelector('#project').options].some(o=>o.value===id)",
-            arg=item["project_id"],
-        )
-        page.locator("#project").select_option(item["project_id"])
-        page.locator("#workflow").select_option(item["workflow_id"])
-        page.wait_for_function(
-            "id => document.querySelector('#versions').value===id",
-            arg=item["draft_version_id"],
-        )
-        assert (
-            hashlib.sha256(page.locator("#editor").input_value().encode()).hexdigest()
-            == item["body_sha256"]
-        )
+        for relogin in (False, True):
+            if relogin:
+                page.locator("#logout").click()
+                page.wait_for_url(re.compile(re.escape(ORIGIN) + r"/login(?:\.html)?$"))
+                page.locator("#password").fill(password)
+                page.locator("#login button").click()
+                page.wait_for_url(ORIGIN + "/")
+            else:
+                page.reload()
+            for item in targets:
+                page.wait_for_function(
+                    "id => [...document.querySelector('#project').options].some(o=>o.value===id)",
+                    arg=item["project_id"],
+                )
+                page.locator("#project").select_option(item["project_id"])
+                page.locator("#workflow").select_option(item["workflow_id"])
+                page.wait_for_function(
+                    "id => document.querySelector('#versions').value===id",
+                    arg=item["draft_version_id"],
+                )
+                assert (
+                    hashlib.sha256(
+                        page.locator("#editor").input_value().encode()
+                    ).hexdigest()
+                    == item["body_sha256"]
+                )
+                assert "CHƯA DUYỆT" in page.locator(".status").inner_text()
+                assert (
+                    page.locator("#image-source").input_value()
+                    == item["latest"]["image_provenance"]
+                )
+                assert (
+                    page.locator("#image-rights").input_value()
+                    == item["latest"]["image_usage_note"]
+                )
+                if item["format"] == "IMAGE_CAPTION":
+                    page.wait_for_function(
+                        "document.querySelector('#image-preview').naturalWidth > 0"
+                    )
+                    downloaded = page.request.get(
+                        ORIGIN + "/media/" + item["latest"]["image_file_id"]
+                    )
+                    assert downloaded.status == 200
+                    assert (
+                        hashlib.sha256(downloaded.body()).hexdigest()
+                        == item["image_sha256"]
+                    )
         context.close()
         browser.close()
     assert not submitted_jobs
     return {
         "status": "PASS",
         "actual_browser_login": True,
-        "six_ui_reopen_noop_save": True,
+        "all_selected_ui_reopen_noop_save": True,
+        "six_ui_reopen_noop_save": len(targets) == 6,
         "reload_reopen": True,
+        "relogin_all_selected_reopen": True,
         "screenshots": screenshots,
         "model_jobs_submitted": 0,
     }
 
 
-def probe(base: str, expected: list[dict], password: str, deployment: str) -> dict:
+def probe(
+    base: str,
+    expected: list[dict],
+    password: str,
+    deployment: str,
+    profile: str = FULL_PROFILE,
+) -> dict:
+    coverage = required_pairs(profile)
+    if len(expected) != len(coverage):
+        raise ValueError("All outputs for the explicit release profile are required")
     parsed = urlsplit(base)
     if (
         base != ORIGIN
@@ -216,8 +264,6 @@ def probe(base: str, expected: list[dict], password: str, deployment: str) -> di
     assert any(p["project_id"] == project["project_id"] for p in state["projects"])
     results = []
     browser_targets = []
-    if len(expected) != 6:
-        raise ValueError("All six deployed mode/format outputs are required")
     pairs = set()
     for item in expected:
         workflow = api("/api/workflows/" + item["workflow_id"])
@@ -247,13 +293,10 @@ def probe(base: str, expected: list[dict], password: str, deployment: str) -> di
                 ).hexdigest(),
             }
         )
-    assert pairs == {
-        (mode, form)
-        for mode in ("AUTOMATIC", "MANUAL")
-        for form in ("TEXT", "IMAGE_CAPTION", "VIDEO")
-    }
+    assert pairs == coverage
     return {
         "format": "B_WEB_INDEPENDENT_V1",
+        "release_scope": profile,
         "observed_at": time.time(),
         "origin": base,
         "environment": "GitHub-hosted Ubuntu",
@@ -274,6 +317,9 @@ if __name__ == "__main__":
         json.loads(os.environ["B_WEB_EXPECTED"]),
         os.environ["B_WEB_QA_PASSWORD"],
         os.environ["B_WEB_DEPLOYMENT"],
+        os.environ.get("B_WEB_RELEASE_SCOPE", FULL_PROFILE),
     )
     Path("b-web-independent.json").write_text(json.dumps(result, indent=2), "utf-8")
-    print("Independent cloud storage/auth/six-output reopen PASS; zero model calls")
+    print(
+        "Independent cloud storage/auth/selected-output reopen PASS; zero model calls"
+    )

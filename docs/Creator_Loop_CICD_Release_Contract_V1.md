@@ -120,4 +120,27 @@ below applies. No AI APPROVE, waived protection or publication to Facebook.
 
 ### Tagged beta publication (all profiles)
 
+### B Web manual beta — explicit user amendment 19/10/2026
+
+`release_scope=B_WEB_MANUAL_BETA` qualifies only MANUAL TEXT and MANUAL
+IMAGE_CAPTION. Both require real source-grounded Vietnamese output, actual image
+bytes with provenance/rights, saved/reopened original and edited versions/review,
+authenticated durable cloud storage, progress/cancel/idempotency, independent
+HTTPS browser proof and exact reviewed source/required CI/deployment/tag/artifact/
+checksum/publication/redownload. No local or storage-only PASS substitutes quality.
+The full `B_WEB` six-flow profile, desktop B scope, stable and full-beta gates
+remain unchanged. Automatic stays in the backlog and existing features remain.
+VIDEO inheritance awaits C contract acceptance and verified B integration; no
+new VIDEO run or VIDEO evidence is required for this manual-beta release.
+Canonical Windows Access-denied backup still blocks principal data transfer;
+isolated development/QA is allowed and cannot certify the principal backup.
+Keep Windows beta.2 immutable, A/C status, grants/reservations/failures, $0 and
+manual approval before publication. Two qualified flows do not complete all B.
+
+Web-only immutable tags use `b-web-v<web-version>-beta.<sequence>` and trigger
+the same required CI/runtime build. They do not trigger stable auto-publication
+or replace the Windows numeric version/tag. Qualify and publish the exact tagged
+Web runtime archive with its SHA-256 and observed deployment; then redownload it.
+The following `v<app-version>` executable rules apply to desktop artifacts.
+
 Beta tags use `v<actual numeric app version>-beta.<positive sequence>`; this does not change the binary's numeric app_version. Tag from reviewed main triggers the unchanged required CI build; stable auto-publication skips beta tags. Agent downloads that immutable tagged ZIP, completes native eligibility and writes a sanitized structured receipt binding commit/build-run/original manifest/ZIP/EXE. Only then dispatch `publish_beta.yml`: validate exact tag/main/build jobs, finalize metadata without rebuilding ZIP, check every file and all beta scopes, publish identical bytes with `--prerelease`. Missing/stale/source-only/mock QA is refused. Default manifest writer remains development. Stable checker/24 criteria are retained; exactly three user-approved stable deferrals are enumerated, never entire requirement-row exclusions. No new scope or review/branch-protection bypass is authorized by the receipt.
