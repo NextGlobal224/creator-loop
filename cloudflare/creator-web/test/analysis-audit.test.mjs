@@ -95,4 +95,5 @@ test('a hypothesis correction never converts actual unsupported procedure direct
  const fields=analysisFields(analysis),hash=await analysisHash(analysis);let captured;
  await profile.run({run:async(_,input)=>{captured=input;return {response:{article_sha256:'unchanged',analysis_audit:receipt(hash,fields)}};}},'model',{messages:[{role:'system',content:'Strict original article audit'}],response_format:{type:'json_schema',json_schema:{properties:{},required:[]}}});
  assert.match(captured.messages[0].content,/NOT verified/);assert.match(captured.messages[0].content,/capability\/benefit assertion hidden/);assert.match(captured.messages[0].content,/NOT_APPLICABLE needs a concrete comparison/);
+ assert.match(captured.messages[0].content,/later question explicitly referring back/);assert.match(captured.messages[0].content,/do not blanket-exempt later paragraphs/);
 });
