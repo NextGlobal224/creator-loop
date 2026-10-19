@@ -1,0 +1,18 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {boundedGrant,submitGrant} from '../public/operator-grant.mjs';
+test('explicit same-account confirmation is fresh, bounded and separate from inference',()=>{
+ const input={remaining:6000,observedAt:100000,confirmed:true},payload=boundedGrant(input,110000);
+ assert.equal(payload.remaining_calls,4);assert.equal(payload.expires_at,350);assert.equal(payload.observed_at,100);assert.equal(payload.estimated_chain_neurons,5000);
+ for(const change of [{confirmed:false},{observedAt:-20000},{observedAt:120000},{remaining:4999},{remaining:10001},{remaining:NaN}])assert.throws(()=>boundedGrant({...input,...change},110000));
+ assert.throws(()=>boundedGrant(input,220001));
+});
+test('operator key is only a transient header on one fixed-origin grant request',async()=>{
+ const calls=[],key='FIXTURE-OPERATOR-NONSECRET',data=boundedGrant({remaining:6000,observedAt:100000,confirmed:true},110000);
+ await submitGrant(async(...args)=>{calls.push(args);return {ok:true,json:async()=>({ok:true})};},key,data);
+ assert.equal(calls.length,1);const [url,options]=calls[0];assert.equal(url,'/api/grant');assert.equal(options.redirect,'error');assert.equal(options.credentials,'same-origin');assert.equal(options.cache,'no-store');assert.equal(options.headers['X-Operator-Key'],key);assert.doesNotMatch(options.body,/FIXTURE-OPERATOR/);assert.deepEqual(JSON.parse(options.body),data);
+});
+test('ambiguous grant response is never retried and does not enqueue a job',async()=>{
+ let calls=0;await assert.rejects(()=>submitGrant(async()=>{calls++;throw Error('Lost ACK');},'fixture',{}));assert.equal(calls,1);
+ for(const status of [400,401,403,500])await assert.rejects(()=>submitGrant(async()=>({ok:false,status}),'fixture',{}));
+});

@@ -62,6 +62,11 @@ an empty array is preferable to a bare label. Web stage instructions distinguish
 source content from tool applicability and require an actual textual change for
 REWRITE. These instructions preserve the existing fail-closed edit/audit guards;
 they do not repair a model response or establish semantic acceptance.
+The Web analysis binding requests medium reasoning from the same pinned Worker
+model, with the existing token cap and one-call boundary. Live low-effort output
+had repeatedly invented efficacy/confirmation-count rules; a full immutable
+audit rejected it. This stage setting does not alter the Codex agent model or
+effort, the Windows Worker deployment, or the remaining stage settings.
 
 Sources checked 18 October 2026:
 [Python packages](https://developers.cloudflare.com/workers/languages/python/packages/),
