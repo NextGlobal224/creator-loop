@@ -114,3 +114,11 @@ article/analysis checks. Final-channel diagnostics record only a recognized
 finish reason, UTF-8 content length and strict JSON parse status, never final
 text or hidden reasoning. Incomplete JSON remains a failure. These changes are
 not quality or release acceptance; the failed pilot history is retained.
+
+Web editing additionally constrains each expanded native REWRITE replacement
+against the exact original segment with JSON Schema `not`/`const`, and binds the
+same constraint into the textual SDK schema. Original receipts, mandatory edits,
+source checks, whitespace-normalized no-op rejection and final audit remain.
+This prevents an exact-copy rewrite in the declared schema, without repairing
+an output. Remote decoding support for the new constraint still needs live
+verification; offline schema validation alone cannot establish compatibility.
