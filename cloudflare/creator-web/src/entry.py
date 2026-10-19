@@ -633,6 +633,18 @@ class Database(DurableObject):
                         raise WebInputError(
                             "Checksum DB của backup không khớp; chưa khôi phục dữ liệu."
                         )
+                    incoming_objects = incoming.get("objects")
+                    if not isinstance(incoming_objects, list) or any(
+                        not isinstance(o, dict) for o in incoming_objects
+                    ):
+                        raise WebInputError(
+                            "Backup thiếu danh sách media; chưa khôi phục dữ liệu."
+                        )
+                    incoming_hashes = {o.get("sha256") for o in incoming_objects}
+                    if len(incoming_hashes) != len(incoming_objects):
+                        raise WebInputError(
+                            "Backup có media trùng hoặc không hợp lệ; chưa khôi phục dữ liệu."
+                        )
                     # Preserve the previous exact DB revision before replacement;
                     # immutable object bytes remain available for rollback.
                     previous = self.rows("SELECT * FROM checkpoint WHERE id=1")
@@ -641,7 +653,7 @@ class Database(DurableObject):
                         "pre-restore-" + key,
                         json.dumps(previous),
                     )
-                    for o in incoming["objects"]:
+                    for o in incoming_objects:
                         raw = base64.b64decode(o["content_base64"], validate=True)
                         if len(raw) != o["size"]:
                             raise WebInputError(
@@ -666,6 +678,10 @@ class Database(DurableObject):
                         for storage_key, sha, size in check.execute(
                             "SELECT storage_key,sha256,byte_size FROM asset_files WHERE role='ORIGINAL'"
                         ):
+                            if sha not in incoming_hashes:
+                                raise WebInputError(
+                                    "Gói backup thiếu media được DB tham chiếu; đã hủy toàn bộ khôi phục."
+                                )
                             if storage_key != "storage/originals/" + sha:
                                 raise WebInputError(
                                     "Backup dùng đường dẫn media không tương thích; đã hủy khôi phục."
