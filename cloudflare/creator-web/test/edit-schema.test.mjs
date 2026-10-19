@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {stage} from '../src/ai-bridge.js';
 import {constrainRewrites} from '../src/edit-schema.js';
+import {READABLE_CONTRACT_MARKER} from '../src/prompt-contract.js';
 import {compileSourcedArticle} from '../../creator-ai/src/quality.js';
 import {checkedWriting,plannedWriting,applyEditOperations} from '../../creator-ai/src/grounding.js';
 import {composeFormat,editFormat} from '../src/format-stages.js';
@@ -24,8 +25,10 @@ test('actual SDK editing constraints preserve receipts and align textual/native 
   let schema,calls=0;
   const result=JSON.parse(await stage({run:async(_,native)=>{
    calls++;schema=native.response_format.json_schema;
-   const marker='\nReturn only JSON matching this schema:\n',user=native.messages.find(m=>m.role==='user'&&m.content.includes(marker));
-   assert.deepEqual(JSON.parse(user.content.slice(user.content.lastIndexOf(marker)+marker.length)),schema);
+   const user=native.messages.find(m=>m.role==='user'&&m.content.includes(READABLE_CONTRACT_MARKER));
+   const readable=JSON.parse(user.content.slice(user.content.lastIndexOf(READABLE_CONTRACT_MARKER)+READABLE_CONTRACT_MARKER.length));
+   assert.match(readable.constraint_authority,/Full response_format JSON Schema/);
+   assert.deepEqual(Object.keys(readable.fields.edits.one_per_original_segment_in_order).sort(),['decision','index','note','premise_checks','quote_ids','replacement','support']);
    const branches=schema.properties.edits.items.oneOf.filter(b=>b.properties.decision.const==='REWRITE');
    assert.equal(branches.length,initial.segments.length);
    for(const b of branches){
