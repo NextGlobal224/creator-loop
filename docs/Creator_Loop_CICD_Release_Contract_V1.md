@@ -137,4 +137,10 @@ isolated development/QA is allowed and cannot certify the principal backup.
 Keep Windows beta.2 immutable, A/C status, grants/reservations/failures, $0 and
 manual approval before publication. Two qualified flows do not complete all B.
 
+Web-only immutable tags use `b-web-v<web-version>-beta.<sequence>` and trigger
+the same required CI/runtime build. They do not trigger stable auto-publication
+or replace the Windows numeric version/tag. Qualify and publish the exact tagged
+Web runtime archive with its SHA-256 and observed deployment; then redownload it.
+The following `v<app-version>` executable rules apply to desktop artifacts.
+
 Beta tags use `v<actual numeric app version>-beta.<positive sequence>`; this does not change the binary's numeric app_version. Tag from reviewed main triggers the unchanged required CI build; stable auto-publication skips beta tags. Agent downloads that immutable tagged ZIP, completes native eligibility and writes a sanitized structured receipt binding commit/build-run/original manifest/ZIP/EXE. Only then dispatch `publish_beta.yml`: validate exact tag/main/build jobs, finalize metadata without rebuilding ZIP, check every file and all beta scopes, publish identical bytes with `--prerelease`. Missing/stale/source-only/mock QA is refused. Default manifest writer remains development. Stable checker/24 criteria are retained; exactly three user-approved stable deferrals are enumerated, never entire requirement-row exclusions. No new scope or review/branch-protection bypass is authorized by the receipt.
