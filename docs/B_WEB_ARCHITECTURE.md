@@ -68,6 +68,20 @@ had repeatedly invented efficacy/confirmation-count rules; a full immutable
 audit rejected it. This stage setting does not alter the Codex agent model or
 effort, the Windows Worker deployment, or the remaining stage settings.
 
+The contract permits explicitly unconfirmed editorial hypotheses. The separate
+analysis audit can classify only `inferences.N` as `HYPOTHESIS`, retaining
+`truth_status:UNCONFIRMED`, checked factual background and no open issue. It
+does not establish the hypothesized effect or create a factual citation/review.
+Missing or invented background, tool applicability and institutional attribution
+remain unresolved; observations and direction cannot use this category.
+Analysis schema descriptions request an editorial content plan rather than a
+reader verification procedure. Audit leads must be compared with the actual
+immutable final text: a voluntary invitation without a promised result does
+not require proof of success, while hidden capability/benefit assertions do.
+The fifth live TEXT chain exposed both an unsupported direction and audit false
+positives; it remains failed. Offline category/schema tests do not establish
+native acceptance or new output quality.
+
 Sources checked 18 October 2026:
 [Python packages](https://developers.cloudflare.com/workers/languages/python/packages/),
 [Python FFI](https://developers.cloudflare.com/workers/languages/python/ffi/),

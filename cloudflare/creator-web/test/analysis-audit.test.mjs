@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {analysisFields,analysisHash,validateAnalysis,validateCoverage,analysisProfile} from '../src/analysis-audit.js';
+import {analysisFields,analysisHash,validateAnalysis,validateCoverage,analysisProfile,coverageSchema} from '../src/analysis-audit.js';
 const materials=[{material_id:'m',text:'COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến.'}];
 const catalog=[{material_id:'m',source_quote:materials[0].text}];
 const analysis={observations:[{material_id:'m',quote:materials[0].text,observation:materials[0].text}],inferences:['Giả thuyết chưa xác nhận: Bạn có thể cân nhắc hỏi lại người gửi.'],direction:'Đề xuất tự viết: hỏi đường dẫn gốc, không dự đoán kết quả.'};
@@ -68,4 +68,31 @@ test('rejected profile retains only parsed final JSON, never native reasoning or
  const result={headers:{authorization:'PRIVATE_HEADER_FIXTURE'},choices:[{finish_reason:'stop',message:{reasoning_content:'PRIVATE_REASONING_FIXTURE',content:JSON.stringify(invalid)}}]};
  await assert.rejects(()=>profile.run({run:async()=>result},'model',{messages:[{role:'system',content:'Analysis'}],response_format:{type:'json_schema',json_schema:{properties:{inferences:{}}}}}));
  assert.deepEqual(profile.rejectedJSON(),invalid);assert.deepEqual(profile.diagnostic(),{response_received:true,response_channel:'choices',validation:'REJECTED'});assert.doesNotMatch(JSON.stringify([profile.diagnostic(),profile.rejectedJSON()]),/PRIVATE_/);
+});
+
+test('unconfirmed hypothesis is distinct from a verified fact and cannot exempt direction or unsupported background',async()=>{
+ const value={...analysis,inferences:['Giả thuyết chưa xác nhận: Cách kể bằng một cuộc trò chuyện có thể phù hợp với độc giả này.']};
+ const fields=analysisFields(value),hash=await analysisHash(value),r=receipt(hash,fields);
+ r.checks[1]={field:'inferences.0',verdict:'HYPOTHESIS',truth_status:'UNCONFIRMED',premise_checks:[{assertion:materials[0].text,quote_ids:[0],supported:true}],reason:'Source background only; editorial fit remains untested, no demonstrated effect.',issues:[]};
+ assert.equal(validateCoverage(r,hash,fields,catalog).checks[1].truth_status,'UNCONFIRMED');
+ for(const mutate of [x=>x.checks[1].truth_status='VERIFIED',x=>delete x.checks[1].truth_status,x=>x.checks[1].premise_checks=[],x=>x.checks[1].premise_checks[0].supported=false,x=>x.checks[1].premise_checks[0].quote_ids=[],x=>x.checks[1].issues.push('Invented tool availability'),x=>Object.assign(x.checks[2],{verdict:'HYPOTHESIS',truth_status:'UNCONFIRMED'}),x=>Object.assign(x.checks[0],{verdict:'HYPOTHESIS',truth_status:'UNCONFIRMED'})]){
+  const changed=structuredClone(r);mutate(changed);assert.throws(()=>validateCoverage(changed,hash,fields,catalog));
+ }
+ const metadataCatalog=[{material_id:'m',source_quote:'Hướng biên tập: công cụ này luôn tìm được tác giả.'}];
+ assert.throws(()=>validateCoverage(r,hash,fields,metadataCatalog),/factual source excerpts/);
+ const schema=coverageSchema(hash,fields,catalog);
+ const hypotheses=schema.properties.checks.items.oneOf.filter(x=>x.properties.verdict.const==='HYPOTHESIS');
+ assert.equal(hypotheses.length,1);assert.equal(hypotheses[0].properties.field.const,'inferences.0');assert.equal(hypotheses[0].properties.truth_status.const,'UNCONFIRMED');
+});
+
+test('a hypothesis correction never converts actual unsupported procedure directions into accepted analysis',async()=>{
+ for(const text of ['Sử dụng công cụ kiểm tra dữ kiện được UNESCO đề xuất để tìm bằng chứng hỗ trợ hoặc phản bác.','Kiểm tra bằng chứng kèm theo và so sánh với công cụ kiểm chứng dữ kiện của UNESCO.']){
+  const value={...analysis,direction:text},fields=analysisFields(value),hash=await analysisHash(value),r=receipt(hash,fields);
+  r.checks[2]={field:'direction',verdict:'UNRESOLVED',premise_checks:[{assertion:text,quote_ids:[],supported:false}],reason:'Selected notes do not establish this tool applicability.',issues:['Unsupported institutional procedure']};
+  assert.throws(()=>validateCoverage(r,hash,fields,catalog));assert.equal(value.direction,text);
+ }
+ const profile=await analysisProfile({stage:'source_audit',previous:[{value:analysis}],writing_prompt:'fixture\n'+JSON.stringify({materials})});
+ const fields=analysisFields(analysis),hash=await analysisHash(analysis);let captured;
+ await profile.run({run:async(_,input)=>{captured=input;return {response:{article_sha256:'unchanged',analysis_audit:receipt(hash,fields)}};}},'model',{messages:[{role:'system',content:'Strict original article audit'}],response_format:{type:'json_schema',json_schema:{properties:{},required:[]}}});
+ assert.match(captured.messages[0].content,/NOT verified/);assert.match(captured.messages[0].content,/capability\/benefit assertion hidden/);assert.match(captured.messages[0].content,/NOT_APPLICABLE needs a concrete comparison/);
 });
