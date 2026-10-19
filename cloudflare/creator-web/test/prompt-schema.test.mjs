@@ -34,6 +34,7 @@ test('actual SDK fourth-call prompt/native schemas agree across all three Draft 
    return {response:{article_sha256:hash,finding_checks:requirements.map((_,index)=>({index,verdict:'ADDRESSED',segment_indexes:compiled.segments.map(s=>s.index),reason:'Synthetic protocol fixture, no quality acceptance'})),segments:compiled.segments.map((s,index)=>({index,kind:s.citation?'SOURCE_FACT':'ADVICE',issues:[]})),analysis_audit:{analysis_sha256:await analysisHash(analysis),checks:analysisFields(analysis).map(f=>({field:f.field,verdict:f.field==='direction'?'EDITORIAL_ONLY':'SUPPORTED',premise_checks:f.field==='direction'?[]:fact.premise_checks,reason:'Fixture only',issues:[]}))}},usage:{}};
   }},'@cf/openai/gpt-oss-120b',JSON.stringify(packet),'fixture-version'));
   assert.equal(calls,1,format);assert.equal(result.ok,true,JSON.stringify(result));
+  assert.equal(input.max_tokens,6000,format);
   const marker='\nReturn only JSON matching this schema:\n';
   const user=input.messages.find(m=>m.role==='user'&&m.content.includes(marker));
   const schema=JSON.parse(user.content.slice(user.content.lastIndexOf(marker)+marker.length));
