@@ -551,6 +551,13 @@ distinguishes an unconfirmed hypothesis from verified facts and describes direct
 as a content plan. It preserves mandatory source/field/hash/issue checks and
 manual publication review. Direct offline tests do not qualify this new runtime,
 any of the six real mode/format outputs, or the B Web release.
+The sixth automatic TEXT attempt also failed (no Draft). Exact packet-hash and
+native SDK-input replay exposed inconsistent textual/native schema descriptions
+and overlapping analysis instructions. The Web-only correction consolidates
+the content-planning task and binds both schema representations without
+changing source data or model output. Audit wording distinguishes a question
+about the commissioned fictional scene from an observed real event. Actual new
+cloud quality, all six mode/format outputs and release gates remain unverified.
 
 Chỉ báo **product hoàn tất** khi cả 24 dòng bắt buộc có phần triển khai, kiểm tra luồng sử dụng thực tế, CI required trên đúng commit, bản chạy/build cùng hướng dẫn, và toàn bộ release gate V1 đã được xác minh. Nếu thiếu, ghi **đang triển khai**, **bị chặn** hoặc **chờ nghiệm thu** với bằng chứng và bước tiếp theo. Một PR xanh hoặc một Gate đạt không thay thế điều kiện cuối.
 

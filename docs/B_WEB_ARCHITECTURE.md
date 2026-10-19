@@ -82,6 +82,17 @@ The fifth live TEXT chain exposed both an unsupported direction and audit false
 positives; it remains failed. Offline category/schema tests do not establish
 native acceptance or new output quality.
 
+The sixth live attempt still invented a tool-based direction. Exact request-hash
+replay showed that the SDK's textual prompt schema lacked the Web field
+descriptions present in the native decoding schema, while accumulated system
+instructions still asked for a practical reader direction. Web analysis now uses
+one coherent content-planning instruction and synchronizes the SDK prompt's
+schema suffix with the native schema, preserving all selected source bytes.
+No response is rewritten. The auditor also distinguishes a later reference to
+an explicitly fictional opening from a claim about a real observed event;
+real-world premises and full article development remain checked separately.
+Only the opening can retain the HYPOTHETICAL segment classification.
+
 Sources checked 18 October 2026:
 [Python packages](https://developers.cloudflare.com/workers/languages/python/packages/),
 [Python FFI](https://developers.cloudflare.com/workers/languages/python/ffi/),
