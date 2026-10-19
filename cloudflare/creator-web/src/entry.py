@@ -330,6 +330,29 @@ class Database(DurableObject):
             )
 
     async def authorized(self, request, path, method, data):
+        if path == "/api/grant-status" and method == "GET":
+            found = self.rows("SELECT record FROM control WHERE id='grant'")
+            grant = json.loads(found[0]["record"]) if found else {}
+            now = time.time()
+            available = (
+                type(grant.get("remaining_calls")) is int
+                and grant["remaining_calls"] >= 4
+                and grant.get("expires_at", 0) > now
+                and 0 <= now - grant.get("observed_at", 0) <= 120
+            )
+            return reply(
+                {
+                    "available": available,
+                    "valid_until": min(
+                        grant.get("expires_at", 0), grant.get("observed_at", 0) + 120
+                    )
+                    if available
+                    else None,
+                    "message": "Quyền operator còn hiệu lực; đây không phải phép đo quota trực tiếp."
+                    if available
+                    else "Chưa có quyền operator còn hiệu lực. Mở Bước 4, kiểm đúng tài khoản Free và đủ 5.000 Neurons rồi nhờ operator cho phép một lượt. Nếu thiếu quota, chờ ngoài ứng dụng; không gửi AI hoặc tự nâng gói.",
+                }
+            )
         if path == "/api/runtime" and method == "GET":
             sdk = import_from_javascript("creator_ai.mjs")
             return reply(

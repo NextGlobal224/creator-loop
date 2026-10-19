@@ -130,6 +130,42 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             self.storage.setAlarm.await_args.args[0], time.time() * 1000 - 1000
         )
 
+    async def test_grant_status_is_read_only_fresh_bounded_and_does_not_export_record(
+        self,
+    ):
+        live = {
+            "remaining_calls": 4,
+            "observed_at": 950,
+            "expires_at": 1100,
+            "private_extra": "fixture-not-exported",
+        }
+        for change, available in (
+            (None, False),
+            ({}, True),
+            ({"remaining_calls": 3}, False),
+            ({"remaining_calls": True}, False),
+            ({"observed_at": 800}, False),
+            ({"observed_at": 1001}, False),
+            ({"expires_at": 999}, False),
+        ):
+            with self.subTest(change=change):
+                grant = {**live, **(change or {})}
+                self.app.rows = lambda *_: (
+                    [] if change is None else [{"record": json.dumps(grant)}]
+                )
+                with (
+                    patch.object(self.loaded.time, "time", return_value=1000),
+                    patch.object(self.loaded, "reply", side_effect=lambda value: value),
+                ):
+                    result = await self.app.authorized(
+                        None, "/api/grant-status", "GET", {}
+                    )
+                self.assertEqual(result["available"], available)
+                self.assertEqual(set(result), {"available", "valid_until", "message"})
+                self.assertNotIn("fixture-not-exported", json.dumps(result))
+                self.assertEqual(result["valid_until"], 1070 if available else None)
+        self.storage.setAlarm.assert_not_awaited()
+
     async def test_existing_alarm_does_not_duplicate_or_replace_schedule(self):
         self.app.rows = lambda *_: [{"status": "QUEUED", "record": "{}"}]
         self.storage.getAlarm.return_value = 1000

@@ -24,3 +24,13 @@ export function changedDraftText(workflow,selected,editor){
   return editor.body_text!==original.body_text||editor.direction!==original.direction||
     workflow.output_format==='IMAGE_CAPTION'&&['image_file_id','image_provenance','image_usage_note'].some(k=>(editor[k]||'')!==(original[k]||''));
 }
+
+export function formProblem(data){
+ if(!data.project_id)return {field:'project',message:'Bước 1: tạo hoặc chọn một Project.'};
+ if(!data.material_ids?.length)return {field:'materials',message:'Bước 2: tích ô bên cạnh tư liệu cần dùng. Nếu chưa có, mở Nhập hoặc tải tư liệu; chọn ảnh caption ở mục Ảnh của bản nháp.'};
+ if(data.material_ids.length>8)return {field:'materials',message:'Chỉ chọn từ 1 đến 8 tư liệu cho một lượt.'};
+ if(!data.purpose?.trim())return {field:'purpose',message:'Bước 3: nhập mục đích của bài, ví dụ giải thích điều gì cho người đọc.'};
+ if(data.mode==='MANUAL'&&!data.direction?.trim())return {field:'direction',message:'Bước 3: nhập hướng nội dung bạn chọn ở chế độ Thủ công.'};
+ if(data.output_format==='IMAGE_CAPTION'&&(!data.draft_choices?.image_file_id?.trim()||!data.draft_choices.image_provenance?.trim()||!data.draft_choices.image_usage_note?.trim()))return {field:'draft-image',message:'Chọn ảnh đã tải, ghi nguồn ảnh và căn cứ quyền sử dụng trong mục Ảnh của bản nháp. URL ảnh không thay cho tệp ảnh.'};
+ return null;
+}

@@ -10,13 +10,18 @@ kênh local; không đặt mật khẩu vào URL, Git, ảnh chụp hay báo cá
 HttpOnly/Secure có hạn 12 giờ. Đăng xuất thu hồi phiên; mọi API/media đều yêu cầu
 phiên hợp lệ. Không chia sẻ cookie, operator key hoặc credential Cloudflare.
 
-1. Tạo/chọn Project; nhập mục đích, người đọc, phong cách.
+1. Tạo/chọn Project ở Bước 1. Project chưa có bản nháp sẽ có trình sửa trống;
+   nút lưu chỉ bật sau khi mở được phân tích/bản nháp của đúng Project.
 2. Nhập text hoặc tải tư liệu, ghi nguồn và tình trạng quyền đã biết. Chọn các tư
    liệu text thực sự cần phân tích. Tệp text phải UTF-8/NFC; URL không thay cho
    nội dung đã đọc. Ảnh/video/audio chưa xử lý không tự thành bằng chứng text.
-3. Chọn Tự động hoặc Thủ công; chế độ thủ công cần hướng rõ ràng. Chọn TEXT,
-   IMAGE_CAPTION hoặc VIDEO. Caption cần chọn ảnh đã tải và căn cứ nguồn/quyền.
-4. Operator mở mục **Operator · cho phép một lượt trong quota Free** ngay trên
+3. Bước 3 mặc định **Thủ công**; nhập mục đích, người đọc, phong cách và hướng
+   nội dung bạn chọn. Beta ưu tiên TEXT hoặc IMAGE_CAPTION. Với caption, chọn
+   tệp ảnh đã tải ở **Ảnh của bản nháp**, xem ảnh rồi ghi nguồn/quyền sử dụng;
+   lựa chọn này độc lập với ảnh của bản đang sửa ở Bước 5. Tự động còn trong
+   backlog; VIDEO chờ C nghiệm thu và tích hợp được kiểm chứng.
+4. Đọc trạng thái quyền ngay trên form. Nếu chưa có quyền còn hiệu lực, operator
+   mở mục **Operator · kiểm quota và cho phép một lượt** ngay trên
    Web. Kiểm đúng tài khoản Cloudflare của ứng dụng và gói Free; đọc Neurons còn
    lại, trừ cả usage đã gửi mà dashboard chưa cộng. Nhập số còn lại (ít nhất
    5.000), mã operator riêng của ứng dụng và xác nhận vừa kiểm trong 2 phút.
@@ -24,14 +29,21 @@ phiên hợp lệ. Không chia sẻ cookie, operator key hoặc credential Cloud
    chưa tạo job AI. Mã operator được xóa khỏi form sau thao tác, không lưu vào
    browser storage. Không nhập API token Cloudflare vào form này, không đưa mã
    vào URL, ảnh chụp hoặc báo cáo. Quyền mới không xóa request/usage lịch sử.
-   Sau đó chủ động bấm **Phân tích và viết nháp**. Tác vụ
+   Sau đó chủ động bấm **Tạo bản nháp AI**. Thiếu tư liệu, mục đích, hướng hoặc
+   lựa chọn ảnh thì form chỉ rõ bước cần sửa trước khi gửi; thiếu quyền operator
+   thì mở hướng dẫn Bước 4, chưa tạo yêu cầu AI. Trạng thái quyền không phải
+   phép đo quota trực tiếp. Nếu quota không đủ, chưa bấm cho phép hay tạo AI.
+   Tác vụ
    lưu trên cloud, không phụ thuộc cửa sổ trình duyệt. Mở lại để đọc tiến độ/kết
    quả. Dừng ngăn bước tiếp theo và commit; lời gọi model đã gửi có thể vẫn dùng
    quota. Không tự retry khi kết quả request chưa rõ.
 5. Đọc toàn bộ phân tích, nguồn và Draft. Tự động lưu sealed Draft; thủ công cho
    phép chọn/sửa rồi lưu. Mỗi lần sửa tạo phiên bản mới; chọn lịch sử để đọc lại.
    Sau mất kết nối, dùng nút kiểm tra yêu cầu chờ; không gửi lượt khác để đoán kết
-   quả. Yêu cầu trước restore không được tự replay thành công.
+   quả. Chỉ nút **Bỏ yêu cầu mà server xác nhận chưa có** mới xóa yêu cầu chờ
+   sau xác nhận 404; kiểm tra trạng thái không tự gửi lại. Yêu cầu trước restore
+   không được tự replay thành công. Đổi Project/bản/phiên bản khi có sửa chưa
+   lưu cần xác nhận; hủy chuyển giữ nguyên nội dung đang sửa.
 
 Nội dung vẫn CHƯA DUYỆT. Kiểm factual/nguồn, phạm vi suy luận và quyền media, rồi
 duyệt thủ công trước đăng bằng quy trình publication riêng. Web không tự đăng
