@@ -19,6 +19,7 @@ from uuid import uuid4
 
 from creator_loop.backend.analysis.generation_contract import response_schema
 from creator_loop.backend.analysis.generation_prompt import generation_prompt
+from creator_loop.backend.analysis.web_analysis_audit import validate_analysis_audit
 from creator_loop.backend.creator.web_domain import WebDomain, request_from_json
 from creator_loop.backend.runtime.database import (
     MIGRATIONS,
@@ -846,17 +847,9 @@ class Database(DurableObject):
                     previous.append(item)
             content = json.loads(result["result"]["response"])
             analysis_receipt = result.get("analysis_audit")
-            if (
-                not isinstance(analysis_receipt, dict)
-                or not isinstance(analysis_receipt.get("checks"), list)
-                or not analysis_receipt["checks"]
-                or any(
-                    check.get("issues") != []
-                    or check.get("verdict") not in ("SUPPORTED", "EDITORIAL_ONLY")
-                    for check in analysis_receipt["checks"]
-                )
-            ):
-                raise ValueError("Explicit immutable analysis audit missing")
+            validate_analysis_audit(
+                analysis_receipt, previous[0]["value"], content, job["sources"]
+            )
             stages = result.get("stages")
             if (
                 not isinstance(stages, list)
