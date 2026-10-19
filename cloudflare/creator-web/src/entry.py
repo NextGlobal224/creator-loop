@@ -14,13 +14,17 @@ import zlib
 from contextlib import closing
 from dataclasses import asdict
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from creator_loop.backend.analysis.generation_contract import response_schema
 from creator_loop.backend.analysis.generation_prompt import generation_prompt
 from creator_loop.backend.analysis.web_analysis_audit import validate_analysis_audit
-from creator_loop.backend.creator.web_domain import WebDomain, request_from_json
+from creator_loop.backend.creator.web_domain import (
+    WebDomain,
+    WebInputError,
+    request_from_json,
+)
 from creator_loop.backend.runtime.database import (
     MIGRATIONS,
     _connect_write,
@@ -181,7 +185,9 @@ class Database(DurableObject):
             "size"
         ]
         if total + len(raw) > MAX_MEDIA_TOTAL:
-            raise ValueError("Private beta media capacity reached")
+            raise WebInputError(
+                "Kho media beta đã đạt giới hạn tổng 8 MiB. Xuất backup; không tự xóa dữ liệu hoặc nâng gói."
+            )
         self.sql.exec("INSERT INTO objects VALUES(?,?)", expected, len(raw))
         for position, offset in enumerate(range(0, len(raw), 48000)):
             self.sql.exec(
@@ -211,7 +217,9 @@ class Database(DurableObject):
             raw = db.serialize()
         compressed = base64.b64encode(zlib.compress(raw)).decode()
         if len(raw) > 16 * 1024 * 1024 or len(compressed) > 1800000:
-            raise ValueError("Private beta database capacity reached; export backup")
+            raise WebInputError(
+                "DB beta đã đạt giới hạn lưu trữ. Xuất backup; chưa xác nhận lưu thay đổi."
+            )
         changed = self.rows(
             "INSERT INTO checkpoint VALUES(1,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload,sha256=excluded.sha256 WHERE checkpoint.revision=? RETURNING revision",
             revision + 1,
@@ -313,6 +321,8 @@ class Database(DurableObject):
             return Response("", status=303, headers={**HEADERS, "Location": "/login"})
         try:
             return await self.authorized(request, path, method, data)
+        except WebInputError as error:
+            return reply({"error": str(error)}, error.status)
         except (ValueError, KeyError, TypeError, sqlite3.Error):
             return reply(
                 {
@@ -487,9 +497,12 @@ class Database(DurableObject):
             if method == "GET":
                 if path == "/api/state":
                     await self.recover_wakeup()
+                    project_id = parse_qs(urlsplit(request.url).query).get(
+                        "project_id", [None]
+                    )[0]
                     return reply(
                         {
-                            **domain.state(),
+                            **domain.state(project_id),
                             "revision": revision,
                             "version": VERSION,
                             "jobs": [
@@ -543,33 +556,56 @@ class Database(DurableObject):
                 if path == "/api/projects":
                     result = domain.project(data.get("title", ""))
                 elif path == "/api/materials":
+                    if not data.get("project_id"):
+                        raise WebInputError("Chọn Project trước khi lưu tư liệu.")
                     raw = base64.b64decode(data.pop("content_base64"), validate=True)
                     result = domain.intake(data, raw)
                     self.put_object(result["sha256"], raw)
+                elif path == "/api/material-links":
+                    result = domain.link_material(
+                        data.get("project_id", ""), data.get("material_id", "")
+                    )
                 elif path == "/api/restore":
-                    if (
-                        data.get("confirm_data_after_backup_may_be_lost") is not True
-                        or data.get("expected_revision") != revision
-                        or self.rows(
-                            "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING')"
+                    if data.get("confirm_data_after_backup_may_be_lost") is not True:
+                        raise WebInputError(
+                            "Đọc cảnh báo và xác nhận trước khi khôi phục backup."
                         )
+                    if data.get("expected_revision") != revision:
+                        raise WebInputError(
+                            "Dữ liệu cloud đã thay đổi sau lần mở trang. Tải lại, kiểm tra dữ liệu hiện tại rồi chọn và xác nhận backup lại; chưa khôi phục gì.",
+                            409,
+                        )
+                    if self.rows(
+                        "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING')"
                     ):
-                        raise ValueError(
-                            "Explicit restore confirmation/current revision/no live job required"
+                        raise WebInputError(
+                            "Còn tác vụ AI đang chạy. Kiểm tra/dừng và chờ tác vụ kết thúc trước khi khôi phục.",
+                            409,
                         )
                     incoming = data.get("backup", {})
                     if (
-                        incoming.get("format") != "CREATOR_WEB_BACKUP_V1"
+                        not isinstance(incoming, dict)
+                        or incoming.get("format") != "CREATOR_WEB_BACKUP_V1"
+                        or incoming.get("version") != VERSION
                         or len(incoming.get("checkpoint", [])) != 1
                     ):
-                        raise ValueError("Unsupported backup")
+                        raise WebInputError(
+                            "Backup không tương thích hoặc chưa có checkpoint. Chọn gói DB + media do bản Web này xuất; không dùng tệp tư liệu."
+                        )
                     snapshot = incoming["checkpoint"][0]
-                    restored = unpack_database(snapshot["payload"])
+                    try:
+                        restored = unpack_database(snapshot["payload"])
+                    except (ValueError, KeyError, TypeError, zlib.error):
+                        raise WebInputError(
+                            "Backup hỏng hoặc vượt giới hạn DB; dữ liệu hiện tại được giữ nguyên."
+                        ) from None
                     if (
                         len(restored) > 16 * 1024 * 1024
                         or digest(restored) != snapshot["sha256"]
                     ):
-                        raise ValueError("Invalid backup digest")
+                        raise WebInputError(
+                            "Checksum DB của backup không khớp; chưa khôi phục dữ liệu."
+                        )
                     # Preserve the previous exact DB revision before replacement;
                     # immutable object bytes remain available for rollback.
                     previous = self.rows("SELECT * FROM checkpoint WHERE id=1")
@@ -581,7 +617,9 @@ class Database(DurableObject):
                     for o in incoming["objects"]:
                         raw = base64.b64decode(o["content_base64"], validate=True)
                         if len(raw) != o["size"]:
-                            raise ValueError("Backup media size mismatch")
+                            raise WebInputError(
+                                "Kích thước media trong backup không khớp; đã hủy khôi phục, dữ liệu hiện tại giữ nguyên."
+                            )
                         self.put_object(o["sha256"], raw)
                     # Remove disposable WAL/SHM by closing all projection readers.
                     for suffix in ("-wal", "-shm"):
@@ -602,12 +640,14 @@ class Database(DurableObject):
                             "SELECT storage_key,sha256,byte_size FROM asset_files WHERE role='ORIGINAL'"
                         ):
                             if storage_key != "storage/originals/" + sha:
-                                raise ValueError(
-                                    "Backup has unsupported storage locator"
+                                raise WebInputError(
+                                    "Backup dùng đường dẫn media không tương thích; đã hủy khôi phục."
                                 )
                             raw = self.object_bytes(sha)
                             if len(raw) != size or digest(raw) != sha:
-                                raise ValueError("Backup referenced media missing")
+                                raise WebInputError(
+                                    "Backup thiếu media hoặc checksum không khớp; đã hủy khôi phục."
+                                )
                     self.sql.exec(
                         "UPDATE receipts SET response=?",
                         json.dumps({"restored_away": True, "restore_id": key}),
@@ -644,6 +684,9 @@ class Database(DurableObject):
                             raise ValueError(
                                 "Choose an uploaded image and state its source/usage basis before generation"
                             )
+                        domain.require_project_image(
+                            creator.project_id, choices["image_file_id"]
+                        )
                         from creator_loop.backend.library.originals import (
                             verify_original_file,
                         )
@@ -696,6 +739,7 @@ class Database(DurableObject):
                 else:
                     raise ValueError("Unknown mutation")
                 self.commit(root, revision)
+                result["revision"] = revision + 1
                 self.sql.exec(
                     "INSERT INTO receipts VALUES(?,?,?)",
                     key,
@@ -710,7 +754,23 @@ class Database(DurableObject):
                 # strand a durable job without a durable wake-up. Revision CAS
                 # still refuses any projection made stale during this await.
                 await self.ctx.storage.setAlarm(int(time.time() * 1000) + 1000)
-            result = self.ctx.storage.transactionSync(mutate)
+            try:
+                result = self.ctx.storage.transactionSync(mutate)
+            except WebInputError:
+                raise
+            except (
+                ValueError,
+                KeyError,
+                TypeError,
+                sqlite3.Error,
+                zlib.error,
+                RuntimeError,
+            ):
+                if path == "/api/restore":
+                    raise WebInputError(
+                        "Backup hỏng, sai schema hoặc thiếu media. Đã hủy toàn bộ khôi phục; DB/media hiện tại giữ nguyên."
+                    ) from None
+                raise
             return reply(result)
         finally:
             self.discard_projection(root)
