@@ -16,3 +16,9 @@ test('ambiguous grant response is never retried and does not enqueue a job',asyn
  let calls=0;await assert.rejects(()=>submitGrant(async()=>{calls++;throw Error('Lost ACK');},'fixture',{}));assert.equal(calls,1);
  for(const status of [400,401,403,500])await assert.rejects(()=>submitGrant(async()=>({ok:false,status}),'fixture',{}));
 });
+
+test('Paid accepts only verified included allocation without increasing old forecast',()=>{
+ const input={remaining:6000,observedAt:100000,confirmed:true,accountPlan:'Paid',includedOnlyConfirmed:true};
+ const payload=boundedGrant(input,110000);assert.equal(payload.account_plan,'Paid');assert.equal(payload.included_only,true);assert.equal(payload.max_extra_charge_usd,0);assert.equal(payload.estimated_chain_neurons,5000);assert.equal(payload.grant,'B-finish-20261017-free');
+ for(const change of [{includedOnlyConfirmed:false},{remaining:4999},{remaining:10001},{accountPlan:'Unlimited'}])assert.throws(()=>boundedGrant({...input,...change},110000));
+});

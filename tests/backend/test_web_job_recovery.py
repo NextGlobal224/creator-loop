@@ -134,11 +134,17 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self,
     ):
         live = {
+            "grant": "B-finish-20261017-free",
+            "model": "fixture-model",
+            "account_plan": "Free",
+            "remaining_neurons": 6000,
+            "estimated_chain_neurons": 5000,
             "remaining_calls": 4,
             "observed_at": 950,
             "expires_at": 1100,
             "private_extra": "fixture-not-exported",
         }
+        self.app.env = types.SimpleNamespace(CREATOR_MODEL="fixture-model")
         for change, available in (
             (None, False),
             ({}, True),
@@ -171,6 +177,36 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.storage.getAlarm.return_value = 1000
         await self.app.recover_wakeup()
         self.storage.setAlarm.assert_not_awaited()
+
+    def test_paid_grant_retains_included_only_ceiling_and_full_forecast(self):
+        grant = dict(
+            grant="B-finish-20261017-free",
+            model="fixture-model",
+            account_plan="Paid",
+            included_only=True,
+            max_extra_charge_usd=0,
+            remaining_calls=4,
+            observed_at=950,
+            expires_at=1100,
+            remaining_neurons=6000,
+            estimated_chain_neurons=5000,
+        )
+        self.assertTrue(self.loaded.valid_included_grant(grant, "fixture-model", 1000))
+        for change in (
+            {"included_only": False},
+            {"max_extra_charge_usd": 1},
+            {"max_extra_charge_usd": False},
+            {"remaining_neurons": 4999},
+            {"remaining_neurons": 10001},
+            {"estimated_chain_neurons": 1},
+            {"observed_at": 1001},
+            {"account_plan": "Unlimited"},
+        ):
+            self.assertFalse(
+                self.loaded.valid_included_grant(
+                    {**grant, **change}, "fixture-model", 1000
+                )
+            )
 
     async def test_running_owner_loss_is_failed_unknown_without_another_call(self):
         original = {

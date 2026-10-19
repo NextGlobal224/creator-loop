@@ -37,6 +37,7 @@ for source in [
             "app.js",
             "pending.mjs",
             "operator-grant.mjs",
+            "intake.mjs",
             "_headers",
         )
     ),

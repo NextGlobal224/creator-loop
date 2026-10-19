@@ -55,6 +55,41 @@ def digest(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def valid_included_grant(data, model, now):
+    """Paid is not unlimited: retain a bounded included-only, fresh reservation."""
+    return (
+        isinstance(data, dict)
+        and data.get("grant") == "B-finish-20261017-free"
+        and data.get("model") == model
+        and data.get("account_plan") in ("Free", "Paid")
+        and (
+            data["account_plan"] == "Free"
+            or (
+                data.get("included_only") is True
+                and type(data.get("max_extra_charge_usd")) in (int, float)
+                and data["max_extra_charge_usd"] == 0
+            )
+        )
+        and all(
+            type(data.get(k)) in (int, float)
+            for k in (
+                "observed_at",
+                "expires_at",
+                "remaining_neurons",
+                "estimated_chain_neurons",
+            )
+        )
+        and 0 <= now - data["observed_at"] <= 120
+        and now < data["expires_at"] <= now + 300
+        and type(data.get("remaining_calls")) is int
+        and 0 <= data["remaining_calls"] <= 4
+        and 5000
+        <= data["estimated_chain_neurons"]
+        <= data["remaining_neurons"]
+        <= 10000
+    )
+
+
 def unpack_database(encoded):
     packed = base64.b64decode(encoded, validate=True)
     stream = zlib.decompressobj()
@@ -345,10 +380,8 @@ class Database(DurableObject):
             grant = json.loads(found[0]["record"]) if found else {}
             now = time.time()
             available = (
-                type(grant.get("remaining_calls")) is int
-                and grant["remaining_calls"] >= 4
-                and grant.get("expires_at", 0) > now
-                and 0 <= now - grant.get("observed_at", 0) <= 120
+                valid_included_grant(grant, self.env.CREATOR_MODEL, now)
+                and grant["remaining_calls"] == 4
             )
             return reply(
                 {
@@ -360,7 +393,7 @@ class Database(DurableObject):
                     else None,
                     "message": "Quyền operator còn hiệu lực; đây không phải phép đo quota trực tiếp."
                     if available
-                    else "Chưa có quyền operator còn hiệu lực. Mở Bước 4, kiểm đúng tài khoản Free và đủ 5.000 Neurons rồi nhờ operator cho phép một lượt. Nếu thiếu quota, chờ ngoài ứng dụng; không gửi AI hoặc tự nâng gói.",
+                    else "Chưa có quyền operator còn hiệu lực. Mở Bước 4, kiểm đúng tài khoản/Workers plan và còn ít nhất 5.000 Neurons trong phần bao gồm sau dự phòng. Paid vẫn có thể tính phí vượt mức: chỉ cho phép khi phí ngoài gói $0. Thiếu quota thì không gửi AI.",
                 }
             )
         if path == "/api/runtime" and method == "GET":
@@ -388,7 +421,7 @@ class Database(DurableObject):
             ):
                 return reply({"error": "Operator verification required"}, 403)
             if (
-                set(data)
+                set(data) - {"included_only", "max_extra_charge_usd"}
                 != {
                     "grant",
                     "observed_at",
@@ -400,22 +433,16 @@ class Database(DurableObject):
                     "estimated_chain_neurons",
                 }
                 or data["grant"] != "B-finish-20261017-free"
-                or data["account_plan"] != "Free"
+                or data["account_plan"] not in ("Free", "Paid")
                 or data["model"] != self.env.CREATOR_MODEL
             ):
-                raise ValueError("Fresh same-account Free grant evidence required")
-            if (
-                not 0 <= time.time() - data["observed_at"] <= 120
-                or data["expires_at"] <= time.time()
-                or data["expires_at"] > time.time() + 300
-                or type(data["remaining_calls"]) is not int
-                or not 0 <= data["remaining_calls"] <= 4
-                or not 0
-                < data["estimated_chain_neurons"]
-                <= data["remaining_neurons"]
-                <= 10000
-            ):
-                raise ValueError("Insufficient/expired bounded grant")
+                raise WebInputError(
+                    "Cần bằng chứng đúng account/Workers plan và phần bao gồm; chưa tạo quyền AI."
+                )
+            if not valid_included_grant(data, self.env.CREATOR_MODEL, time.time()):
+                raise WebInputError(
+                    "Chưa đủ phần bao gồm, dự phòng 5.000 hoặc bằng chứng đã hết hạn. Paid phải xác nhận phí ngoài gói $0; chưa tạo quyền AI."
+                )
             self.sql.exec(
                 "INSERT INTO control VALUES('grant',?) ON CONFLICT(id) DO UPDATE SET record=excluded.record",
                 json.dumps(data),
@@ -709,12 +736,13 @@ class Database(DurableObject):
                     grants = self.rows("SELECT record FROM control WHERE id='grant'")
                     grant = json.loads(grants[0]["record"]) if grants else {}
                     if (
-                        grant.get("remaining_calls", 0) < 4
-                        or grant.get("expires_at", 0) <= time.time()
-                        or time.time() - grant.get("observed_at", 0) > 120
+                        not valid_included_grant(
+                            grant, self.env.CREATOR_MODEL, time.time()
+                        )
+                        or grant["remaining_calls"] != 4
                     ):
-                        raise ValueError(
-                            "Fresh verified Free quota/grant required before model calls"
+                        raise WebInputError(
+                            "Cần quyền operator còn hiệu lực cho phần bao gồm và đủ dự phòng trước khi gọi AI; không cho phép phí ngoài gói."
                         )
                     grant["remaining_calls"] -= 4
                     grant["reserved_pipeline"] = key

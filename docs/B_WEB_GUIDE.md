@@ -29,7 +29,9 @@ phiên hợp lệ. Không chia sẻ cookie, operator key hoặc credential Cloud
 4. Bấm **Sang Bước 4 · kiểm điều kiện** sau khi nhập Bước 3. Đây chưa phải lời gọi
    AI. Đọc trạng thái quyền; nếu chưa có quyền còn hiệu lực, operator
    mở mục **Operator · kiểm quota và cho phép một lượt** ngay trên
-   Web. Kiểm đúng tài khoản Cloudflare của ứng dụng và gói Free; đọc Neurons còn
+   Web. Kiểm đúng tài khoản Cloudflare của ứng dụng và Workers plan (Free/Paid);
+   Paid vẫn chỉ bao gồm 10.000 Neurons/ngày, phần vượt bị tính phí. Chọn đúng plan,
+   với Paid xác nhận chỉ dùng phần bao gồm và phí ngoài gói $0. Đọc Neurons còn
    lại, trừ cả usage đã gửi mà dashboard chưa cộng. Nhập số còn lại (ít nhất
    5.000), mã operator riêng của ứng dụng và xác nhận vừa kiểm trong 2 phút.
    Bấm **Cho phép một lượt**: quyền dành tối đa 4 call, hết hạn sau 4 phút;
@@ -80,12 +82,17 @@ hay data root Windows. Gỡ/sửa Worker code không đồng nghĩa được xó
 
 ## Vận hành trong $0
 
-Worker dùng tài khoản Free hiện có, Python+SQLite Durable Object và model
+Worker dùng Workers plan hiện có, Python+SQLite Durable Object và model
 `@cf/openai/gpt-oss-120b` qua pinned Workers AI SDK. Không Tunnel, R2/Access
 subscription mới hoặc Containers. Credential nằm server; bundle công khai không
 chứa credential. Operator phải kiểm account/plan/remaining Neurons thực tế, ước
 lượng đủ cả chuỗi4stages và reserve trong sổ `B-finish-20261017-free` trước lượt
 cloud. Grant/usage lịch sử không reset khi đổi tài khoản hay mở lại phiên.
+User đã nâng Workers Paid riêng; chỉ phần tài nguyên bao gồm được phép sử dụng.
+Kiểm usage Workers request/CPU và DO request/duration/SQL/storage cùng allocation
+đang mua trước lượt cloud. Không coi $5 của plan là AI không giới hạn; không mua
+credit hoặc phát sinh phí ngoài gói. Dự phòng cả chuỗi vẫn 5.000 Neurons, giữ
+giới hạn đầu vào/đầu ra và trừ usage chưa cộng. Không đủ thì không inference.
 
 Quota grant phía server có hạn ngắn, chỉ operator được thiết lập sau kiểm chứng;
 hết hạn ứng dụng từ chối gọi model. Không bỏ guard để thử. Mọi call/failure/timeout
