@@ -543,6 +543,15 @@ WIP; local six-mode/format fixtures and storage/auth checks do not establish liv
 cloud output quality or release eligibility. Preserve all 24 stable criteria,
 Windows beta.2 and existing A/C pauses/deferrals.
 
+The fifth live automatic TEXT attempt (19 October, PR93 runtime) remains failed:
+its immutable analysis direction invented UNESCO tool applicability. Independent
+review also identified false-positive audit treatment of an explicitly
+unconfirmed hypothesis and a voluntary invitation. The next Web-only correction
+distinguishes an unconfirmed hypothesis from verified facts and describes direction
+as a content plan. It preserves mandatory source/field/hash/issue checks and
+manual publication review. Direct offline tests do not qualify this new runtime,
+any of the six real mode/format outputs, or the B Web release.
+
 Chỉ báo **product hoàn tất** khi cả 24 dòng bắt buộc có phần triển khai, kiểm tra luồng sử dụng thực tế, CI required trên đúng commit, bản chạy/build cùng hướng dẫn, và toàn bộ release gate V1 đã được xác minh. Nếu thiếu, ghi **đang triển khai**, **bị chặn** hoặc **chờ nghiệm thu** với bằng chứng và bước tiếp theo. Một PR xanh hoặc một Gate đạt không thay thế điều kiện cuối.
 
 ## Phân mốc beta và V1 ổn định

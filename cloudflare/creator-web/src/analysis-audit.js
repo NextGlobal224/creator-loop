@@ -1,6 +1,6 @@
 // Web-only explicit coverage; never changes the Windows Worker protocol.
 import {quoteCatalog} from '../../creator-ai/src/quality.js';
-import {checkPremises} from '../../creator-ai/src/grounding.js';
+import {checkPremises,factualQuoteIds} from '../../creator-ai/src/grounding.js';
 import {projectPolicy} from '../../creator-ai/src/project-policy.js';
 
 const label='Giả thuyết chưa xác nhận:';
@@ -32,15 +32,23 @@ export async function analysisHash(analysis){
  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(analysis))))).map(v=>v.toString(16).padStart(2,'0')).join('');
 }
 export function coverageSchema(hash,fields,catalog){
- const items=fields.map(f=>({type:'object',properties:{field:{const:f.field},verdict:{type:'string',enum:['SUPPORTED','EDITORIAL_ONLY','UNRESOLVED']},premise_checks:{type:'array',maxItems:8,items:{type:'object',properties:{assertion:{type:'string',minLength:1},quote_ids:{type:'array',items:{type:'integer',minimum:0,maximum:catalog.length-1}},supported:{type:'boolean'}},required:['assertion','quote_ids','supported'],additionalProperties:false}},reason:{type:'string',minLength:1},issues:{type:'array',items:{type:'string'}}},required:['field','verdict','premise_checks','reason','issues'],additionalProperties:false}));
+ const items=fields.flatMap(f=>{
+  const base={type:'object',properties:{field:{const:f.field},verdict:{type:'string',enum:['SUPPORTED','EDITORIAL_ONLY','UNRESOLVED']},premise_checks:{type:'array',maxItems:8,items:{type:'object',properties:{assertion:{type:'string',minLength:1},quote_ids:{type:'array',items:{type:'integer',minimum:0,maximum:catalog.length-1}},supported:{type:'boolean'}},required:['assertion','quote_ids','supported'],additionalProperties:false}},reason:{type:'string',minLength:1},issues:{type:'array',items:{type:'string'}}},required:['field','verdict','premise_checks','reason','issues'],additionalProperties:false};
+  if(!f.field.startsWith('inferences.'))return [base];
+  return [base,{...base,properties:{...base.properties,verdict:{const:'HYPOTHESIS'},truth_status:{const:'UNCONFIRMED'},premise_checks:{...base.properties.premise_checks,minItems:1}},required:[...base.required,'truth_status']}];
+ });
  return {type:'object',properties:{analysis_sha256:{const:hash},checks:{type:'array',minItems:fields.length,maxItems:fields.length,items:{oneOf:items}}},required:['analysis_sha256','checks'],additionalProperties:false};
 }
 export function validateCoverage(receipt,hash,fields,catalog){
  if(!receipt||Object.keys(receipt).sort().join()!=='analysis_sha256,checks'||receipt.analysis_sha256!==hash||!Array.isArray(receipt.checks)||receipt.checks.length!==fields.length)throw Error('Analysis audit identity/coverage missing');
  for(const [i,check] of receipt.checks.entries()){
-  if(!check||Object.keys(check).sort().join()!=='field,issues,premise_checks,reason,verdict'||check.field!==fields[i].field||!['SUPPORTED','EDITORIAL_ONLY'].includes(check.verdict)||typeof check.reason!=='string'||!check.reason.trim()||!Array.isArray(check.issues)||check.issues.length)throw Error('Analysis audit unresolved');
+  const hypothesis=check?.verdict==='HYPOTHESIS';
+  const keys=hypothesis?'field,issues,premise_checks,reason,truth_status,verdict':'field,issues,premise_checks,reason,verdict';
+  if(!check||Object.keys(check).sort().join()!==keys||check.field!==fields[i].field||!['SUPPORTED','EDITORIAL_ONLY','HYPOTHESIS'].includes(check.verdict)||typeof check.reason!=='string'||!check.reason.trim()||!Array.isArray(check.issues)||check.issues.length)throw Error('Analysis audit unresolved');
+  if(hypothesis&&(!fields[i].field.startsWith('inferences.')||!fields[i].text.startsWith(label)||!fields[i].text.slice(label.length).trim()||check.truth_status!=='UNCONFIRMED'))throw Error('Invalid unconfirmed hypothesis boundary');
   checkPremises(check.premise_checks,catalog);
-  if(check.premise_checks.some(p=>!p.supported)||check.verdict==='SUPPORTED'&&!check.premise_checks.length||check.verdict==='EDITORIAL_ONLY'&&check.premise_checks.length||fields[i].field.startsWith('observations.')&&check.verdict!=='SUPPORTED')throw Error('Unsupported analysis premise');
+  if(hypothesis&&check.premise_checks.some(p=>p.quote_ids.some(q=>!factualQuoteIds(catalog).includes(q))))throw Error('Hypothesis background must use factual source excerpts');
+  if(check.premise_checks.some(p=>!p.supported)||['SUPPORTED','HYPOTHESIS'].includes(check.verdict)&&!check.premise_checks.length||check.verdict==='EDITORIAL_ONLY'&&check.premise_checks.length||fields[i].field.startsWith('observations.')&&check.verdict!=='SUPPORTED')throw Error('Unsupported analysis premise');
  }
  return receipt;
 }
@@ -62,6 +70,8 @@ export async function analysisProfile(packet){
     // Reuse the same model/call/token cap with more reasoning on this stage only.
     native.reasoning_effort='medium';
     schema.properties.inferences.items={type:'string',pattern:'^Giả thuyết chưa xác nhận: .+$',minLength:label.length+2};
+    schema.properties.inferences.description='Có thể để []. Nếu cần, nêu giả thuyết biên tập còn chưa kiểm chứng, dựa trên điều nguồn thực sự cung cấp. Phân biệt kết luận giả thuyết với tiền đề factual: nhãn chưa xác nhận không hợp thức hóa công cụ, khả năng áp dụng hay khuyến nghị tổ chức bị bịa.';
+    if(schema.properties.direction)schema.properties.direction.description='KẾ HOẠCH NỘI DUNG cho người viết: góc tiếp cận và đóng góp khác nhau của các phần, phù hợp Project/mode/format/direction đã chọn. Không biến thành quy trình kiểm chứng cho độc giả, không yêu cầu dùng công cụ ngoài snapshot, số lượng nguồn tối thiểu hoặc hứa kết quả. Giữ đúng yêu cầu factual/no-fiction nếu có.';
     native.messages[0].content+=' Every inference MUST start Giả thuyết chưa xác nhận: followed by an actual unconfirmed proposition. A bare label is invalid. Use inferences:[] when no substantive inference is needed. Direction is a voluntary editorial proposal, never a source-endorsed procedure. Do not prescribe an external tool, handbook exercise, quick-check workflow or device-specific use when the selected notes do not describe its applicability. A handbook containing tools establishes only that content exists, not how this reader can use it. Respect the selected Project purpose, mode, format and explicit manual direction, including factual/no-fiction briefs. Do not fabricate missing information or a sender message when the Project does not request them. COR questions are questions, not evidence that applying them identifies author/truth. Use natural Vietnamese, no invented institutional recommendation.';
    }
    if(packet.stage==='analysis')native.messages[0].content+=' Ràng buộc nguồn: không đặt ngưỡng số nguồn xác nhận để kết luận thật/giả khi snapshot không nêu đúng quy tắc đó. Tên một bộ câu hỏi không chứng minh hiệu quả giảm chia sẻ, độ tin cậy hay khả năng xác minh. Nhãn giả thuyết không cho phép giấu một khẳng định hiệu quả thiếu căn cứ; chỉ đề xuất lựa chọn biên tập không mang tiền đề thực nghiệm, hoặc để inferences:[]. Direction chỉ chọn cách trình bày phù hợp Project, không bổ sung kiến thức hay quy trình từ trí nhớ.';
@@ -71,6 +81,7 @@ export async function analysisProfile(packet){
    if(packet.stage==='source_audit'){
     schema.properties.analysis_audit=coverageSchema(hash,fields,catalog);schema.required=[...schema.required,'analysis_audit'];
     native.messages[0].content+=' Separately audit EACH immutable analysis field in ordered analysis_audit checks. Enumerate every factual premise including institutional attribution, tool applicability and efficacy inside hypotheses/direction. A label never excuses unsupported facts. SUPPORTED requires exact catalog quote IDs; EDITORIAL_ONLY only for voluntary proposals with zero empirical premise; otherwise UNRESOLVED with issues. An observation needs support for its entire meaning, not merely an exact quote. Never rewrite analysis. A source list of questions does not establish a procedure or institutional tool recommendation. Missing support is UNRESOLVED.';
+    native.messages[0].content+=' CONTRACT DISTINCTION: only inferences.N may instead use HYPOTHESIS with truth_status:UNCONFIRMED. This means the explicitly labelled conclusion is NOT verified and has NO demonstrated effect evidence. Check separately every embedded factual background premise against exact eligible quotes; at least one supported background premise is required. A related quote does not prove invented tool identity, availability, applicability, institutional recommendation or efficacy. Missing background support remains UNRESOLVED. Do not reject a clearly unconfirmed hypothesized conclusion solely because it lacks confirmation, and never mark that conclusion SUPPORTED. Observations and direction cannot use HYPOTHESIS. For article findings, judge the full meaning: an invitation to consider questions without a promised result does not require proof that it succeeds; a capability/benefit assertion hidden behind có thể or a purpose clause still requires evidence. Editor findings are leads, not binding verdicts; NOT_APPLICABLE needs a concrete comparison with the immutable final text, and PROJECT findings retain their mandatory rules.';
     native.messages.push({role:'user',content:JSON.stringify({immutable_analysis_sha256:hash,immutable_analysis_fields:fields,exact_quote_catalog:catalog})});
    }
    const result=await binding.run(model,native,options);
