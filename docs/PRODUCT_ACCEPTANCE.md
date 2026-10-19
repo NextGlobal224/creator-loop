@@ -595,3 +595,20 @@ implication, and the article stayed underdeveloped. Input compaction keeps full
 native/source/validation contracts; its offline replay does not establish prose
 quality. Remaining Free quota is insufficient for the unchanged 5,000-Neuron
 forecast, so no further live pipeline is authorized by a stale quota snapshot.
+
+# B Web manual-beta amendment — 19 October 2026
+
+User-authorized release profile `B_WEB_MANUAL_BETA` gates MANUAL TEXT and MANUAL
+IMAGE_CAPTION, plus actual authenticated Windows-independent HTTPS browser use,
+durable DB/media/source/review/original and edited versions after reload/relogin,
+source-grounded full Vietnamese quality, visible/downloadable owned or licensed
+image, progress/cancel/idempotency, current review/CI/deployment and exact new
+tag/pre-release/guide/checksum/redownload. Status: **NOT QUALIFIED**; retained
+automatic failures are not manual quality evidence. Existing compatible cloud
+QA/review/CI may be reused, with explicit source/deployment bindings.
+
+Automatic modes remain backlog; VIDEO is deferred until C contract acceptance
+and verified inheritance through B, with no new VIDEO runs for this beta.
+Full six-flow B Web acceptance remains separate and does not block this profile.
+Canonical Access-denied principal backup guard stays; isolated QA does not resolve
+it. Preserve Windows beta.2 and A/C. No human APPROVE/ACCEPT or Facebook posting.

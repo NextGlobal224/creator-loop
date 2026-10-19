@@ -7,8 +7,16 @@ on:
         type: string
         required: true
       expected:
-        description: Six selected workflow/version/body/media hashes, JSON
+        description: Selected workflow/version/body/media hashes for the exact profile, JSON
         type: string
+        required: true
+      release_scope:
+        description: Explicit coverage; manual beta does not qualify full B
+        type: choice
+        options:
+          - B_WEB
+          - B_WEB_MANUAL_BETA
+        default: B_WEB
         required: true
 permissions:
   contents: read
@@ -30,6 +38,7 @@ jobs:
           B_WEB_ORIGIN: https://creator-loop-b-web.creator-loop-ai-beta.workers.dev
           B_WEB_DEPLOYMENT: ${{ inputs.deployment }}
           B_WEB_EXPECTED: ${{ inputs.expected }}
+          B_WEB_RELEASE_SCOPE: ${{ inputs.release_scope }}
           B_WEB_QA_PASSWORD: ${{ secrets.B_WEB_QA_PASSWORD }}
         run: timeout 240s python scripts/b_web_remote_probe.py
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
