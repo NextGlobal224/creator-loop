@@ -25,6 +25,7 @@ class WebDomainTests(unittest.TestCase):
         )
         self.material = self.domain.intake(
             {
+                "project_id": self.project["project_id"],
                 "media_type": "TEXT",
                 "display_name": "Nguồn thử",
                 "source": {
@@ -46,6 +47,61 @@ class WebDomainTests(unittest.TestCase):
                 "material_ids": [self.selected.material_id],
             }
         )
+
+    def test_project_material_links_are_explicit_many_to_many_and_enforced(self):
+        a = self.project["project_id"]
+        b = self.domain.project("Project B trống")["project_id"]
+        self.assertEqual(len(self.domain.state(a)["materials"]), 1)
+        self.assertEqual(self.domain.state(b)["materials"], [])
+        self.assertEqual(self.domain.state(b)["workflows"], [])
+        self.assertEqual(len(self.domain.state(b)["library_materials"]), 1)
+        from dataclasses import replace
+
+        with self.assertRaisesRegex(ValueError, "chưa liên kết"):
+            self.domain.prepare(replace(self.request, project_id=b))
+        self.domain.link_material(b, self.selected.material_id)
+        self.domain.link_material(b, self.selected.material_id)
+        self.assertEqual(len(self.domain.state(b)["materials"]), 1)
+        self.assertEqual(len(self.domain.state(a)["materials"]), 1)
+        self.assertEqual(
+            len(self.domain.prepare(replace(self.request, project_id=b))), 1
+        )
+        with closing(_connect_write(self.domain.path)) as db:
+            self.assertEqual(
+                db.execute("SELECT COUNT(*) FROM project_references").fetchone()[0], 2
+            )
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 1)
+            validate(db)
+
+    def test_image_intake_is_project_scoped_and_original_bytes_unchanged(self):
+        a = self.project["project_id"]
+        b = self.domain.project("Project B ảnh")["project_id"]
+        raw = b"\x89PNG\r\n\x1a\nfixture-format-only"
+        result = self.domain.intake(
+            {
+                "project_id": a,
+                "media_type": "IMAGE",
+                "display_name": "Ảnh có dấu và khoảng trắng.png",
+            },
+            raw,
+        )
+        self.domain.require_project_image(a, result["file_id"])
+        with self.assertRaisesRegex(ValueError, "chưa liên kết"):
+            self.domain.require_project_image(b, result["file_id"])
+        self.assertEqual((self.root / result["storage_key"]).read_bytes(), raw)
+        self.assertEqual(self.domain.state(b)["images"], [])
+
+    def test_text_file_validation_has_safe_specific_errors(self):
+        from creator_loop.backend.creator.web_domain import WebInputError
+
+        with self.assertRaisesRegex(WebInputError, "UTF-8"):
+            self.domain.intake(
+                {"media_type": "TEXT", "display_name": "wrong"}, b"\xffbad"
+            )
+        with self.assertRaisesRegex(WebInputError, "PNG"):
+            self.domain.intake(
+                {"media_type": "IMAGE", "display_name": "wrong"}, b"<svg/>"
+            )
 
     def fixture(self):
         fact = "Đây là nội dung nguồn nguyên văn."

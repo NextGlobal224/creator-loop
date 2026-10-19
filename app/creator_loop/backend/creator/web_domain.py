@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from creator_loop.backend.analysis.generation_contract import validate_response
 from creator_loop.backend.creator.generation_records import _persist
-from creator_loop.backend.creator.projects import create_project
+from creator_loop.backend.creator.projects import add_project_reference, create_project
 from creator_loop.backend.creator.research_pipeline import ResearchPipeline
 from creator_loop.backend.knowledge.claims import _timestamp
 from creator_loop.backend.library.library import Asset, LibraryRepository, Source
@@ -21,6 +21,14 @@ from creator_loop.backend.runtime.transactions import atomic_transaction
 from creator_loop.shared.workflow import CreatorRequest
 
 MAX_FILE_BYTES = 8 * 1024 * 1024
+
+
+class WebInputError(ValueError):
+    """Only fixed, safe user-facing validation messages may use this type."""
+
+    def __init__(self, message: str, status: int = 400) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class WebPipeline(ResearchPipeline):
@@ -99,12 +107,42 @@ class WebDomain:
         self.path = root / "creator_loop.sqlite3"
         self.pipeline = WebPipeline(root)
 
-    def state(self) -> dict[str, Any]:
+    def state(self, project_id: str | None = None) -> dict[str, Any]:
         with closing(_connect_write(self.path)) as db:
+            projects = [asdict(p) for p in self.pipeline.projects()]
+            if project_id is None:
+                project_id = projects[0]["project_id"] if projects else None
+            elif not any(p["project_id"] == project_id for p in projects):
+                raise WebInputError("Project không còn khả dụng; chọn lại Project.")
+            references = db.execute(
+                "SELECT project_id,asset_id,source_id FROM project_references"
+            ).fetchall()
+            names = dict(db.execute("SELECT asset_id,display_name FROM assets"))
+            library = []
+            for m in self.pipeline.materials():
+                item = asdict(m)
+                item["project_ids"] = sorted(
+                    {
+                        pid
+                        for pid, aid, sid in references
+                        if (aid is not None and aid == m.asset_id)
+                        or (sid is not None and sid == m.source_id)
+                    }
+                )
+                item["display_name"] = names.get(
+                    m.asset_id, m.source_url or m.material_id
+                )
+                library.append(item)
+            materials = [m for m in library if project_id in m["project_ids"]]
+            files = {m["file_id"] for m in materials}
             return {
-                "projects": [asdict(p) for p in self.pipeline.projects()],
-                "materials": [asdict(m) for m in self.pipeline.materials()],
-                "images": self.pipeline.image_options(),
+                "projects": projects,
+                "project_id": project_id,
+                "materials": materials,
+                "library_materials": library,
+                "images": [
+                    i for i in self.pipeline.image_options() if i["file_id"] in files
+                ],
                 "workflows": [
                     dict(
                         zip(
@@ -120,11 +158,44 @@ class WebDomain:
                         )
                     )
                     for r in db.execute(
-                        "SELECT workflow_id,project_id,mode,output_format,purpose,created_at FROM creator_workflows ORDER BY rowid DESC"
+                        "SELECT workflow_id,project_id,mode,output_format,purpose,created_at FROM creator_workflows WHERE project_id=? ORDER BY rowid DESC",
+                        (project_id,),
                     )
                 ],
                 "review": "UNREVIEWED — duyệt thủ công trước đăng; không tự ACCEPT/APPROVE",
             }
+
+    def link_material(self, project_id: str, material_id: str) -> dict[str, str]:
+        material = next(
+            (m for m in self.pipeline.materials() if m.material_id == material_id), None
+        )
+        if material is None:
+            raise WebInputError(
+                "Tư liệu thư viện không còn khả dụng; tải lại danh sách."
+            )
+        with closing(_connect_write(self.path)) as db, atomic_transaction(db):
+            target = (
+                {"asset_id": material.asset_id}
+                if material.asset_id
+                else {"source_id": material.source_id}
+            )
+            if not any(target.values()):
+                raise WebInputError("Tư liệu chưa có Asset/Source để liên kết Project.")
+            column, value = next(iter(target.items()))
+            if not db.execute(
+                f"SELECT 1 FROM project_references WHERE project_id=? AND {column}=?",
+                (project_id, value),
+            ).fetchone():
+                add_project_reference(
+                    db, project_id=project_id, usage_intent="RESEARCH", **target
+                )
+        return {"project_id": project_id, "material_id": material_id}
+
+    def require_project_image(self, project_id: str, file_id: str) -> None:
+        if not any(i["file_id"] == file_id for i in self.state(project_id)["images"]):
+            raise WebInputError(
+                "Ảnh chưa liên kết với Project này. Thêm ảnh từ thư viện hoặc tải ảnh vào Project trước."
+            )
 
     def project(self, title: str) -> dict[str, Any]:
         if not isinstance(title, str) or not 1 <= len(title.strip()) <= 200:
@@ -138,15 +209,22 @@ class WebDomain:
             media_type not in ("TEXT", "IMAGE", "VIDEO", "AUDIO")
             or not 0 < len(raw) <= MAX_FILE_BYTES
         ):
-            raise ValueError("Unsupported type or file size")
+            raise WebInputError(
+                "Chọn tệp không rỗng, tối đa 8 MiB và đúng loại tư liệu."
+            )
         name = metadata.get("display_name", "")
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 200:
-            raise ValueError("A bounded display name is required")
+            raise WebInputError("Nhập tên tư liệu từ 1 đến 200 ký tự.")
         if media_type == "TEXT":
-            text = raw.decode("utf-8")
+            try:
+                text = raw.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                raise WebInputError(
+                    "Tệp TEXT phải là văn bản UTF-8; ảnh chọn loại IMAGE (PNG/JPEG/WebP)."
+                ) from None
             if not text.strip() or text != unicodedata.normalize("NFC", text):
-                raise ValueError(
-                    "Text must be nonempty UTF-8 NFC; original bytes are never rewritten"
+                raise WebInputError(
+                    "Text phải có nội dung UTF-8 chuẩn NFC. Lưu lại tệp đúng chuẩn hoặc dán nội dung vào ô Text; không tự đổi byte gốc."
                 )
             mime = "text/plain"
         elif media_type == "IMAGE":
@@ -157,8 +235,8 @@ class WebDomain:
             elif raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
                 mime = "image/webp"
             else:
-                raise ValueError(
-                    "Use PNG/JPEG/WebP; active SVG/HTML uploads are refused"
+                raise WebInputError(
+                    "Ảnh chỉ hỗ trợ PNG, JPEG hoặc WebP; không nhận SVG/HTML hoặc tệp chỉ đổi đuôi."
                 )
         else:
             # Opaque downloadable source bytes; no decoded-content/ASR claim.
@@ -218,6 +296,13 @@ class WebDomain:
                 verification_status="UNREVIEWED",
                 recorded_at=now,
             )
+            if metadata.get("project_id"):
+                add_project_reference(
+                    db,
+                    project_id=metadata["project_id"],
+                    asset_id=aid,
+                    usage_intent="RESEARCH",
+                )
         return {
             "file_id": fid,
             "asset_id": aid,
@@ -236,6 +321,13 @@ class WebDomain:
                 (request.project_id,),
             ).fetchone():
                 raise ValueError("Active Project required")
+            linked = {
+                m["material_id"] for m in self.state(request.project_id)["materials"]
+            }
+            if any(mid not in linked for mid in request.material_ids):
+                raise WebInputError(
+                    "Tư liệu chưa liên kết với Project đang chọn; thêm từ thư viện trước khi tạo AI."
+                )
             materials = [
                 self.pipeline._verify(db, available[mid])
                 for mid in request.material_ids

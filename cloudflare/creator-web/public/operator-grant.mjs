@@ -1,10 +1,11 @@
 // Explicit owner operation only. No storage, inference, retries or credentials
 // in URLs. Creating a short grant is separate from submitting a Draft job.
-export function boundedGrant({remaining,observedAt,confirmed},now=Date.now()){
+export function boundedGrant({remaining,observedAt,confirmed,accountPlan='Free',includedOnlyConfirmed=false},now=Date.now()){
  const neurons=Number(remaining);
- if(!confirmed||!Number.isFinite(observedAt)||now<observedAt||now-observedAt>120000)throw Error('Hãy kiểm đúng tài khoản Free và xác nhận quota trong 2 phút vừa qua.');
+ if(!['Free','Paid'].includes(accountPlan)||accountPlan==='Paid'&&!includedOnlyConfirmed)throw Error('Chọn đúng Workers plan. Paid chỉ dùng phần bao gồm; phải xác nhận usage và trần phí ngoài gói $0.');
+ if(!confirmed||!Number.isFinite(observedAt)||now<observedAt||now-observedAt>120000)throw Error('Hãy kiểm đúng tài khoản/Workers plan và phần Neurons bao gồm còn lại trong 2 phút vừa qua.');
  if(!Number.isFinite(neurons)||neurons<5000||neurons>10000)throw Error('Cần tối thiểu 5.000 Neurons còn lại cho cả lượt; trừ cả usage đã gửi nhưng dashboard chưa cập nhật.');
- return {grant:'B-finish-20261017-free',observed_at:observedAt/1000,expires_at:now/1000+240,remaining_calls:4,model:'@cf/openai/gpt-oss-120b',account_plan:'Free',remaining_neurons:neurons,estimated_chain_neurons:5000};
+ return {grant:'B-finish-20261017-free',observed_at:observedAt/1000,expires_at:now/1000+240,remaining_calls:4,model:'@cf/openai/gpt-oss-120b',account_plan:accountPlan,remaining_neurons:neurons,estimated_chain_neurons:5000,...(accountPlan==='Paid'?{included_only:true,max_extra_charge_usd:0}:{})};
 }
 export async function submitGrant(fetcher,operatorKey,data){
  if(typeof operatorKey!=='string'||!operatorKey)throw Error('Cần mã operator riêng.');

@@ -15,14 +15,23 @@ phiên hợp lệ. Không chia sẻ cookie, operator key hoặc credential Cloud
 2. Nhập text hoặc tải tư liệu, ghi nguồn và tình trạng quyền đã biết. Chọn các tư
    liệu text thực sự cần phân tích. Tệp text phải UTF-8/NFC; URL không thay cho
    nội dung đã đọc. Ảnh/video/audio chưa xử lý không tự thành bằng chứng text.
+   Project mới có danh sách trống. Tư liệu cũ vẫn ở **Thư viện chung**; chủ động
+   chọn và bấm **Thêm vào Project đang chọn** để tạo liên kết N:M, không sao chép
+   hoặc xóa bản gốc. Chỉ tư liệu/ảnh đã liên kết mới dùng cho lượt AI của Project.
+   Khi chọn tệp, xem tên, dung lượng và loại; tên tư liệu được điền nếu còn trống.
+   Text dùng UTF-8/NFC; ảnh chỉ PNG/JPEG/WebP. Bấm lưu và chờ xác nhận; có thể
+   mở/tải byte gốc từ danh sách. Tệp backup dùng mục Khôi phục, không nhập tư liệu.
 3. Bước 3 mặc định **Thủ công**; nhập mục đích, người đọc, phong cách và hướng
    nội dung bạn chọn. Beta ưu tiên TEXT hoặc IMAGE_CAPTION. Với caption, chọn
    tệp ảnh đã tải ở **Ảnh của bản nháp**, xem ảnh rồi ghi nguồn/quyền sử dụng;
    lựa chọn này độc lập với ảnh của bản đang sửa ở Bước 5. Tự động còn trong
    backlog; VIDEO chờ C nghiệm thu và tích hợp được kiểm chứng.
-4. Đọc trạng thái quyền ngay trên form. Nếu chưa có quyền còn hiệu lực, operator
+4. Bấm **Sang Bước 4 · kiểm điều kiện** sau khi nhập Bước 3. Đây chưa phải lời gọi
+   AI. Đọc trạng thái quyền; nếu chưa có quyền còn hiệu lực, operator
    mở mục **Operator · kiểm quota và cho phép một lượt** ngay trên
-   Web. Kiểm đúng tài khoản Cloudflare của ứng dụng và gói Free; đọc Neurons còn
+   Web. Kiểm đúng tài khoản Cloudflare của ứng dụng và Workers plan (Free/Paid);
+   Paid vẫn chỉ bao gồm 10.000 Neurons/ngày, phần vượt bị tính phí. Chọn đúng plan,
+   với Paid xác nhận chỉ dùng phần bao gồm và phí ngoài gói $0. Đọc Neurons còn
    lại, trừ cả usage đã gửi mà dashboard chưa cộng. Nhập số còn lại (ít nhất
    5.000), mã operator riêng của ứng dụng và xác nhận vừa kiểm trong 2 phút.
    Bấm **Cho phép một lượt**: quyền dành tối đa 4 call, hết hạn sau 4 phút;
@@ -62,6 +71,10 @@ bấm khôi phục. Server kiểm schema/checksum/integrity/FK/tệp/digest, gi�
 trước restore và media bất biến. Receipt/job của trạng thái cũ trở thành lịch sử;
 run cloud gián đoạn trong backup không tự chạy lại. Không dùng bản desktop cũ
 mở schema không tương thích hoặc coi backup JSON là một DB domain thứ hai.
+Nếu cloud đã đổi sau lần mở trang, restore bị từ chối với 409: tải lại và xem dữ
+liệu hiện tại trước khi chọn/xác nhận backup lại. Không tự làm mới revision rồi
+gửi restore. Backup hỏng/sai schema/thiếu media bị hủy trong transaction; dữ liệu
+hiện hành giữ nguyên. Sau restore thành công, chỉ chọn Project còn trong backup.
 
 Không chuyển dữ liệu chính Windows vào Web khi canonical backup còn Access denied.
 Phát triển/QA dùng dữ liệu cô lập. Web không đọc Chrome profile, session Facebook
@@ -69,12 +82,17 @@ hay data root Windows. Gỡ/sửa Worker code không đồng nghĩa được xó
 
 ## Vận hành trong $0
 
-Worker dùng tài khoản Free hiện có, Python+SQLite Durable Object và model
+Worker dùng Workers plan hiện có, Python+SQLite Durable Object và model
 `@cf/openai/gpt-oss-120b` qua pinned Workers AI SDK. Không Tunnel, R2/Access
 subscription mới hoặc Containers. Credential nằm server; bundle công khai không
 chứa credential. Operator phải kiểm account/plan/remaining Neurons thực tế, ước
 lượng đủ cả chuỗi4stages và reserve trong sổ `B-finish-20261017-free` trước lượt
 cloud. Grant/usage lịch sử không reset khi đổi tài khoản hay mở lại phiên.
+User đã nâng Workers Paid riêng; chỉ phần tài nguyên bao gồm được phép sử dụng.
+Kiểm usage Workers request/CPU và DO request/duration/SQL/storage cùng allocation
+đang mua trước lượt cloud. Không coi $5 của plan là AI không giới hạn; không mua
+credit hoặc phát sinh phí ngoài gói. Dự phòng cả chuỗi vẫn 5.000 Neurons, giữ
+giới hạn đầu vào/đầu ra và trừ usage chưa cộng. Không đủ thì không inference.
 
 Quota grant phía server có hạn ngắn, chỉ operator được thiết lập sau kiểm chứng;
 hết hạn ứng dụng từ chối gọi model. Không bỏ guard để thử. Mọi call/failure/timeout

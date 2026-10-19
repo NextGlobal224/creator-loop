@@ -612,3 +612,13 @@ and verified inheritance through B, with no new VIDEO runs for this beta.
 Full six-flow B Web acceptance remains separate and does not block this profile.
 Canonical Access-denied principal backup guard stays; isolated QA does not resolve
 it. Preserve Windows beta.2 and A/C. No human APPROVE/ACCEPT or Facebook posting.
+
+19 October usability regression follow-up: PR100 checks did not qualify the whole
+UI. Actual isolated cloud reproduction confirms global unlinked material listings,
+image files sent as TEXT with generic400, missing filename guidance, step4 before3,
+and a valid Web backup rejected with generic400 on stale UI revision (same backup
+restores after reload). Require explicit Project N:M/API/UI isolation, actual UTF8
+and image upload/reopen, ordered steps/conditions/preserved inputs, and isolated
+export/restore/reload/relogin with corrupt/incompatible rollback proof on changed
+deployment. No production restore or data deletion to hide the listing defect.
+These are storage/usability gates; they do not qualify either AI output or release.

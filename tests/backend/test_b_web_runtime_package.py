@@ -27,6 +27,7 @@ class WebRuntimePackageTests(unittest.TestCase):
             "cloudflare/creator-web/public/app.js": "import {x} from './pending.mjs';",
             "cloudflare/creator-web/public/pending.mjs": "export const x=1;",
             "cloudflare/creator-web/public/operator-grant.mjs": "export const boundedGrant=()=>{};",
+            "cloudflare/creator-web/public/intake.mjs": "export const materialBytes=()=>{};",
             "cloudflare/creator-web/public/style.css": "body{}",
             "cloudflare/creator-web/public/_headers": "/*",
             "licenses/workers-runtime-sdk-1.9.4-MIT.txt": "fixture license",
@@ -72,13 +73,14 @@ class WebRuntimePackageTests(unittest.TestCase):
                 self.assertIn("worker/public/login.js", manifest["files"])
                 self.assertIn("worker/public/pending.mjs", manifest["files"])
                 self.assertIn("worker/public/operator-grant.mjs", manifest["files"])
+                self.assertIn("worker/public/intake.mjs", manifest["files"])
                 self.assertIn("worker/src/migrations/001.sql", manifest["files"])
                 self.assertEqual(
                     set(archive.namelist()), set(manifest["files"]) | {"runtime.json"}
                 )
 
     def test_missing_required_or_referenced_file_fails_closed(self):
-        for name in ("login.js", "pending.mjs", "operator-grant.mjs"):
+        for name in ("login.js", "pending.mjs", "operator-grant.mjs", "intake.mjs"):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 web = self.fixture(directory)
                 (web / "public" / name).unlink()
