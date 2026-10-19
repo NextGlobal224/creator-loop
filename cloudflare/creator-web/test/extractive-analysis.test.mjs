@@ -38,3 +38,20 @@ test('incomplete final channel records bounded metadata without exporting text o
  assert.equal(diagnostic.finish_reason,'length');assert.equal(diagnostic.final_json_status,'INVALID');assert.equal(diagnostic.final_content_utf8_bytes,14);
  assert.equal(JSON.stringify(diagnostic).includes('private reasoning'),false);assert.equal(profile.rejectedJSON(),null);
 });
+test('duplicate source lines have one decoding branch while each source and caveat remains selectable',async()=>{
+ const sources=[{material_id:'a',text:'Sách dành cho sinh viên báo chí.\nSách dành cho sinh viên báo chí.\nChưa đọc toàn bộ nội dung sách.'},{material_id:'b',text:'Bộ câu hỏi xuất phát từ nghiên cứu quan sát.\nChưa có dữ liệu đánh giá hiệu quả trong ghi chú.'}];
+ const p=packet();p.writing_prompt='fixture\n'+JSON.stringify({purpose:'Giới thiệu tư liệu',format:'TEXT',materials:sources});
+ const profile=await analysisProfile(p);let options;
+ const observations=sources.flatMap(s=>[...new Set(s.text.split('\n'))].map(quote=>({material_id:s.material_id,quote,observation:quote})));
+ await profile.run({run:async(_,native)=>{options=native.response_format.json_schema.properties.observations.items.oneOf;return {response:{observations,inferences:[],direction:'Đề xuất giới thiệu hai tư liệu và nêu rõ giới hạn đã đọc.'}};}},'model',{messages:[{role:'system',content:''}],response_format:{type:'json_schema',json_schema:{properties:{inferences:{},direction:{}},required:[]}}});
+ assert.equal(options.length,4);assert.deepEqual(options.map(o=>o.properties.quote.const),observations.map(o=>o.quote));
+});
+test('native and runtime observation bounds match the existing Python forty-item contract',async()=>{
+ const quotes=Array.from({length:41},(_,i)=>`Dữ kiện đã ghi số ${i+1}.`);
+ const p=packet();p.writing_prompt='fixture\n'+JSON.stringify({purpose:'Giới thiệu tư liệu',format:'TEXT',materials:[{material_id:'m',text:quotes.join('\n')}]});
+ const profile=await analysisProfile(p);let max;
+ const observations=quotes.map(quote=>({material_id:'m',quote,observation:quote}));
+ const invoke=count=>profile.run({run:async(_,native)=>{max=native.response_format.json_schema.properties.observations.maxItems;return {response:{observations:observations.slice(0,count),inferences:[],direction:'Đề xuất nội dung dựa trên tư liệu đã chọn.'}};}},'model',{messages:[{role:'system',content:''}],response_format:{type:'json_schema',json_schema:{properties:{inferences:{},direction:{}},required:[]}}});
+ await invoke(40);assert.equal(max,40);
+ await assert.rejects(invoke(41),/domain contract/);
+});

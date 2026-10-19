@@ -10,12 +10,17 @@ const analysisInstructions='Bạn là biên tập viên, chỉ phân tích tư l
 // capability. Relevance selection is generated; interpretation stays visibly
 // separate in the audited editorial plan/hypotheses. Never rewrite a reply.
 function sourceObservations(catalog){
- return factualQuoteIds(catalog).map(id=>{
+ const seen=new Set();
+ return factualQuoteIds(catalog).flatMap(id=>{
   const q=catalog[id];
-  return {type:'object',properties:{material_id:{const:q.material_id},quote:{const:q.source_quote},observation:{const:q.source_quote}},required:['material_id','quote','observation'],additionalProperties:false};
+  const key=JSON.stringify([q.material_id,q.source_quote]);
+  if(seen.has(key))return [];
+  seen.add(key);
+  return [{type:'object',properties:{material_id:{const:q.material_id},quote:{const:q.source_quote},observation:{const:q.source_quote}},required:['material_id','quote','observation'],additionalProperties:false}];
  });
 }
 function validateExtractive(analysis,catalog){
+ if(analysis.observations.length>40)throw Error('Source observation count exceeds domain contract');
  const eligible=new Set(factualQuoteIds(catalog).map(id=>JSON.stringify([catalog[id].material_id,catalog[id].source_quote]))),seen=new Set();
  for(const o of analysis.observations){
   const key=JSON.stringify([o.material_id,o.quote]);
@@ -109,7 +114,7 @@ export async function analysisProfile(packet){
     native.reasoning_effort='medium';
     const observations=sourceObservations(catalog);
     if(!observations.length)throw Error('No factual source observations available');
-    schema.properties.observations={type:'array',minItems:1,maxItems:observations.length,items:{oneOf:observations}};
+    schema.properties.observations={type:'array',minItems:1,maxItems:Math.min(40,observations.length),items:{oneOf:observations}};
     if(schema.properties.direction)schema.properties.direction.maxLength=1200;
     schema.properties.inferences.items={type:'string',pattern:'^Giả thuyết chưa xác nhận: .+$',minLength:label.length+2};
     schema.properties.inferences.description='Có thể để []. Nếu cần, nêu giả thuyết biên tập còn chưa kiểm chứng, dựa trên điều nguồn thực sự cung cấp. Phân biệt kết luận giả thuyết với tiền đề factual: nhãn chưa xác nhận không hợp thức hóa công cụ, khả năng áp dụng hay khuyến nghị tổ chức bị bịa.';
