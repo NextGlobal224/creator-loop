@@ -98,3 +98,19 @@ Sources checked 18 October 2026:
 [Python FFI](https://developers.cloudflare.com/workers/languages/python/ffi/),
 [DO Python example](https://developers.cloudflare.com/durable-objects/get-started/),
 [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/).
+# Extractive source observations and bounded audit (Web)
+
+Web analysis selects relevant exact factual passages for `observations`: both
+`quote` and `observation` preserve the selected passage, excluding catalog
+metadata/editorial instructions. This is an extractive source ledger, not a
+claim that a paraphrase or the entire source has been verified. The model still
+generates its editorial plan and optional unconfirmed hypotheses; their full
+premises remain subject to the separate immutable analysis audit. The plan has
+a 1,200-character output bound; observations are not limited to three items.
+Writing and editing remain generative and must meet the full quality contract.
+
+The Web fourth-call ceiling is 6,000 output tokens, retaining one call and all
+article/analysis checks. Final-channel diagnostics record only a recognized
+finish reason, UTF-8 content length and strict JSON parse status, never final
+text or hidden reasoning. Incomplete JSON remains a failure. These changes are
+not quality or release acceptance; the failed pilot history is retained.

@@ -577,3 +577,9 @@ Ledger beta phải ghim exact commit/main/tag/manifest/ZIP/run và ghi evidence 
 ### Beta Facebook local (user scope 11/10/2026)
 
 Required beta flow: keyword/default20 → real post/video/reel URL → Source and optional physical TEXT snapshot → reopen → rescan dedup → cancel/disconnect → normal close, on the exact final packaged artifact. URL-only creates no media file. Responsive progress/Stop/Open source, no credentials in Git/log/artifact, auth expiry/CAPTCHA stop and bounded retries are mandatory. User-approved11/10 continuation adds connection to the existing signed-in Facebook tab through Playwright1.63.0/CDP loopback after explicit Chrome permission. Select/verify the Facebook target before scan; do not manipulate unrelated tabs, launch a replacement profile, export cookies/tokens or close the user's Chrome/context/tab. Cancel/normal exit/crash clean only the owned worker/driver. The separate app-owned profile mode remains available with its existing containment/cleanup rules. No Meta API, scraping service or cloud. Status: IN PROGRESS / NOT ACCEPTED until native exact artifact evidence exists. Schema7 consistent pre-migration backup and retention are required. Three earlier stable deferrals were explicitly approved11/10; do not use them as beta blockers or mark them PASS. Required CI/review/main/tag/provenance remain.
+Web source-analysis follow-up (19 October): the seventh real AUTO TEXT attempt
+failed and created no Draft; it is retained as FAIL. Extractive source-observation
+selection, a bounded generated editorial plan, final-channel metadata and a
+6,000-token Web audit ceiling are pending live validation. Relevant fact selection
+and interpretation remain distinct, all analysis/article premises stay audited,
+and these changes do not establish any of the six Web quality flows or release.

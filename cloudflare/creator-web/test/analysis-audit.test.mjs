@@ -58,7 +58,7 @@ test('native analysis choices never salvage malformed or incomplete output or we
  const native=(value,finish_reason='stop')=>({choices:[{finish_reason,message:{content:value}}]});
  const valid=native(JSON.stringify(analysis)),profile=await analysisProfile(packet);
  assert.equal(await profile.run({run:async()=>valid},'model',input),valid);
- assert.deepEqual(profile.diagnostic(),{response_received:true,response_channel:'choices',validation:'PASS'});assert.equal(profile.rejectedJSON(),null);
+ assert.deepEqual(profile.diagnostic(),{response_received:true,response_channel:'choices',validation:'PASS',finish_reason:'stop',final_content_utf8_bytes:new TextEncoder().encode(JSON.stringify(analysis)).length,final_json_status:'VALID'});assert.equal(profile.rejectedJSON(),null);
  for(const result of [native('```json\n'+JSON.stringify(analysis)+'\n```'),native(JSON.stringify(analysis),'length'),native(JSON.stringify({...analysis,inferences:['Giả thuyết: chưa đủ nhãn']})),native(JSON.stringify({...analysis,observations:[{...analysis.observations[0],quote:'invented'}]})),{...valid,choices:[...valid.choices,...valid.choices]}])await assert.rejects(()=>profile.run({run:async()=>result},'model',input));
  await assert.rejects(()=>profile.run({run:async()=>({...native({text:JSON.stringify(analysis)}),response:analysis})},'model',input),/Unsupported native choice/);
 });
@@ -67,7 +67,7 @@ test('rejected profile retains only parsed final JSON, never native reasoning or
  const invalid={...analysis,inferences:['Giả thuyết: missing explicit label']};
  const result={headers:{authorization:'PRIVATE_HEADER_FIXTURE'},choices:[{finish_reason:'stop',message:{reasoning_content:'PRIVATE_REASONING_FIXTURE',content:JSON.stringify(invalid)}}]};
  await assert.rejects(()=>profile.run({run:async()=>result},'model',{messages:[{role:'system',content:'Analysis'}],response_format:{type:'json_schema',json_schema:{properties:{inferences:{}}}}}));
- assert.deepEqual(profile.rejectedJSON(),invalid);assert.deepEqual(profile.diagnostic(),{response_received:true,response_channel:'choices',validation:'REJECTED'});assert.doesNotMatch(JSON.stringify([profile.diagnostic(),profile.rejectedJSON()]),/PRIVATE_/);
+ assert.deepEqual(profile.rejectedJSON(),invalid);assert.deepEqual(profile.diagnostic(),{response_received:true,response_channel:'choices',validation:'REJECTED',finish_reason:'stop',final_content_utf8_bytes:new TextEncoder().encode(JSON.stringify(invalid)).length,final_json_status:'VALID'});assert.doesNotMatch(JSON.stringify([profile.diagnostic(),profile.rejectedJSON()]),/PRIVATE_/);
 });
 
 test('unconfirmed hypothesis is distinct from a verified fact and cannot exempt direction or unsupported background',async()=>{
