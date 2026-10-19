@@ -36,6 +36,7 @@ for source in [
             "style.css",
             "app.js",
             "pending.mjs",
+            "operator-grant.mjs",
             "_headers",
         )
     ),

@@ -18,7 +18,8 @@ test('immutable analysis audit requires every field/hash/order and no unsupporte
 test('live-failure boundaries are explicit in each Web stage without repairing model JSON',async()=>{
  for(const stage of ['analysis','writing','editing']){
   const packet={stage,previous:stage==='analysis'?[]:[{value:analysis}],writing_prompt:'fixture\n'+JSON.stringify({materials})},profile=await analysisProfile(packet);let captured;
-  const result={response:analysis};assert.equal(await profile.run({run:async(_,input)=>{captured=input;return result;}},'model',{messages:[{role:'system',content:'Original constraints'}],response_format:{type:'json_schema',json_schema:{properties:{inferences:{}},required:[]}}}),result);
+  let calls=0;const result={response:analysis};assert.equal(await profile.run({run:async(_,input)=>{calls++;captured=input;return result;}},'model',{reasoning_effort:'low',max_tokens:2600,messages:[{role:'system',content:'Original constraints'}],response_format:{type:'json_schema',json_schema:{properties:{inferences:{}},required:[]}}}),result);
+  assert.equal(calls,1);assert.equal(captured.max_tokens,2600);assert.equal(captured.reasoning_effort,stage==='analysis'?'medium':'low');
   if(stage==='analysis'){
    const rule=captured.response_format.json_schema.properties.inferences.items;
    assert.equal(new RegExp(rule.pattern).test('Giả thuyết chưa xác nhận:'),false);assert.equal(new RegExp(rule.pattern).test(analysis.inferences[0]),true);assert.match(captured.messages[0].content,/inferences:\[\]/);

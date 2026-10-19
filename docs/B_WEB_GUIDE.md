@@ -16,7 +16,15 @@ phiên hợp lệ. Không chia sẻ cookie, operator key hoặc credential Cloud
    nội dung đã đọc. Ảnh/video/audio chưa xử lý không tự thành bằng chứng text.
 3. Chọn Tự động hoặc Thủ công; chế độ thủ công cần hướng rõ ràng. Chọn TEXT,
    IMAGE_CAPTION hoặc VIDEO. Caption cần chọn ảnh đã tải và căn cứ nguồn/quyền.
-4. Sau khi quota Free và grant được operator xác minh, bấm phân tích/viết. Tác vụ
+4. Operator mở mục **Operator · cho phép một lượt trong quota Free** ngay trên
+   Web. Kiểm đúng tài khoản Cloudflare của ứng dụng và gói Free; đọc Neurons còn
+   lại, trừ cả usage đã gửi mà dashboard chưa cộng. Nhập số còn lại (ít nhất
+   5.000), mã operator riêng của ứng dụng và xác nhận vừa kiểm trong 2 phút.
+   Bấm **Cho phép một lượt**: quyền dành tối đa 4 call, hết hạn sau 4 phút;
+   chưa tạo job AI. Mã operator được xóa khỏi form sau thao tác, không lưu vào
+   browser storage. Không nhập API token Cloudflare vào form này, không đưa mã
+   vào URL, ảnh chụp hoặc báo cáo. Quyền mới không xóa request/usage lịch sử.
+   Sau đó chủ động bấm **Phân tích và viết nháp**. Tác vụ
    lưu trên cloud, không phụ thuộc cửa sổ trình duyệt. Mở lại để đọc tiến độ/kết
    quả. Dừng ngăn bước tiếp theo và commit; lời gọi model đã gửi có thể vẫn dùng
    quota. Không tự retry khi kết quả request chưa rõ.
