@@ -583,3 +583,8 @@ selection, a bounded generated editorial plan, final-channel metadata and a
 6,000-token Web audit ceiling are pending live validation. Relevant fact selection
 and interpretation remain distinct, all analysis/article premises stay audited,
 and these changes do not establish any of the six Web quality flows or release.
+
+The eighth real attempt also remains FAIL: editing declared a word-for-word
+unchanged REWRITE, so the no-op guard rejected it before the fourth call and no
+Draft was saved. Web-only expanded edit-schema exclusion/textual schema sync is
+pending native compatibility and quality validation; original guard stays.

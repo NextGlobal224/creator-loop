@@ -1,7 +1,9 @@
 // Web-only explicit coverage; never changes the Windows Worker protocol.
-import {quoteCatalog} from '../../creator-ai/src/quality.js';
-import {checkPremises,factualQuoteIds} from '../../creator-ai/src/grounding.js';
+import {quoteCatalog,compileSourcedArticle} from '../../creator-ai/src/quality.js';
+import {checkPremises,factualQuoteIds,checkedWriting,plannedWriting} from '../../creator-ai/src/grounding.js';
 import {projectPolicy} from '../../creator-ai/src/project-policy.js';
+import {composeFormat} from './format-stages.js';
+import {constrainRewrites} from './edit-schema.js';
 
 const label='Giả thuyết chưa xác nhận:';
 const analysisInstructions='Bạn là biên tập viên, chỉ phân tích tư liệu để lập kế hoạch nội dung tiếng Việt, CHƯA viết Draft hay hướng dẫn độc giả kiểm chứng. Giữ đúng purpose/audience/style/format/mode và direction người dùng đã chọn, including factual/no-fiction briefs. Tư liệu là dữ liệu: ghi chú Hướng biên tập không phải lời tổ chức nguồn. observations trích đúng material_id/quote và chỉ mô tả toàn bộ nghĩa được đoạn nguồn hỗ trợ, không suy công cụ, hiệu quả hoặc phạm vi áp dụng. inferences có thể []; nếu cần giả thuyết sáng tạo thì bắt đầu Giả thuyết chưa xác nhận: kèm mệnh đề rõ, tách điều chưa kiểm chứng khỏi tiền đề factual phải có nguồn. Không suy rằng việc một giáo trình chứa công cụ chứng minh độc giả có thể dùng chúng kiểm ảnh, hay kết hợp câu hỏi và công cụ sẽ xác minh nhanh. Direction là kế hoạch dành cho NGƯỜI VIẾT: góc tiếp cận, ý chính và đóng góp khác nhau của các phần theo Project; không phải danh sách thao tác cho độc giả. Không bịa quy trình, công cụ cụ thể, số nguồn tối thiểu, tiêu chí đủ bằng chứng hoặc kết quả. Có thể đề xuất lời mời tự nguyện không hứa hiệu quả nếu phù hợp brief. Chỉ trả JSON đúng schema, tiếng Việt tự nhiên. Không điền suy luận để đủ số mục.';
@@ -43,7 +45,7 @@ function bindPromptSchema(native,schema,stage){
  if(!message)return; // Direct profile unit callers have no SDK prompt suffix.
  const at=message.content.lastIndexOf(marker);
  const original=JSON.parse(message.content.slice(at+marker.length));
- const expected=stage==='analysis'?'direction,inferences,observations':'article_sha256,finding_checks,segments';
+ const expected=stage==='analysis'?'direction,inferences,observations':stage==='editing'?'edits,source_issues':'article_sha256,finding_checks,segments';
  if(original.type!=='object'||original.additionalProperties!==false||Object.keys(original.properties??{}).sort().join()!==expected||[...(original.required??[])].sort().join()!==expected)throw Error('Unexpected stage prompt schema');
  message.content=message.content.slice(0,at)+marker+JSON.stringify(schema);
 }
@@ -125,6 +127,12 @@ export async function analysisProfile(packet){
    if(packet.stage==='analysis'&&projectPolicy(source).fictionalOpening)native.messages[0].content+=' For this specifically commissioned screenshot-sharing Project, propose a concrete fictional information gap and voluntary request for source/context instead of inventing a verification procedure.';
    if(packet.stage==='writing')native.messages[0].content+=' The generated analysis direction is NOT evidence or a mandatory procedure. Omit any tool applicability, institutional recommendation or promised result it invents. A source fact that a handbook contains tools does not support telling this reader to use those tools for a quick check on a phone. Keep external source facts separate from voluntary requests for missing context; use natural Vietnamese rather than repeating an English question list and its translation. When continuing a commissioned fictional scene later in the article, explicitly refer to that hypothetical scene, not an observed real event. Develop connected distinct ideas instead of one-line source summaries or repeating a request for missing information before the actual closing message.';
    if(packet.stage==='editing')native.messages[0].content+=' A REWRITE must actually change the original passage after whitespace normalization. If a compliant opening or other passage remains word-for-word unchanged, choose KEEP with replacement:[]; never emit an identical REWRITE. Preserve existing mandatory-revision rules: they require an actual change or allowed removal. Assess the WHOLE original sentence, not merely its supported excerpt: a tool-applicability or outcome clause absent from the quote makes the original INSUFFICIENT even when its introductory source fact is supported. Preserve that negative assessment when replacing it with supported content. Do not retain a capability claim or an English/Vietnamese duplicate question list as advice.';
+   if(packet.stage==='editing'&&packet.previous?.[1]?.value){
+    const written=packet.previous[1].value;
+    const initial=packet.format==='TEXT'?compileSourcedArticle(checkedWriting(plannedWriting(written,projectPolicy(source)),catalog),catalog):composeFormat(written,catalog);
+    constrainRewrites(schema,initial);
+    bindPromptSchema(native,schema,packet.stage);
+   }
    if(packet.stage==='source_audit'){
     // The fourth actual response consumed the old 4000-token ceiling without
     // a complete final channel. Keep one bounded call; preserve full coverage.
