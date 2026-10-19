@@ -588,3 +588,10 @@ The eighth real attempt also remains FAIL: editing declared a word-for-word
 unchanged REWRITE, so the no-op guard rejected it before the fourth call and no
 Draft was saved. Web-only expanded edit-schema exclusion/textual schema sync is
 pending native compatibility and quality validation; original guard stays.
+
+Ninth real AUTO TEXT: native edit-schema compatibility PASS, article quality
+FAIL/no Draft. Advice about date/source carried an unsupported authenticity
+implication, and the article stayed underdeveloped. Input compaction keeps full
+native/source/validation contracts; its offline replay does not establish prose
+quality. Remaining Free quota is insufficient for the unchanged 5,000-Neuron
+forecast, so no further live pipeline is authorized by a stale quota snapshot.

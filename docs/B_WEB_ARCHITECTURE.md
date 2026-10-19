@@ -122,3 +122,16 @@ source checks, whitespace-normalized no-op rejection and final audit remain.
 This prevents an exact-copy rewrite in the declared schema, without repairing
 an output. Remote decoding support for the new constraint still needs live
 verification; offline schema validation alone cannot establish compatibility.
+
+The ninth live run verified native execution of the exact-copy exclusion; it
+still failed article quality and created no Draft. Its exact input capture
+showed 26,946/49,712 writing message bytes and 74,869/110,028 editing message
+bytes were duplicated literal schema text. Web TEXT writing and all Web editing
+now replace only that recognized textual suffix with a clearly labelled readable
+shape contract. The full authoritative native `response_format` schema, source
+pack, SDK/domain validation, call/output caps and 5,000-Neuron forecast remain.
+Analysis/audit schemas and caption/VIDEO writing stay unchanged. The readable
+writing contract preserves the existing role purposes and asks for brief-bound
+development without a fixed segment or word minimum. Less duplicate text is
+not evidence of better prose or proportional token savings; live quality remains
+unverified when Free quota is below the unchanged complete-chain forecast.

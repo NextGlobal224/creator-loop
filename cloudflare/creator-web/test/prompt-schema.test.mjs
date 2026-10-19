@@ -6,6 +6,7 @@ import {analysisFields,analysisHash} from '../src/analysis-audit.js';
 import {compileSourcedArticle} from '../../creator-ai/src/quality.js';
 import {checkedWriting,plannedWriting} from '../../creator-ai/src/grounding.js';
 import {composeFormat} from '../src/format-stages.js';
+import {READABLE_CONTRACT_MARKER} from '../src/prompt-contract.js';
 
 test('actual SDK fourth-call prompt/native schemas agree across all three Draft formats',async()=>{
  const quote='Bảo tàng mở cửa từ thứ Ba đến Chủ nhật.';
@@ -41,5 +42,20 @@ test('actual SDK fourth-call prompt/native schemas agree across all three Draft 
   assert.deepEqual(schema,input.response_format.json_schema,format);
   assert.ok(schema.required.includes('analysis_audit'),format);
   assert.match(user.content,/Bảo tàng mở cửa/);
+  let writingNative;
+  const writingPacket={...packet,stage:'writing',previous:packet.previous.slice(0,1)};
+  const writingResult=JSON.parse(await stage({run:async(_,native)=>{writingNative=native;return {response:written,usage:{}};}},'@cf/openai/gpt-oss-120b',JSON.stringify(writingPacket),'fixture-version'));
+  assert.equal(writingResult.ok,true,JSON.stringify(writingResult));
+  const writingUser=writingNative.messages.find(m=>m.role==='user');
+  assert.match(writingUser.content,/Bảo tàng mở cửa/);
+  assert.equal(writingUser.content.includes(READABLE_CONTRACT_MARKER),format==='TEXT');
+  if(format==='TEXT'){
+   const summary=JSON.parse(writingUser.content.split(READABLE_CONTRACT_MARKER)[1]);
+   assert.deepEqual(Object.keys(summary.fields).sort(),['editorial_paragraphs','opening']);
+   assert.deepEqual(Object.keys(summary.fields.editorial_paragraphs).sort(),Object.keys(writingNative.response_format.json_schema.properties.editorial_paragraphs.properties).sort());
+   assert.match(summary.development,/concise brief or closing message may stay concise/);
+  }else{
+   assert.deepEqual(JSON.parse(writingUser.content.split(marker)[1]),writingNative.response_format.json_schema);
+  }
  }
 });
