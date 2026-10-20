@@ -207,6 +207,10 @@ if sys.argv[3]=='child':
                 "creator_loop.backend.runtime.runtime_recovery.ctypes.get_last_error",
                 return_value=5,
             ),
+            patch(
+                "creator_loop.backend.runtime.runtime_recovery._pid_absent_from_snapshot",
+                return_value=False,
+            ),
         ):
             result = self.recover()
         self.assertEqual(result.cleaned, ())
