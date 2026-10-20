@@ -9,7 +9,10 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from creator_loop.backend.runtime.creator_backup_runtime import hold_creator_evidence
+from creator_loop.backend.runtime.creator_backup_runtime import (
+    hold_creator_evidence,
+    hold_creator_preservation,
+)
 from creator_loop.backend.runtime.reuse_backup_runtime import hold_reuse_evidence
 from creator_loop.backend.runtime.runtime_files import RuntimeHandle
 from creator_loop.backend.runtime.runtime_recovery import _identity_dead
@@ -48,7 +51,10 @@ def _bound_child(marker: dict[str, Any], child: dict[str, Any]) -> None:
 
 @contextmanager
 def hold_terminal_audio_runtime(
-    root: Path, db: sqlite3.Connection
+    root: Path,
+    db: sqlite3.Connection,
+    *,
+    opaque_creator: list[dict[str, str]] | None = None,
 ) -> Iterator[Callable[[], None]]:
     """Only known dead executors with terminal DB witnesses may coexist with backup.
 
@@ -87,7 +93,11 @@ def hold_terminal_audio_runtime(
             for p in extra
             if p.name.startswith(("analysis-reuse-", "predecessor-reuse-"))
         ]
-        recheck_creator = hold_creator_evidence(root, db, creator, held)
+        recheck_creator = (
+            hold_creator_evidence(root, db, creator, held)
+            if opaque_creator is None
+            else hold_creator_preservation(root, db, creator, held, opaque_creator)
+        )
         recheck_reuse = hold_reuse_evidence(root, reuse, held)
         records: dict[str, tuple[dict[str, Any], dict[str, Any], set[str]]] = {}
         metadata: dict[tuple[str, str], dict[str, Any]] = {}

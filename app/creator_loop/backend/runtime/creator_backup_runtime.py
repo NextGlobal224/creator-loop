@@ -28,6 +28,30 @@ def hold_creator_evidence(
     writes/replacement to every known file and directory through the backup.
     Unknown entries retain the ordinary refusal. Restart after B before backup.
     """
+    return _hold_creator(root, db, directories, held, None)
+
+
+def hold_creator_preservation(
+    root: Path,
+    db: sqlite3.Connection,
+    directories: list[Path],
+    held: ExitStack,
+    opaque: list[dict[str, str]],
+) -> Callable[[], None]:
+    """Preservation only: archive every leased byte, never qualify orphan outputs.
+
+    Ordinary update backup still requires the matching terminal DB owner.
+    """
+    return _hold_creator(root, db, directories, held, opaque)
+
+
+def _hold_creator(
+    root: Path,
+    db: sqlite3.Connection,
+    directories: list[Path],
+    held: ExitStack,
+    opaque: list[dict[str, str]] | None,
+) -> Callable[[], None]:
     namespaces: dict[Path, set[str]] = {}
     markers = {}
     children = {}
@@ -95,6 +119,8 @@ def hold_creator_evidence(
             or marker.get("kind")
             != ("CREATOR_WORKFLOW_OWNER" if task else "CREATOR_LLM_WORKSPACE")
             or not isinstance(marker.get("parent"), dict)
+            or not isinstance(marker.get("component_version"), str)
+            or not 0 < len(marker["component_version"]) <= 512
             or not _identity_dead(marker["parent"])
         ):
             raise RuntimeError(
@@ -138,7 +164,15 @@ def hold_creator_evidence(
             )
             for parent, prefix in owners
         ):
-            raise RuntimeError("B workspace lacks matching terminal owner")
+            if opaque is None:
+                raise RuntimeError("B workspace lacks matching terminal owner")
+            opaque.append(
+                {
+                    "workspace": directory.name,
+                    "provenance": "UNMATCHED_TERMINAL_OWNER",
+                    "component_version": str(component),
+                }
+            )
     for (directory, _), child in children.items():
         marker = markers[directory]
         if (
