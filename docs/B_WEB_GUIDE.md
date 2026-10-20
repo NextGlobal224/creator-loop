@@ -61,6 +61,10 @@ lời đọc/phụ đề/timing, không phải chứng nhận MP4/giọng đọc
 
 ## Dữ liệu, backup và khôi phục
 
+Phạm vi20/10: phát hành B thủ công TEXT/IMAGE_CAPTION trước rồi chuyển A lên cloud.
+Tự động giữ backlog; VIDEO đã có chỉ giữ script/asset/timing, không chờ C, không
+phát triển hoặc dựng/xuất MP4. Source/lịch sử/dữ liệu dùng chung vẫn được giữ.
+
 Domain SQLite schema10 và media nằm bền vững trên cloud. Giới hạn beta: mỗi tệp
 tối đa8MiB, tổng media8MiB, domainDB16MiB và compressed checkpoint1.8MB. Hết giới
 hạn báo lỗi; không tự nâng gói. Tải backup DB+media định kỳ vào nơi riêng an toàn.
@@ -119,6 +123,15 @@ và nguồn, tự chọn hướng rồi tạo và sửa Draft. Ảnh phải xem/
 quyền dùng; sau tải lại hoặc đăng nhập lại phải giữ nguồn, ảnh, version và review.
 Chưa có đủ hai đầu ra đạt chất lượng và release gắn deployment thì chưa nghiệm thu.
 
-Tự động vẫn giữ trong backlog/tính năng hiện có. VIDEO kế thừa sau khi C đạt
-contract và tích hợp qua B được kiểm chứng; không chạy VIDEO để nghiệm thu beta
-này. Beta thủ công không là toàn bộ B hoặc A/B/C hoàn tất. Luôn duyệt trước đăng.
+Tự động vẫn giữ trong backlog/tính năng hiện có. Theo sửa đổi 20/10, C đã hủy;
+chỉ bảo toàn script/asset/timing VIDEO hiện có, không phát triển hay chạy VIDEO.
+Sau beta B mới chuyển A lên cloud rồi dọn local theo guard dữ liệu. Beta thủ công
+không là toàn bộ dự án hoàn tất. Luôn duyệt trước đăng.
+
+Deploy/rollback chạy qua workflow GitHub trên main, không cần laptop phục vụ.
+Deploy upload phiên bản chưa hoạt động rồi kiểm lại HEAD, UUID và job trước khi
+chuyển traffic. Chỉ báo thành công sau đối chiếu bytes/cấu hình trên cloud. Không
+hứa khóa nguyên tử mọi người dùng/deployer khác. Rollback cần UUID và hai run
+deploy thành công còn artifact, đúng account/target/CI, cùng toàn bộ cây Python
+và migration/runtime; bản cũ không đủ bằng chứng sẽ bị từ chối. Không tự retry
+khi kết quả chưa rõ, không restore DB production để rollback code.

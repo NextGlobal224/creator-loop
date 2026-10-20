@@ -1,0 +1,80 @@
+name: B Web verified cloud deploy or rollback
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [deploy, rollback]
+        default: deploy
+        required: true
+      target:
+        type: choice
+        options: [qa19, production]
+        default: qa19
+        required: true
+      ci_run:
+        description: Successful push-main CI run for this exact main commit
+        type: string
+        required: true
+      expected_deployment:
+        description: Current target version UUID; changed version refuses mutation
+        type: string
+        required: true
+      rollback_version:
+        description: Qualified prior version UUID; rollback never restores DB
+        type: string
+        required: false
+      current_workflow_run:
+        description: Successful cloud deploy receipt run for current UUID, rollback only
+        type: string
+        required: false
+      rollback_workflow_run:
+        description: Successful cloud deploy receipt run for rollback UUID, rollback only
+        type: string
+        required: false
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: creator-loop-b-web-deployment
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install pinned deployment tool, without deployment credentials
+        working-directory: cloudflare/creator-ai
+        run: npm ci --no-audit --no-fund
+      - name: Verify main CI bytes and deploy once in cloud
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          B_WEB_QA_PASSWORD: ${{ secrets.B_WEB_QA_PASSWORD }}
+          B_WEB_QA19_PASSWORD: ${{ secrets.B_WEB_QA19_PASSWORD }}
+          B_TARGET: ${{ inputs.target }}
+          B_OPERATION: ${{ inputs.operation }}
+          B_CI_RUN: ${{ inputs.ci_run }}
+          B_EXPECTED_DEPLOYMENT: ${{ inputs.expected_deployment }}
+          B_ROLLBACK_VERSION: ${{ inputs.rollback_version }}
+          B_CURRENT_WORKFLOW_RUN: ${{ inputs.current_workflow_run }}
+          B_ROLLBACK_WORKFLOW_RUN: ${{ inputs.rollback_workflow_run }}
+        run: timeout 480s python scripts/b_web_cloud_deploy.py
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: b-web-cloud-deployment
+          path: |
+            deploy-result.json
+            deploy.log
+          if-no-files-found: ignore
+          retention-days: 14

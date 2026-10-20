@@ -23,5 +23,5 @@ export async function stage(binding, model, packetJson, version) {
     try{envelope={...await formatStage(env,packet),ok:true};}
     catch(error){envelope={ok:false,error:"FORMAT_STAGE_REJECTED",stage:packet.stage,retryable:false};}
   }
-  return JSON.stringify({...envelope,analysis_audit:profile.receipt(),profile_diagnostic:profile.diagnostic(),...(envelope.ok?{}:{profile_rejected_json:profile.rejectedJSON()}),model_calls:calls,native_usage:nativeUsage});
+  return JSON.stringify({...envelope,analysis_audit:profile.receipt(),profile_diagnostic:profile.diagnostic(),...(envelope.ok?{}:{profile_rejected_json:profile.rejectedJSON(),profile_rejected_final_text:profile.rejectedFinalText()}),model_calls:calls,native_usage:nativeUsage});
 }

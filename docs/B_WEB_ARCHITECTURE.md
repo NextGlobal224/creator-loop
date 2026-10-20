@@ -1,5 +1,12 @@
 # Creator Loop B Web — additive deployment baseline
 
+The explicit20October goal now releases MANUAL TEXT/IMAGE_CAPTION B beta first,
+then moves A entirely to Cloudflare. C implementation and every dependency on C
+are cancelled; retain existing VIDEO script/assets/timing without new development.
+Preserve source/history/shared data. After verified migration/cloud restore,
+retire only unnecessary project operational data/runtime/model/cache/build,
+with paths/RAM/disk before-after and A/B checked with local runtime off.
+
 The explicit B Web request of 18 October 2026 adds an authenticated, durable,
 Windows-independent deployment. It does not replace Windows beta.2, its data
 root, schema compatibility, or A/C acceptance. No principal data import is
@@ -26,6 +33,25 @@ Options checked against current official Cloudflare documentation and account:
   One Worker project, no new framework or external service is necessary.
 
 ## Storage and consistency
+
+Deployment/rollback can run in the manual `B Web verified cloud deploy or rollback`
+GitHub workflow on protected main. It checks the exact successful main CI and
+artifact digest, approved account/target, expected live version, idle jobs and
+included resource headroom. Deployment uploads an inactive version, then checks
+main/version/bindings/idle jobs again immediately before one traffic activation.
+It reuses the cloud-built runtime and never calls AI. Cloudflare has no atomic
+compare-and-swap/quiescence guarantee here: a detected change aborts activation;
+an ambiguous activation is unconfirmed, with no automatic retry or rollback.
+Actual official module bytes, every static asset and runtime settings must match
+the trusted CI artifact before success. Rollback requires independent successful
+GitHub deployment receipts for both exact UUIDs/account/target, matching CI bytes,
+identical complete Python/domain dependency trees and migration/runtime settings,
+plus unchanged DO namespace/model. Arbitrary historical UUIDs and schema downgrade
+are refused; no DB restore occurs. Receipt artifacts must still be retained.
+Credentials stay in GitHub/Cloudflare secrets, not source or a Windows runtime.
+Missing/expired credentials fail closed; rotate them through the owning cloud
+account, not a laptop backend. Actual workflow/deployment/rollback evidence must
+still be collected before claiming those operations passed.
 
 The 20 October scope requires B operations entirely on Cloudflare. Windows is
 only a browser client; no local backend, canonical SQLite/media, scheduler,
