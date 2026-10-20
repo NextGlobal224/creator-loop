@@ -47,7 +47,9 @@ def _pid_absent_from_snapshot(pid: int) -> bool:
     EnumProcesses must succeed with a complete, plausible system snapshot.
     https://learn.microsoft.com/windows/win32/api/psapi/nf-psapi-enumprocesses
     """
-    enumerate_processes = ctypes.WinDLL("psapi", use_last_error=True).EnumProcesses
+    enumerate_processes = getattr(ctypes, "WinDLL")(
+        "psapi", use_last_error=True
+    ).EnumProcesses
     enumerate_processes.argtypes = (
         ctypes.POINTER(ctypes.c_uint32),
         ctypes.c_uint32,

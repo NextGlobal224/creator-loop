@@ -6,6 +6,7 @@ import io
 import json
 import unittest
 import zipfile
+from unittest.mock import MagicMock, patch
 
 from scripts.b_web_cloud_deploy import (
     CHECKS,
@@ -13,6 +14,7 @@ from scripts.b_web_cloud_deploy import (
     REPO,
     activate_once,
     compatible_bindings,
+    read_json,
     runtime_files,
     static_header_policy,
     storage_compatible,
@@ -22,6 +24,31 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_https_client_identifies_application_and_preserves_same_origin_json(self):
+        origin = "https://qa.invalid"
+        response = MagicMock()
+        response.read.return_value = b'{"ok": true}'
+        response.headers = {"Content-Type": "application/json"}
+        opener = MagicMock()
+        opener.open.return_value.__enter__.return_value = response
+        with patch(
+            "scripts.b_web_cloud_deploy.urllib.request.build_opener",
+            return_value=opener,
+        ):
+            result, _ = read_json(
+                origin + "/api/login",
+                {"Origin": origin, "Content-Type": "application/json"},
+                {"password": "fixture"},
+            )
+        self.assertTrue(result["ok"])
+        request = opener.open.call_args.args[0]
+        self.assertEqual(
+            request.get_header("User-agent"), "CreatorLoop-B-Web-CloudDeploy/1"
+        )
+        self.assertEqual(request.get_header("Origin"), origin)
+        self.assertEqual(request.get_header("Content-type"), "application/json")
+        self.assertEqual(json.loads(request.data), {"password": "fixture"})
+
     def test_activation_rechecks_after_staging_and_never_retries_ambiguity(self):
         events = []
 

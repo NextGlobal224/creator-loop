@@ -35,7 +35,9 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def read_bytes(url: str, headers: dict, data=None):
     request = urllib.request.Request(
-        url, headers=headers, data=None if data is None else json.dumps(data).encode()
+        url,
+        headers={"User-Agent": "CreatorLoop-B-Web-CloudDeploy/1", **headers},
+        data=None if data is None else json.dumps(data).encode(),
     )
     try:
         with urllib.request.build_opener(NoRedirect()).open(request, timeout=45) as r:
