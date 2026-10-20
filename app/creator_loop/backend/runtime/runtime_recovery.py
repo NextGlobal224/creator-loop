@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import re
 import sys
 from contextlib import ExitStack
@@ -39,6 +40,36 @@ class RuntimeRecovery:
     preserved: tuple[tuple[str, str], ...]
 
 
+def _pid_absent_from_snapshot(pid: int) -> bool:
+    """Fresh independent death proof; never infer absence from a failed query.
+
+    An OpenProcess access denial alone proves neither exit nor a live owner.
+    EnumProcesses must succeed with a complete, plausible system snapshot.
+    https://learn.microsoft.com/windows/win32/api/psapi/nf-psapi-enumprocesses
+    """
+    enumerate_processes = getattr(ctypes, "WinDLL")(
+        "psapi", use_last_error=True
+    ).EnumProcesses
+    enumerate_processes.argtypes = (
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_uint32),
+    )
+    enumerate_processes.restype = ctypes.c_int
+    processes = (ctypes.c_uint32 * 32768)()
+    written = ctypes.c_uint32()
+    capacity = ctypes.sizeof(processes)
+    if not enumerate_processes(processes, capacity, ctypes.byref(written)):
+        raise OSError("Native process snapshot unavailable")
+    width = ctypes.sizeof(ctypes.c_uint32)
+    if not 0 < written.value < capacity or written.value % width:
+        raise OSError("Native process snapshot incomplete or malformed")
+    observed = set(processes[: written.value // width])
+    if os.getpid() not in observed:
+        raise OSError("Native process snapshot lacks current process witness")
+    return pid not in observed
+
+
 def _identity_dead(identity: dict[str, Any]) -> bool:
     if sys.platform != "win32":
         raise OSError("Runtime process identity requires Windows")
@@ -56,9 +87,16 @@ def _identity_dead(identity: dict[str, Any]) -> bool:
     kernel = _api()
     handle = kernel.OpenProcess(0x00101000, False, pid)
     if not handle:
-        if ctypes.get_last_error() == 87:  # PID no longer exists; not access denied
+        error = ctypes.get_last_error()
+        if error == 87:  # PID no longer exists; not access denied
             return True
-        raise ctypes.WinError(ctypes.get_last_error())
+        if error == 5:
+            try:
+                if _pid_absent_from_snapshot(pid):
+                    return True
+            except (OSError, AttributeError):
+                pass  # Keep original refusal if independent proof is unavailable.
+        raise ctypes.WinError(error)
     try:
         state = kernel.WaitForSingleObject(handle, 0)
         if state not in (0, 0x102):
