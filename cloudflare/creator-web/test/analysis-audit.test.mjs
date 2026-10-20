@@ -70,6 +70,29 @@ test('rejected profile retains only parsed final JSON, never native reasoning or
  assert.deepEqual(profile.rejectedJSON(),invalid);assert.deepEqual(profile.diagnostic(),{response_received:true,response_channel:'choices',validation:'REJECTED',finish_reason:'stop',final_content_utf8_bytes:new TextEncoder().encode(JSON.stringify(invalid)).length,final_json_status:'VALID'});assert.doesNotMatch(JSON.stringify([profile.diagnostic(),profile.rejectedJSON()]),/PRIVATE_/);
 });
 
+test('TEXT writing has room for complete final JSON without changing effort or5000 forecast',async()=>{
+ const packet={format:'TEXT',stage:'writing',previous:[{value:analysis}],writing_prompt:'fixture\n'+JSON.stringify({materials})},profile=await analysisProfile(packet);
+ const partial='{"editorial_paragraphs":',raw={headers:{authorization:'PRIVATE_HEADER_FIXTURE'},choices:[{finish_reason:'length',message:{reasoning_content:'PRIVATE_REASONING_FIXTURE',content:partial}}]};
+ let captured,calls=0;
+ const result=await profile.run({run:async(_,input)=>{captured=input;calls++;return raw;}},'@cf/openai/gpt-oss-120b',{max_tokens:3000,reasoning_effort:'medium',messages:[{role:'system',content:'Write'}],response_format:{type:'json_schema',json_schema:{properties:{}}}});
+ assert.equal(calls,1);assert.equal(captured.max_tokens,4500);assert.equal(captured.reasoning_effort,'medium');assert.equal(result,raw);
+ assert.equal(profile.diagnostic().finish_reason,'length');assert.equal(profile.diagnostic().final_json_status,'INVALID');
+ assert.equal(profile.rejectedFinalText(),partial);assert.doesNotMatch(profile.rejectedFinalText(),/PRIVATE_/);assert.equal(profile.rejectedJSON(),null);
+ // Existing conservative input envelope; changed writing cap is already used
+ // by IMAGE_CAPTION. This does not lower/recalculate the5000-Neuron reservation.
+ assert.equal(2600+4500+4500+6000,17600);
+ assert.ok((112000*31818+17600*68182)/1000000<5000);
+});
+
+test('failed final text evidence is bounded and never includes extra choices or hidden channels',async()=>{
+ for(const mode of ['oversize','multiple','valid']){
+  const profile=await analysisProfile({format:'TEXT',stage:'writing',previous:[{value:analysis}],writing_prompt:'fixture\n'+JSON.stringify({materials})});
+  const choice={finish_reason:mode==='valid'?'stop':'length',message:{reasoning_content:'PRIVATE_REASONING_FIXTURE',content:mode==='oversize'?'x'.repeat(65537):'{}'}};
+  await profile.run({run:async()=>({choices:mode==='multiple'?[choice,choice]:[choice]})},'model',{messages:[{role:'system',content:'Write'}],response_format:{type:'json_schema',json_schema:{properties:{}}}});
+  assert.equal(profile.rejectedFinalText(),null);
+ }
+});
+
 test('unconfirmed hypothesis is distinct from a verified fact and cannot exempt direction or unsupported background',async()=>{
  const value={...analysis,inferences:['Giả thuyết chưa xác nhận: Cách kể bằng một cuộc trò chuyện có thể phù hợp với độc giả này.']};
  const fields=analysisFields(value),hash=await analysisHash(value),r=receipt(hash,fields);

@@ -105,12 +105,16 @@ export async function analysisProfile(packet){
  const analysis=packet.previous?.[0]?.value;
  const fields=packet.stage==='analysis'?null:validateAnalysis(analysis,source.materials);
  const hash=fields?await analysisHash(analysis):null;
- let receipt=null,diagnostic=null,rejectedJSON=null;
+ let receipt=null,diagnostic=null,rejectedJSON=null,finalText=null;
  return {
   async run(binding,model,input,options){
-   receipt=null;diagnostic=null;rejectedJSON=null;
+   receipt=null;diagnostic=null;rejectedJSON=null;finalText=null;
    const native=structuredClone(input),schema=native.response_format?.json_schema;
    if(!schema||native.response_format.type!=='json_schema')throw Error('Expected native structured schema');
+   // Actual MANUAL TEXT stopped at3000 tokens before completing its final JSON.
+   // Keep model/effort and all guards; match the existing caption writing cap.
+   // 112000 input +17600 output tokens remain below the unchanged5000 forecast.
+   if(packet.stage==='writing'&&packet.format==='TEXT')native.max_tokens=4500;
    if(packet.stage==='analysis'){
     // The live low-effort analysis repeatedly invented efficacy/threshold rules.
     // Reuse the same model/call/token cap with more reasoning on this stage only.
@@ -147,6 +151,8 @@ export async function analysisProfile(packet){
     bindPromptSchema(native,schema,packet.stage);
    }
    const result=await binding.run(model,native,options);
+   const content=result?.choices?.[0]?.message?.content;
+   if(result?.choices?.length===1&&typeof content==='string'&&new TextEncoder().encode(content).length<=65536)finalText=content;
    diagnostic={response_received:!!result,response_channel:typeof result?.choices?.[0]?.message?.content==='string'?'choices':Object.hasOwn(result??{},'response')?'response':'unknown',validation:'NOT_REQUIRED',...finalChannelDiagnostic(result)};
    try{
    if(packet.stage==='analysis'){
@@ -169,5 +175,7 @@ export async function analysisProfile(packet){
   diagnostic:()=>diagnostic,
   // Only parsed final JSON, never reasoning/headers/provider exception text.
   rejectedJSON:()=>rejectedJSON,
+  // Authenticated failed-job evidence only, never reasoning/headers or repair.
+  rejectedFinalText:()=>diagnostic&&(diagnostic.finish_reason==='length'||diagnostic.final_json_status==='INVALID')?finalText:null,
  };
 }
