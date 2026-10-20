@@ -27,6 +27,31 @@ Options checked against current official Cloudflare documentation and account:
 
 ## Storage and consistency
 
+The 20 October scope requires B operations entirely on Cloudflare. Windows is
+only a browser client; no local backend, canonical SQLite/media, scheduler,
+watcher, Tunnel or VS Code is needed for Web operations. Source/build tools on a
+developer machine are not part of the serving path. Python DO alarms own job
+wakeups after a browser closes; ephemeral Worker filesystem projections are not
+Windows data. Login/operator secrets remain Cloudflare bindings; entering the
+operator credential on Web does not require a local credential file.
+
+Named manual cloud backups pin the committed DB image and immutable object
+manifest in the same DO. At most three snapshots are retained, with no silent
+deletion; referenced media are never garbage-collected. Download reconstructs
+the existing backup format. Restore uses the existing explicit confirmation,
+revision check and atomic validation path. These snapshots protect against
+application-state replacement, not loss of the Cloudflare account/namespace.
+Their isolated restore must be verified on the deployed version before claiming
+acceptance. They do not prove migration or backup of the shared Windows DB.
+
+Principal migration remains guarded: inventory shared A/B/C ownership first,
+then obtain a consistent full backup including media, stage an ID-preserving
+merge with a durable import manifest, verify relations/hashes by isolated
+restore, cut over reads/writes and fence old B writers before deleting only
+proven B-exclusive migrated data. Whole-DB restore must not overwrite newer
+cloud records. Shared or unresolved local data are retained; a local rename is
+not retirement. No principal import, deletion or fence is implied by this note.
+
 One private owner has one serialized writer Durable Object. The domain remains
 one SQLite database, with the unchanged migration/checksum/FK/seal rules.
 Its committed bytes reside in durable storage; filesystem copies are disposable

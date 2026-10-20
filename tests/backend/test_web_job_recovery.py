@@ -130,6 +130,81 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             self.storage.setAlarm.await_args.args[0], time.time() * 1000 - 1000
         )
 
+    async def test_cloud_backup_pins_revision_and_media_and_rejects_unsafe_snapshots(
+        self,
+    ):
+        import base64
+        import sqlite3
+
+        db = sqlite3.connect(":memory:")
+        self.addCleanup(db.close)
+        db.row_factory = sqlite3.Row
+        for sql in (
+            "CREATE TABLE backups(id TEXT PRIMARY KEY,created_at REAL,record TEXT)",
+            "CREATE TABLE checkpoint(id INTEGER,revision INTEGER,payload TEXT,sha256 TEXT)",
+            "CREATE TABLE objects(sha256 TEXT,size INTEGER)",
+            "CREATE TABLE jobs(status TEXT)",
+        ):
+            db.execute(sql)
+        db.execute("INSERT INTO checkpoint VALUES(1,7,'fixture','fixture')")
+        raw = "Ảnh gốc giữ trên cloud".encode()
+        sha = hashlib.sha256(raw).hexdigest()
+        db.execute("INSERT INTO objects VALUES(?,?)", (sha, len(raw)))
+        db.commit()
+        self.app.sql = types.SimpleNamespace(
+            exec=lambda sql, *args: db.execute(sql, args)
+        )
+        self.app.rows = lambda sql, *args: [dict(row) for row in db.execute(sql, args)]
+        self.app.object_bytes = lambda value: raw if value == sha else b"bad"
+
+        def transaction(function):
+            with db:
+                return function()
+
+        self.storage.transactionSync = transaction
+
+        async def call(path, method="GET", data=None, key="a" * 32):
+            request = types.SimpleNamespace(headers={"Idempotency-Key": key})
+            with patch.object(
+                self.loaded, "reply", side_effect=lambda value, *args: value
+            ):
+                return await self.app.authorized(request, path, method, data or {})
+
+        created = await call("/api/backups", "POST", {"expected_revision": 7})
+        self.assertTrue(created["saved_on_cloud"])
+        self.assertEqual(
+            await call("/api/backups", "POST", {"expected_revision": 7}), created
+        )
+        db.execute("UPDATE checkpoint SET revision=8")
+        db.commit()
+        exported = await call("/api/backups/" + created["id"])
+        self.assertEqual(exported["checkpoint"][0]["revision"], 7)
+        self.assertEqual(
+            base64.b64decode(exported["objects"][0]["content_base64"]), raw
+        )
+        for revision, key in ((8, "a" * 32), (7, "b" * 32), (True, "b" * 32)):
+            with self.assertRaises(self.loaded.WebInputError):
+                await call("/api/backups", "POST", {"expected_revision": revision}, key)
+        db.execute("INSERT INTO jobs VALUES('RUNNING')")
+        db.commit()
+        with self.assertRaises(self.loaded.WebInputError):
+            await call("/api/backups", "POST", {"expected_revision": 8}, "b" * 32)
+        db.execute("DELETE FROM jobs")
+        db.commit()
+        self.app.object_bytes = lambda _: b"corrupt"
+        with self.assertRaises(self.loaded.WebInputError):
+            await call("/api/backups", "POST", {"expected_revision": 8}, "b" * 32)
+        self.app.object_bytes = lambda _: raw
+        for key in ("b" * 32, "c" * 32):
+            await call("/api/backups", "POST", {"expected_revision": 8}, key)
+        with self.assertRaises(self.loaded.WebInputError):
+            await call("/api/backups", "POST", {"expected_revision": 8}, "d" * 32)
+        listing = await call("/api/backups")
+        self.assertEqual(len(listing["backups"]), 3)
+        self.assertNotIn("payload", json.dumps(listing))
+        self.assertEqual(db.execute("SELECT revision FROM checkpoint").fetchone()[0], 8)
+        self.storage.setAlarm.assert_not_awaited()
+
     async def test_grant_status_is_read_only_fresh_bounded_and_does_not_export_record(
         self,
     ):
@@ -260,6 +335,9 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             if isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute)
             and n.func.attr == "transactionSync"
+            and n.args
+            and isinstance(n.args[0], ast.Name)
+            and n.args[0].id == "mutate"
         ]
         self.assertLess(max(schedule), min(commit))
 
