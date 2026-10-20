@@ -130,6 +130,7 @@ class Database(DurableObject):
             "CREATE TABLE IF NOT EXISTS attempts (ip TEXT PRIMARY KEY, started REAL NOT NULL, count INTEGER NOT NULL)",
             "CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, status TEXT NOT NULL, record TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS control (id TEXT PRIMARY KEY, record TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS backups (id TEXT PRIMARY KEY, created_at REAL NOT NULL, record TEXT NOT NULL)",
         ):
             self.sql.exec(statement)
 
@@ -516,6 +517,87 @@ class Database(DurableObject):
                     ],
                 }
             )
+        if path == "/api/backups" and method == "GET":
+            return reply(
+                {
+                    "backups": [
+                        {
+                            "id": row["id"],
+                            "created_at": row["created_at"],
+                            "revision": json.loads(row["record"])["checkpoint"][0][
+                                "revision"
+                            ],
+                        }
+                        for row in self.rows(
+                            "SELECT * FROM backups ORDER BY created_at DESC"
+                        )
+                    ],
+                    "limit": 3,
+                }
+            )
+        if path.startswith("/api/backups/") and method == "GET":
+            found = self.rows(
+                "SELECT record FROM backups WHERE id=?", path.rsplit("/", 1)[1]
+            )
+            if not found:
+                return reply({"error": "Không tìm thấy backup cloud"}, 404)
+            backup = json.loads(found[0]["record"])
+            for obj in backup["objects"]:
+                obj["content_base64"] = base64.b64encode(
+                    self.object_bytes(obj["sha256"])
+                ).decode()
+            return reply(backup)
+        if path == "/api/backups" and method == "POST":
+            key = request.headers.get("Idempotency-Key") or ""
+            if len(key) != 32 or any(c not in "0123456789abcdef" for c in key):
+                raise WebInputError("Thiếu ID thao tác backup hợp lệ")
+
+            def snapshot():
+                prior = self.rows("SELECT record FROM backups WHERE id=?", key)
+                if prior:
+                    saved = json.loads(prior[0]["record"])
+                    if saved["checkpoint"][0]["revision"] != data.get(
+                        "expected_revision"
+                    ):
+                        raise WebInputError("ID backup đã dùng cho revision khác", 409)
+                    return {"id": key, "saved_on_cloud": True}
+                cp = self.rows("SELECT * FROM checkpoint WHERE id=1")
+                if (
+                    not cp
+                    or type(data.get("expected_revision")) is not int
+                    or cp[0]["revision"] != data["expected_revision"]
+                ):
+                    raise WebInputError(
+                        "Dữ liệu đã đổi; tải lại trước khi lưu backup cloud", 409
+                    )
+                if self.rows("SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING')"):
+                    raise WebInputError("Chờ tác vụ kết thúc trước khi backup", 409)
+                if len(self.rows("SELECT id FROM backups")) >= 3:
+                    raise WebInputError(
+                        "Đã giữ 3 backup cloud; không tự xóa hoặc tăng giới hạn", 409
+                    )
+                objects = self.rows("SELECT * FROM objects")
+                # Immutable media are retained in this DO; snapshot pins their exact
+                # hashes without duplicating bytes. This is not an off-account copy.
+                for obj in objects:
+                    raw = self.object_bytes(obj["sha256"])
+                    if len(raw) != obj["size"] or digest(raw) != obj["sha256"]:
+                        raise WebInputError("Media không khớp; chưa lưu backup")
+                record = {
+                    "format": "CREATOR_WEB_BACKUP_V1",
+                    "version": VERSION,
+                    "checkpoint": cp,
+                    "objects": objects,
+                }
+                self.sql.exec(
+                    "INSERT INTO backups VALUES(?,?,?)",
+                    key,
+                    time.time(),
+                    json.dumps(record),
+                )
+                return {"id": key, "saved_on_cloud": True}
+
+            return reply(self.ctx.storage.transactionSync(snapshot))
         if not path.startswith("/api/") and method == "GET":
             return await self.env.ASSETS.fetch(request)
         root, revision = self.load()

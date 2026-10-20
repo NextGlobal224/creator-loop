@@ -66,7 +66,15 @@ tối đa8MiB, tổng media8MiB, domainDB16MiB và compressed checkpoint1.8MB. H
 hạn báo lỗi; không tự nâng gói. Tải backup DB+media định kỳ vào nơi riêng an toàn.
 Backup chứa dữ liệu riêng, không đưa vào Git/GitHub hay gửi công khai.
 
-Khôi phục: chọn backup đã tải, xác nhận rằng thay đổi sau mốc backup sẽ mất rồi
+**Lưu backup trên cloud** giữ tối đa ba mốc DB + media trong Durable Object.
+**Mở danh sách backup cloud** đọc lại các mốc sau tải lại hoặc đăng nhập lại;
+không cần giữ tệp trên Windows. Chọn một mốc cloud **hoặc** một tệp đã tải,
+không chọn cả hai. Backup cùng Durable Object không phải bản sao ở tài khoản
+khác; giữ thêm bản xuất an toàn nếu cần phục hồi ngoài tài khoản. Hết ba mốc
+thì báo lỗi, không tự xóa mốc hoặc tăng giới hạn. Mất phản hồi giữ ID thao tác
+để kiểm tra mốc đã lưu trước khi cho phép tạo thêm, không tự chạy nền.
+
+Khôi phục: chọn backup, xác nhận rằng thay đổi sau mốc backup sẽ mất rồi
 bấm khôi phục. Server kiểm schema/checksum/integrity/FK/tệp/digest, giữ checkpoint
 trước restore và media bất biến. Receipt/job của trạng thái cũ trở thành lịch sử;
 run cloud gián đoạn trong backup không tự chạy lại. Không dùng bản desktop cũ

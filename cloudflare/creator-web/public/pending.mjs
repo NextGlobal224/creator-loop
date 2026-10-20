@@ -1,6 +1,30 @@
 // Lost acknowledgments retain the original payload. Only reads reconcile them;
 // starting another inference always requires a new explicit submit.
 export const storageKey='creator-pending-request-v2';
+// Only an operation identity/revision is cached here, never backup DB/media.
+export async function saveCloudBackup(api,storage,revision,newId){
+  const key='creator-pending-backup-v1';
+  let intent=JSON.parse(storage.getItem(key)||'null');
+  if(intent){
+    const current=await api('/api/backups');
+    if(current.backups.some(item=>item.id===intent.key)){
+      storage.removeItem(key);return {id:intent.key,saved_on_cloud:true};
+    }
+  }else{
+    intent={key:newId(),data:{expected_revision:revision}};
+    storage.setItem(key,JSON.stringify(intent));
+  }
+  try{
+    const result=await api('/api/backups',intent.data,intent.key);
+    if(result.saved_on_cloud!==true||result.id!==intent.key)throw Error('Chưa xác nhận được backup; giữ ID để kiểm tra, không tạo mốc khác.');
+    storage.removeItem(key);return result;
+  }catch(error){
+    // A server 409 confirms refusal/transaction rollback. Network errors keep
+    // the same identity across reloads, before any new explicit save attempt.
+    if(error.status===409)storage.removeItem(key);
+    throw error;
+  }
+}
 export function preparePending(data,existing,newId){
   if(existing){
     if(JSON.stringify(existing.data)!==JSON.stringify(data))throw Error('Còn yêu cầu chưa rõ kết quả. Mở trạng thái hoặc bỏ yêu cầu chờ trước khi đổi nội dung.');
