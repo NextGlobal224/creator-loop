@@ -48,7 +48,26 @@ TABLES = (
     "draft_versions",
     "review_events",
     "processing_runs",
+    "draft_render_requests",
+    "draft_render_outputs",
 )
+
+
+def _render_media(db: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Preserve already existing historical files; never execute a renderer."""
+    return [
+        {
+            "render_run_id": run,
+            "role": "OTHER",
+            "storage_key": key,
+            "sha256": sha,
+            "bytes": size,
+            "archive": "media/" + sha,
+        }
+        for run, key, sha, size in db.execute(
+            "SELECT render_run_id,storage_key,sha256,byte_size FROM draft_render_outputs ORDER BY render_run_id"
+        )
+    ]
 
 
 def _relative(name: str) -> PurePosixPath:
@@ -212,7 +231,10 @@ def verify_preservation_archive(stream: BinaryIO, isolated: Path) -> dict[str, A
             ]
             if manifest["media"] != expected_media:
                 raise ValueError("Restored media/ID mapping differs from domain")
-            for media in expected_media:
+            render_media = _render_media(db)
+            if manifest.get("render_media", []) != render_media:
+                raise ValueError("Restored historical render media mapping differs")
+            for media in expected_media + render_media:
                 key = _relative(media["storage_key"])
                 if len(key.parts) < 3 or key.parts[0] != "storage":
                     raise ValueError("Unsupported isolated media destination")
@@ -233,6 +255,7 @@ def verify_preservation_archive(stream: BinaryIO, isolated: Path) -> dict[str, A
             "schema_version": manifest["schema_version"],
             "table_counts": manifest["table_counts"],
             "media_records": len(expected_media),
+            "historical_render_media_records": len(render_media),
             "files_reopened": len(manifest["files"]),
             "unmatched_runtime_workspaces": len(manifest["opaque_runtime"]),
             "integrity_and_foreign_keys": "PASS",
@@ -305,6 +328,7 @@ def create_preservation_archive(root: Path, *, timeout_seconds: float = 180) -> 
                 "SELECT file_id,role,storage_key,sha256,byte_size FROM asset_files ORDER BY file_id"
             )
         ]
+        render_media = _render_media(db)
         runtime = []
         for path in (root / "runtime").rglob("*"):
             if path.is_symlink() or path.is_junction():
@@ -312,10 +336,10 @@ def create_preservation_archive(root: Path, *, timeout_seconds: float = 180) -> 
             if path.is_file() and path != root / "runtime/app-data.lock":
                 runtime.append(path)
         runtime.sort()
-        if len(runtime) + len(media) + 3 > MAX_FILES:
+        if len(runtime) + len(media) + len(render_media) + 3 > MAX_FILES:
             raise ValueError("Preservation inventory exceeds capacity")
         estimate = (
-            sum(item["bytes"] for item in media)
+            sum(item["bytes"] for item in media + render_media)
             + sum(p.stat().st_size for p in runtime)
             + (root / "creator_loop.sqlite3").stat().st_size
         )
@@ -341,6 +365,7 @@ def create_preservation_archive(root: Path, *, timeout_seconds: float = 180) -> 
             "schema_version": version,
             "table_counts": _counts(db),
             "media": media,
+            "render_media": render_media,
             "opaque_runtime": opaque,
             "files": {},
             "permits_cleanup": False,
@@ -361,7 +386,7 @@ def create_preservation_archive(root: Path, *, timeout_seconds: float = 180) -> 
 
             add(snapshot / "creator_loop.sqlite3", "db/creator_loop.sqlite3")
             add(snapshot / "backup-manifest.json", "db/backup-manifest.json")
-            for item in media:
+            for item in media + render_media:
                 _relative(item["storage_key"])
                 if re.fullmatch("[a-f0-9]{64}", item["sha256"]) is None:
                     raise ValueError("Invalid source media digest")
