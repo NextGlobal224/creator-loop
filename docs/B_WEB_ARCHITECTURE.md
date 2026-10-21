@@ -73,6 +73,20 @@ No successful execution, terminal provenance, migration or cleanup permission
 is inferred. These bytes reopen only under quarantined `evidence/`, never as
 active runtime. This preservation path does not run or develop C engines.
 
+For these historical preservation identities only, an access-denied native
+identity query may use fresh local `root/cimv2:Win32_Process.CreationDate` proof
+of a later process reusing the PID. A bounded, profile-free system PowerShell
+query selects only target/current PID and creation time. Utility/CimCmdlets
+modules are explicitly imported from that system directory, automatic loading
+is disabled and commands are module-qualified; inherited PSModulePath is replaced.
+Its own-process time
+must agree with native FILETIME within 1 ms; the target time must be over a full
+second later than the original identity. Missing/duplicate/ambiguous/future
+timestamps, provider errors and timeouts retain the original refusal. A name or
+null executable is never proof. Ordinary backup, recovery and deletion callers
+still use the original native guard; this archive-only proof confers no cleanup
+or execution permission.
+
 For MANUAL requests the analysis direction is the exact user-selected brief,
 not a second model-generated plan. Native schema const and runtime identity
 checks reject changes; the existing 2000 Unicode-character input bound remains.
