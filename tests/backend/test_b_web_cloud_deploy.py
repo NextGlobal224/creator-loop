@@ -4,6 +4,7 @@ import copy
 import hashlib
 import io
 import json
+import os
 import unittest
 import zipfile
 from unittest.mock import MagicMock, patch
@@ -14,6 +15,7 @@ from scripts.b_web_cloud_deploy import (
     REPO,
     activate_once,
     compatible_bindings,
+    main,
     observe_activated_runtime,
     read_json,
     runtime_files,
@@ -25,6 +27,194 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_existing_version_verification_reads_trusted_old_main_without_activation(
+        self,
+    ):
+        import scripts.b_web_cloud_deploy as deploy
+
+        commit, version = "a" * 40, "11111111-1111-1111-1111-111111111111"
+        account = "fixture-account"
+        config = {"compatibility_date": "2026-10-13", "compatibility_flags": []}
+        files = {
+            "worker/src/entry.py": b"entry",
+            "worker/src/creator_ai.mjs": b"engine",
+            "worker/wrangler.jsonc": json.dumps(config).encode(),
+            "worker/public/_headers": b"/*\n  Cache-Control: no-store\n",
+            "worker/public/index.html": b"page",
+        }
+        bundle = io.BytesIO()
+        with zipfile.ZipFile(bundle, "w") as z:
+            for name, body in files.items():
+                z.writestr(name, body)
+            z.writestr(
+                "runtime.json",
+                json.dumps(
+                    {
+                        "format": "B_WEB_CI_RUNTIME_V1",
+                        "commit": commit,
+                        "files": {n: deploy.sha(b) for n, b in files.items()},
+                    }
+                ),
+            )
+        outer = io.BytesIO()
+        with zipfile.ZipFile(outer, "w") as z:
+            z.writestr("b-web-runtime.zip", bundle.getvalue())
+        archive = outer.getvalue()
+        meta = {
+            "head_sha": commit,
+            "head_branch": "main",
+            "event": "push",
+            "workflow_id": 7,
+            "status": "completed",
+            "conclusion": "success",
+            "repository": {"full_name": REPO},
+        }
+
+        def gh(args, **kwargs):
+            path = args[-1]
+            if path.endswith("/zip"):
+                return archive
+            if path.endswith("/artifacts?per_page=100"):
+                data = {
+                    "total_count": 1,
+                    "artifacts": [
+                        {
+                            "id": 9,
+                            "name": "b-web-runtime",
+                            "expired": False,
+                            "digest": "sha256:" + deploy.sha(archive),
+                        }
+                    ],
+                }
+            elif path.endswith("/jobs?per_page=100"):
+                data = {
+                    "total_count": 3,
+                    "jobs": [{"name": n, "conclusion": "success"} for n in CHECKS],
+                }
+            elif path.endswith("/ci.yml"):
+                data = {"id": 7}
+            elif path.endswith("/runs/8"):
+                data = meta
+            else:
+                self.fail("Unexpected GitHub operation: " + path)
+            return json.dumps(data).encode()
+
+        bindings = [
+            {"name": n, "type": t}
+            for n, t in {
+                "AI": "ai",
+                "ASSETS": "assets",
+                "CREATOR_MODEL": "plain_text",
+                "CREATOR_VERSION": "version_metadata",
+                "DATABASE": "durable_object_namespace",
+                "LOGIN_PASSWORD_HASH": "secret_text",
+            }.items()
+        ]
+        next(b for b in bindings if b["name"] == "DATABASE").update(
+            namespace_id="fixture", class_name="Database"
+        )
+        next(b for b in bindings if b["name"] == "CREATOR_MODEL")["text"] = MODEL
+
+        def read(url, headers, data=None):
+            # Only session creation and read-only analytics may use POST.
+            if data is not None:
+                self.assertTrue(url.endswith(("/api/login", "/graphql")), url)
+            if url.endswith("/api/login"):
+                return {}, {"Set-Cookie": "__Host-creator=fixture; Secure"}
+            if url.endswith("/api/state"):
+                return {"revision": 5, "jobs": []}, {}
+            if url.endswith("/api/runtime"):
+                return {"deployment": version, "model": MODEL}, {}
+            if url.endswith("/deployments"):
+                result = {
+                    "deployments": [
+                        {"versions": [{"version_id": version, "percentage": 100}]}
+                    ]
+                }
+            elif "/versions/" in url:
+                result = {"resources": {"bindings": bindings}}
+            elif url.endswith("/account-settings"):
+                result = {"default_usage_model": "standard"}
+            elif url.endswith("/settings"):
+                result = {**config, "bindings": bindings}
+            elif url.endswith("/graphql"):
+                return {
+                    "data": {
+                        "viewer": {
+                            "accounts": [
+                                {
+                                    "workersInvocationsAdaptive": [
+                                        {"sum": {"requests": 1, "cpuTimeUs": 1}}
+                                    ],
+                                    "durableObjectsPeriodicGroups": [
+                                        {
+                                            "sum": {
+                                                "duration": 1,
+                                                "rowsRead": 1,
+                                                "rowsWritten": 1,
+                                            }
+                                        }
+                                    ],
+                                    "durableObjectsInvocationsAdaptiveGroups": [
+                                        {"sum": {"requests": 1}}
+                                    ],
+                                    "durableObjectsSqlStorageGroups": [
+                                        {"max": {"storedBytes": 1}}
+                                    ],
+                                }
+                            ]
+                        }
+                    }
+                }, {}
+            else:
+                self.fail("Unexpected HTTPS operation: " + url)
+            return {"success": True, "result": result}, {}
+
+        env = {
+            "GITHUB_REPOSITORY": REPO,
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_SHA": "b" * 40,
+            "GITHUB_RUN_ID": "10",
+            "B_OPERATION": "verify",
+            "B_VERIFY_SOURCE_COMMIT": commit,
+            "B_CI_RUN": "8",
+            "B_TARGET": "qa19",
+            "B_EXPECTED_DEPLOYMENT": version,
+            "CLOUDFLARE_ACCOUNT_ID": account,
+            "CLOUDFLARE_API_TOKEN": "fixture",
+            "B_WEB_QA19_PASSWORD": "fixture",
+        }
+        with (
+            patch.dict(os.environ, env),
+            patch.object(deploy, "ACCOUNT_SHA", deploy.sha(account.encode())),
+            patch.object(deploy.subprocess, "check_output", side_effect=gh),
+            patch.object(deploy.subprocess, "run") as upload,
+            patch.object(deploy, "activate_once") as activate,
+            patch.object(deploy, "read_json", side_effect=read),
+            patch.object(
+                deploy,
+                "read_bytes",
+                side_effect=[
+                    (b"multipart", {"Content-Type": "fixture"}),
+                    (b"page", {"cache-control": "no-store"}),
+                ],
+            ),
+            patch.object(
+                deploy,
+                "verify_remote_modules",
+                return_value={"entry.py": deploy.sha(b"entry")},
+            ),
+            patch.object(deploy.Path, "write_text") as write,
+        ):
+            main()
+        upload.assert_not_called()
+        activate.assert_not_called()
+        receipt = json.loads(write.call_args.args[0])
+        self.assertFalse(receipt["activation_attempted"])
+        self.assertTrue(receipt["live_runtime_confirmed"])
+        self.assertEqual(receipt["source_commit"], commit)
+        self.assertEqual(receipt["workflow_commit"], "b" * 40)
+
     def test_propagation_reads_are_bounded_and_never_mask_changed_deployment(self):
         app = MagicMock(
             side_effect=[

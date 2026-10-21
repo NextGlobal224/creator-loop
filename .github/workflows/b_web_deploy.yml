@@ -4,7 +4,7 @@ on:
     inputs:
       operation:
         type: choice
-        options: [deploy, rollback]
+        options: [deploy, rollback, verify]
         default: deploy
         required: true
       target:
@@ -20,6 +20,10 @@ on:
         description: Current target version UUID; changed version refuses mutation
         type: string
         required: true
+      verify_source_commit:
+        description: Exact prior push-main CI commit; verify reads existing version without deployment
+        type: string
+        required: false
       rollback_version:
         description: Qualified prior version UUID; rollback never restores DB
         type: string
@@ -65,6 +69,7 @@ jobs:
           B_OPERATION: ${{ inputs.operation }}
           B_CI_RUN: ${{ inputs.ci_run }}
           B_EXPECTED_DEPLOYMENT: ${{ inputs.expected_deployment }}
+          B_VERIFY_SOURCE_COMMIT: ${{ inputs.verify_source_commit }}
           B_ROLLBACK_VERSION: ${{ inputs.rollback_version }}
           B_CURRENT_WORKFLOW_RUN: ${{ inputs.current_workflow_run }}
           B_ROLLBACK_WORKFLOW_RUN: ${{ inputs.rollback_workflow_run }}

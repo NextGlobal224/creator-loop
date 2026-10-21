@@ -237,15 +237,24 @@ def main():
         or os.environ["GITHUB_REF"] != "refs/heads/main"
     ):
         raise ValueError("Protected main workflow only")
-    commit, run = os.environ["GITHUB_SHA"], os.environ["B_CI_RUN"]
+    workflow_commit = os.environ["GITHUB_SHA"]
+    operation = os.environ["B_OPERATION"]
+    commit = (
+        os.environ["B_VERIFY_SOURCE_COMMIT"]
+        if operation == "verify"
+        else workflow_commit
+    )
+    run = os.environ["B_CI_RUN"]
     if not re.fullmatch(r"[a-f0-9]{40}", commit) or not re.fullmatch(
         r"[0-9]{1,20}", run
     ):
         raise ValueError("Exact commit/run needed")
-    target, operation = os.environ["B_TARGET"], os.environ["B_OPERATION"]
+    target = os.environ["B_TARGET"]
     worker = TARGETS[target]
     expected = os.environ["B_EXPECTED_DEPLOYMENT"]
-    if operation not in ("deploy", "rollback") or not re.fullmatch(UUID, expected):
+    if operation not in ("deploy", "rollback", "verify") or not re.fullmatch(
+        UUID, expected
+    ):
         raise ValueError("Explicit operation and current deployment needed")
 
     def gh(*args):
@@ -309,14 +318,15 @@ def main():
                 raise ValueError("Invalid workflow receipt")
             receipt = json.loads(archive.read("deploy-result.json"))
         if not (
-            receipt.get("operation") == "deploy"
+            receipt.get("operation") in ("deploy", "verify")
             and receipt.get("live_runtime_confirmed") is True
             and receipt.get("deployment") == requested_version
             and receipt.get("target") == target
             and receipt.get("account_sha256") == ACCOUNT_SHA
             and receipt.get("workflow_run") == run_id
             and receipt.get("remote_bytes_verified") is True
-            and receipt.get("source_commit") == meta["head_sha"]
+            and receipt.get("workflow_commit", receipt.get("source_commit"))
+            == meta["head_sha"]
         ):
             raise ValueError("Unqualified rollback version/target/account/bytes")
         files, archive_hash, digest = trusted_runtime(
@@ -348,6 +358,8 @@ def main():
     api = "https://api.cloudflare.com/client/v4/accounts/" + account
 
     def cloud(path, data=None):
+        if operation == "verify" and data is not None:
+            raise ValueError("Verification cannot mutate Cloudflare resources")
         result, _ = read_json(api + path, headers, data)
         if not result.get("success"):
             raise RuntimeError("Cloudflare operation refused")
@@ -451,6 +463,7 @@ def main():
         "component": "B",
         "operation": operation,
         "source_commit": commit,
+        "workflow_commit": workflow_commit,
         "ci_run": int(run),
         "workflow_run": os.environ["GITHUB_RUN_ID"],
         "target": target,
@@ -476,6 +489,17 @@ def main():
         files = qualified_receipt(os.environ["B_ROLLBACK_WORKFLOW_RUN"], version)
         storage_compatible(current_files, files)
         # No DB migration/restore; complete Python/domain tree must be identical.
+    elif operation == "verify":
+        # Qualify the already-active version from trusted push-main CI bytes.
+        # A separate successful receipt never rewrites an earlier failed run.
+        files, archive_hash, artifact_digest = trusted_runtime(run, commit)
+        version = expected
+        record.update(
+            runtime_sha256=archive_hash,
+            artifact_digest=artifact_digest,
+            runtime_files={name: sha(value) for name, value in files.items()},
+            activation_attempted=False,
+        )
     else:
         files, archive_hash, artifact_digest = trusted_runtime(run, commit)
         destination = Path(os.environ["RUNNER_TEMP"]) / (
@@ -546,13 +570,14 @@ def main():
         record["candidate_version"] = candidate
         Path("deploy-result.json").write_text(json.dumps(record, indent=2))
 
-    before = activate_once(
-        final_preconditions,
-        lambda data: cloud(script + "/deployments", data),
-        current_id,
-        version,
-        record_attempt,
-    )
+    if operation != "verify":
+        before = activate_once(
+            final_preconditions,
+            lambda data: cloud(script + "/deployments", data),
+            current_id,
+            version,
+            record_attempt,
+        )
     record["deployment"] = version
     compatible_bindings(
         previous_version, cloud(script + "/versions/" + record["deployment"])
