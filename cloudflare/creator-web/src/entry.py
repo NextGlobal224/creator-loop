@@ -6,10 +6,12 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import sqlite3
 import sys
 import time
+import zipfile
 import zlib
 from contextlib import closing
 from dataclasses import asdict
@@ -41,6 +43,9 @@ from workers import (
 
 MAX_BODY = 16 * 1024 * 1024
 MAX_MEDIA_TOTAL = 8 * 1024 * 1024
+PRESERVATION_CHUNK = 512 * 1024
+PRESERVATION_MAX = 64 * 1024 * 1024
+PRESERVATION_RESTORE_MAX = 88 * 1024 * 1024
 VERSION = "B-web/0.2.0-beta.1"
 HEADERS = {
     "Cache-Control": "no-store",
@@ -116,6 +121,100 @@ def reply(value, status=200, headers=None):
     )
 
 
+class PreservationReader:
+    """Seekable immutable archive, one bounded durable chunk cached at a time."""
+
+    def __init__(self, record, read_chunk):
+        self.record, self.read_chunk = record, read_chunk
+        self.position, self.cached_position, self.cached = 0, -1, b""
+
+    def tell(self):
+        return self.position
+
+    def seekable(self):
+        return True
+
+    def seek(self, offset, whence=0):
+        position = offset + {0: 0, 1: self.position, 2: self.record["bytes"]}[whence]
+        if not 0 <= position <= self.record["bytes"]:
+            raise ValueError("Invalid archive seek")
+        self.position = position
+        return position
+
+    def read(self, size=-1):
+        size = min(
+            self.record["bytes"] - self.position,
+            size if size >= 0 else self.record["bytes"],
+        )
+        if size > 4 * 1024 * 1024:
+            raise WebInputError(
+                "Archive metadata read exceeds cloud memory budget", 413
+            )
+        output = []
+        while size:
+            index, offset = divmod(self.position, PRESERVATION_CHUNK)
+            if index != self.cached_position:
+                raw = self.read_chunk(index)
+                expected_size = min(
+                    PRESERVATION_CHUNK,
+                    self.record["bytes"] - index * PRESERVATION_CHUNK,
+                )
+                if (
+                    len(raw) != expected_size
+                    or digest(raw) != self.record["chunk_hashes"][index]
+                ):
+                    raise ValueError("Durable archive chunk differs")
+                self.cached_position, self.cached = index, raw
+            part = self.cached[offset : offset + size]
+            if not part:
+                raise ValueError("Incomplete durable archive")
+            output.append(part)
+            self.position += len(part)
+            size -= len(part)
+        return b"".join(output)
+
+
+def preservation_restore_preflight(reader):
+    """Bound expanded files plus locator copies, leaving 40 MiB runtime headroom.
+
+    This is a capacity refusal, not a license to omit canonical data. The desktop
+    archive contract remains unchanged; deployed QA must still verify the real
+    archive fits this isolate, or a different bounded restore method is needed.
+    """
+    with zipfile.ZipFile(reader) as archive:
+        entries = archive.infolist()
+        if (
+            len(entries) > 5000
+            or sum(i.file_size for i in entries) > PRESERVATION_RESTORE_MAX
+        ):
+            raise WebInputError(
+                "Archive restore exceeds cloud memory budget; original data/upload preserved",
+                413,
+            )
+        manifest_entry = archive.getinfo("preservation.json")
+        if manifest_entry.file_size > 2 * 1024 * 1024:
+            raise WebInputError(
+                "Archive manifest exceeds cloud verification budget", 413
+            )
+        manifest = json.loads(archive.read(manifest_entry))
+        locators = {}
+        for item in manifest["media"] + manifest.get("render_media", []):
+            key, size = item["storage_key"], item["bytes"]
+            if not isinstance(key, str) or type(size) is not int or size < 0:
+                raise ValueError("Invalid preserved media size")
+            if key in locators and locators[key] != size:
+                raise ValueError("Conflicting preserved media locator")
+            locators[key] = size
+        projected = sum(i.file_size for i in entries) + sum(locators.values())
+        if projected > PRESERVATION_RESTORE_MAX:
+            raise WebInputError(
+                "Archive plus restored media exceeds cloud memory budget; original data/upload preserved",
+                413,
+            )
+    reader.seek(0)
+    return projected
+
+
 class Database(DurableObject):
     def __init__(self, ctx, env):
         super().__init__(ctx, env)
@@ -131,6 +230,8 @@ class Database(DurableObject):
             "CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, status TEXT NOT NULL, record TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS control (id TEXT PRIMARY KEY, record TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS backups (id TEXT PRIMARY KEY, created_at REAL NOT NULL, record TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS preservation_archives (sha256 TEXT PRIMARY KEY, record TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS preservation_chunks (sha256 TEXT NOT NULL, position INTEGER NOT NULL, content TEXT NOT NULL, PRIMARY KEY(sha256,position))",
         ):
             self.sql.exec(statement)
 
@@ -283,6 +384,199 @@ class Database(DurableObject):
             )
         )
 
+    def preservation_api(self, path, method, data):
+        """Operator-only immutable archive; never replace the active checkpoint."""
+        base = "/api/preservation"
+        if path == base:
+            if method == "GET":
+                return reply(
+                    {
+                        "archives": [
+                            json.loads(row["record"])
+                            for row in self.rows(
+                                "SELECT record FROM preservation_archives ORDER BY sha256"
+                            )
+                        ],
+                        "limit": 1,
+                    }
+                )
+            if set(data) != {"sha256", "bytes", "chunk_hashes", "source_commit"}:
+                raise ValueError("Archive identity required")
+            key, size, hashes, commit = (
+                data[k] for k in ("sha256", "bytes", "chunk_hashes", "source_commit")
+            )
+            if (
+                not isinstance(key, str)
+                or not re.fullmatch(r"[a-f0-9]{64}", key)
+                or type(size) is not int
+                or not 0 < size <= PRESERVATION_MAX
+                or not isinstance(hashes, list)
+                or len(hashes) != (size + PRESERVATION_CHUNK - 1) // PRESERVATION_CHUNK
+                or any(
+                    not isinstance(h, str) or not re.fullmatch(r"[a-f0-9]{64}", h)
+                    for h in hashes
+                )
+                or not isinstance(commit, str)
+                or not re.fullmatch(r"[a-f0-9]{40}", commit)
+            ):
+                raise ValueError("Unsupported archive identity/size")
+
+            def begin():
+                existing = self.rows(
+                    "SELECT record FROM preservation_archives WHERE sha256=?", key
+                )
+                if existing:
+                    record = json.loads(existing[0]["record"])
+                    if any(record[k] != v for k, v in data.items()):
+                        raise WebInputError(
+                            "Archive identity conflicts; preserved existing upload", 409
+                        )
+                    return record
+                if self.rows("SELECT 1 FROM preservation_archives LIMIT 1"):
+                    raise WebInputError(
+                        "One canonical archive already reserved; no automatic replacement",
+                        409,
+                    )
+                record = {**data, "status": "STAGING", "created_at": time.time()}
+                self.sql.exec(
+                    "INSERT INTO preservation_archives VALUES(?,?)",
+                    key,
+                    json.dumps(record),
+                )
+                return record
+
+            return reply(self.ctx.storage.transactionSync(begin))
+        pieces = path[len(base) + 1 :].split("/")
+        key = pieces[0]
+        if not re.fullmatch(r"[a-f0-9]{64}", key):
+            raise ValueError("Invalid archive key")
+        found = self.rows(
+            "SELECT record FROM preservation_archives WHERE sha256=?", key
+        )
+        if not found:
+            return reply({"error": "Archive not found"}, 404)
+        record = json.loads(found[0]["record"])
+        if len(pieces) == 1 and method == "GET":
+            return reply(
+                {
+                    **record,
+                    "uploaded_positions": [
+                        r["position"]
+                        for r in self.rows(
+                            "SELECT position FROM preservation_chunks WHERE sha256=? ORDER BY position",
+                            key,
+                        )
+                    ],
+                }
+            )
+        if (
+            len(pieces) == 3
+            and pieces[1] == "chunks"
+            and re.fullmatch(r"0|[1-9][0-9]{0,2}", pieces[2])
+        ):
+            index = int(pieces[2])
+            if index >= len(record["chunk_hashes"]):
+                raise ValueError("Chunk position outside archive")
+            if method == "GET":
+                return reply(
+                    {
+                        "position": index,
+                        "sha256": record["chunk_hashes"][index],
+                        "content_base64": base64.b64encode(
+                            self.preservation_chunk(key, index)
+                        ).decode(),
+                    }
+                )
+            if (
+                set(data) != {"content_base64"}
+                or not isinstance(data["content_base64"], str)
+                or len(data["content_base64"]) > 4 * ((PRESERVATION_CHUNK + 2) // 3)
+            ):
+                raise ValueError("Bounded chunk required")
+            raw = base64.b64decode(data["content_base64"], validate=True)
+            if (
+                len(raw)
+                != min(PRESERVATION_CHUNK, record["bytes"] - index * PRESERVATION_CHUNK)
+                or digest(raw) != record["chunk_hashes"][index]
+            ):
+                raise ValueError("Chunk bytes differ")
+
+            def retain():
+                existing = self.rows(
+                    "SELECT content FROM preservation_chunks WHERE sha256=? AND position=?",
+                    key,
+                    index,
+                )
+                if existing:
+                    if base64.b64decode(existing[0]["content"], validate=True) != raw:
+                        raise ValueError("Immutable chunk replacement refused")
+                elif record["status"] != "STAGING":
+                    raise ValueError("Completed archive cannot accept new chunks")
+                else:
+                    self.sql.exec(
+                        "INSERT INTO preservation_chunks VALUES(?,?,?)",
+                        key,
+                        index,
+                        base64.b64encode(raw).decode(),
+                    )
+                return {"position": index, "stored": True, "sha256": digest(raw)}
+
+            return reply(self.ctx.storage.transactionSync(retain))
+        if len(pieces) == 2 and pieces[1] == "verify" and method == "POST" and not data:
+            if record["status"] == "VERIFIED":
+                return reply(record)
+            reader = PreservationReader(
+                record, lambda index: self.preservation_chunk(key, index)
+            )
+            checksum = hashlib.sha256()
+            while chunk := reader.read(PRESERVATION_CHUNK):
+                checksum.update(chunk)
+            if checksum.hexdigest() != key:
+                raise ValueError("Whole archive checksum differs")
+            reader.seek(0)
+            projected_restore_bytes = preservation_restore_preflight(reader)
+            from creator_loop.backend.runtime.migration_preservation import (
+                verify_preservation_archive,
+            )
+
+            isolated = Path("/tmp") / ("creator-web-preservation-" + uuid4().hex)
+            try:
+                proof = verify_preservation_archive(reader, isolated)
+            finally:
+                if isolated.exists():
+                    self.discard_projection(isolated)
+            record.update(
+                status="VERIFIED",
+                verified_at=time.time(),
+                deployment=str(self.env.CREATOR_VERSION.id),
+                projected_restore_bytes=projected_restore_bytes,
+                proof={
+                    **proof,
+                    "cloud_restore_verified": True,
+                    "permits_migration_or_cleanup": False,
+                },
+                verification_scope="isolated canonical archive reopen, not operational migration or cleanup",
+            )
+            self.sql.exec(
+                "UPDATE preservation_archives SET record=? WHERE sha256=?",
+                json.dumps(record),
+                key,
+            )
+            return reply(record)
+        return reply({"error": "Unsupported archive operation"}, 404)
+
+    def preservation_chunk(self, key, index):
+        found = self.rows(
+            "SELECT content FROM preservation_chunks WHERE sha256=? AND position=?",
+            key,
+            index,
+        )
+        if len(found) != 1:
+            raise WebInputError(
+                "Archive incomplete; resume missing chunk before verify", 409
+            )
+        return base64.b64decode(found[0]["content"], validate=True)
+
     async def fetch(self, request):
         url = urlsplit(request.url)
         path, method = url.path, request.method
@@ -376,6 +670,13 @@ class Database(DurableObject):
             )
 
     async def authorized(self, request, path, method, data):
+        if path == "/api/preservation" or path.startswith("/api/preservation/"):
+            secret = getattr(self.env, "OPERATOR_KEY", "")
+            if not secret or not hmac.compare_digest(
+                request.headers.get("X-Operator-Key") or "", secret
+            ):
+                return reply({"error": "Operator verification required"}, 403)
+            return self.preservation_api(path, method, data)
         if path == "/api/grant-status" and method == "GET":
             found = self.rows("SELECT record FROM control WHERE id='grant'")
             grant = json.loads(found[0]["record"]) if found else {}

@@ -87,6 +87,33 @@ null executable is never proof. Ordinary backup, recovery and deletion callers
 still use the original native guard; this archive-only proof confers no cleanup
 or execution permission.
 
+Private canonical preservation additionally retains terminal historical
+`VOICE_SYNTHESIS_LOCAL_PREVIEW` processing witnesses for the existing Piper and
+VieNeu model families. The native-dead identity, exact task/run/input/Asset,
+original text MIME and model-version digest still must agree with SQLite.
+Ordinary update backup still refuses this unsupported processing family. These
+records are evidence only; no voice engine or C pipeline runs.
+
+The Web operator archive API (`/api/preservation`) is separate from operational
+media and its unchanged 8 MiB cap. It reserves one immutable archive up to 64 MiB,
+uploads bounded 512 KiB chunks under a whole-file SHA256 identity and supports
+read reconciliation/resume without duplicate uploads. Both login and operator
+key are required. Each chunk, aggregate hash and archive inventory must verify;
+only then a fresh isolated reopen checks schema, DB/FK relations, media hashes
+and quarantined runtime bytes in the deployed Worker. Failure retains upload
+identity/bytes without marking VERIFIED. No endpoint replaces the active DB,
+executes runtime evidence or authorizes cleanup. This is a private cloud copy
+inside the existing SQLite-backed Durable Object, not an off-account backup;
+This one-time migration capture intentionally has one non-replaceable slot;
+it does not implement rotating canonical backups. Cloud restore preflight caps
+manifest/entry counts and expanded files plus unique locator copies at 88 MiB,
+reserving 40 MiB of the 128 MiB isolate for runtime/SQLite/parser overhead. This
+is a projected capacity guard, not a measured RAM claim. An over-budget archive
+is retained but refused before extraction; canonical data must not be omitted
+to pass. The desktop archive limit remains unchanged. It requires current
+included compute/storage eligibility and actual isolated
+cloud QA before production use. Local API tests are not that cloud proof.
+
 For MANUAL requests the analysis direction is the exact user-selected brief,
 not a second model-generated plan. Native schema const and runtime identity
 checks reject changes; the existing 2000 Unicode-character input bound remains.

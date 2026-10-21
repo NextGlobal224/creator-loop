@@ -204,6 +204,23 @@ def hold_terminal_audio_runtime(
             ):
                 component = "whisper.cpp/1.8.7/base-multilingual"
                 expected_role, expected_mime = "DERIVED_AUDIO", "audio/wav"
+            elif (
+                opaque_creator is not None
+                and task == "VOICE_SYNTHESIS_LOCAL_PREVIEW"
+                and (tool, model)
+                in {
+                    ("OHF-Voice/piper1-gpl", "vi_VN-vais1000-medium"),
+                    ("pnnbao97/VieNeu-TTS", "pnnbao-ump/VieNeu-TTS-v3-Nano"),
+                }
+                and isinstance(version, str)
+                and 0 < len(version) <= 512
+                and isinstance(model_version, str)
+                and re.fullmatch(r"[0-9a-f]{64}", model_version)
+            ):
+                # Inert historical processing witness only. No voice execution,
+                # qualification of its result, or ordinary-backup permission.
+                component = model_version
+                expected_role, expected_mime = "ORIGINAL", "text/plain"
             else:
                 raise RuntimeError("Unsupported processing witness component")
             source = db.execute(
