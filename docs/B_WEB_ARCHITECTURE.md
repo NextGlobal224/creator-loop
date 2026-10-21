@@ -73,7 +73,7 @@ No successful execution, terminal provenance, migration or cleanup permission
 is inferred. These bytes reopen only under quarantined `evidence/`, never as
 active runtime. This preservation path does not run or develop C engines.
 
-For these historical preservation identities only, an access-denied native
+For these historical and B-creator preservation identities only, an access-denied native
 identity query may use fresh local `root/cimv2:Win32_Process.CreationDate` proof
 of a later process reusing the PID. A bounded, profile-free system PowerShell
 query selects only target/current PID and creation time. Utility/CimCmdlets

@@ -8,6 +8,9 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Callable
 
+from creator_loop.backend.runtime.preservation_identity import (
+    preservation_identity_dead,
+)
 from creator_loop.backend.runtime.runtime_files import RuntimeHandle
 from creator_loop.backend.runtime.runtime_recovery import _identity_dead
 from creator_loop.backend.runtime.windows_paths import file_io_path
@@ -52,6 +55,7 @@ def _hold_creator(
     held: ExitStack,
     opaque: list[dict[str, str]] | None,
 ) -> Callable[[], None]:
+    check_dead = _identity_dead if opaque is None else preservation_identity_dead
     namespaces: dict[Path, set[str]] = {}
     markers = {}
     children = {}
@@ -121,7 +125,7 @@ def _hold_creator(
             or not isinstance(marker.get("parent"), dict)
             or not isinstance(marker.get("component_version"), str)
             or not 0 < len(marker["component_version"]) <= 512
-            or not _identity_dead(marker["parent"])
+            or not check_dead(marker["parent"])
         ):
             raise RuntimeError(
                 "B owner must be verified dead; close/reopen before backup"
@@ -185,7 +189,7 @@ def _hold_creator(
                 or not re.fullmatch(r"[0-9a-f]{32}", child[key])
                 for key in ("run_id", "job_id")
             )
-            or not _identity_dead(child)
+            or not check_dead(child)
         ):
             raise RuntimeError("B child is live or unbound")
     for directory in markers:
