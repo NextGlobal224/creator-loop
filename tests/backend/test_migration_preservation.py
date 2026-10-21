@@ -75,6 +75,115 @@ create_workspace_marker(root,work,'creator-workers/fixture',kind='CREATOR_LLM_WO
     def archive(self):
         return create_preservation_archive(self.root, timeout_seconds=30)
 
+    def historical_workspace(self, family, *, root=None):
+        root = root or self.root
+        workspace = root / "runtime" / (family + "-" + "c" * 32)
+        workspace.mkdir()
+        if family == "voice-request":
+            (workspace / "voice-request.txt").write_text(
+                "Giữ nguyên lời đã nhập.", "utf-8"
+            )
+            return workspace
+        code = """import sys
+from pathlib import Path
+from creator_loop.backend.runtime.runtime_ownership import create_workspace_marker
+root=Path(sys.argv[1]);work=Path(sys.argv[2]);family=sys.argv[3]
+kind='FACEBOOK_BROWSER_WORKSPACE' if family=='facebook' else 'AC_COMPONENT_WORKSPACE'
+create_workspace_marker(root,work,family+'/historical-fixture',kind=kind)
+(work/'request.json').write_text('{"fixture":"historical, never execute"}',encoding='utf-8')
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(root), str(workspace), family],
+            env={
+                **os.environ,
+                "PYTHONPATH": str(Path(__file__).resolve().parents[2] / "app"),
+            },
+            capture_output=True,
+            timeout=15,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return workspace
+
+    def test_historical_A_component_and_unowned_text_bytes_are_quarantined(self):
+        workspaces = [
+            self.historical_workspace(family)
+            for family in (
+                "facebook",
+                "semantic",
+                "piper",
+                "vieneu-nano",
+                "voice-request",
+            )
+        ]
+        originals = {p: p.read_bytes() for w in workspaces for p in w.iterdir()}
+        path = self.archive()
+        isolated = self.root.parent / "reopened history"
+        with path.open("rb") as stream:
+            proof = verify_preservation_archive(stream, isolated)
+        self.assertFalse(proof["permits_migration_or_cleanup"])
+        self.assertFalse(proof["runtime_evidence_executed"])
+        self.assertFalse((isolated / "runtime").exists())
+        for p, original in originals.items():
+            self.assertEqual(p.read_bytes(), original)
+            self.assertEqual(
+                (
+                    isolated / "evidence/runtime" / p.relative_to(self.root / "runtime")
+                ).read_bytes(),
+                original,
+            )
+        with zipfile.ZipFile(path) as archive:
+            opaque = json.loads(archive.read("preservation.json"))["opaque_runtime"]
+        self.assertTrue(
+            any(
+                x["provenance"] == "UNOWNED_INPUT_DESCRIPTOR_NOT_EXECUTOR"
+                for x in opaque
+            )
+        )
+
+    def test_ordinary_backup_still_refuses_A_history_without_B_workspace(self):
+        root = self.root.parent / "ordinary only A"
+        ensure_data_root(root)
+        root = root.resolve(strict=True)
+        initialize(root / "creator_loop.sqlite3")
+        self.historical_workspace("facebook", root=root)
+        with self.assertRaisesRegex(RuntimeError, "recovery before backup"):
+            create_update_backup(root)
+        create_preservation_archive(root, timeout_seconds=30)
+
+    def test_historical_owner_binding_live_owner_and_unknown_entries_refuse(self):
+        from creator_loop.backend.runtime.runtime_ownership import (
+            create_workspace_marker,
+        )
+
+        workspace = self.historical_workspace("semantic")
+        marker_path = workspace / "ownership.json"
+        original = marker_path.read_bytes()
+        marker = json.loads(original)
+        marker["data_root"] = str(self.root.parent)
+        marker_path.write_text(json.dumps(marker), "utf-8")
+        with self.assertRaisesRegex(RuntimeError, "verified dead"):
+            self.archive()
+        marker_path.write_bytes(original)
+        (workspace / "unexpected.exe").write_bytes(
+            b"not executable, unknown input fixture"
+        )
+        with self.assertRaisesRegex(RuntimeError, "Unknown historical"):
+            self.archive()
+        (workspace / "unexpected.exe").unlink()
+        marker_path.unlink()
+        create_workspace_marker(
+            self.root, workspace, "semantic/live", kind="AC_COMPONENT_WORKSPACE"
+        )
+        with self.assertRaisesRegex(RuntimeError, "verified dead"):
+            self.archive()
+
+    def test_voice_descriptor_cannot_hide_an_executor_or_unknown_payload(self):
+        workspace = self.historical_workspace("voice-request")
+        (workspace / "ownership.json").write_text("{}", "utf-8")
+        with self.assertRaisesRegex(RuntimeError, "Unknown voice input"):
+            self.archive()
+        self.assertEqual(list((self.root / "backups").glob("preservation-*.zip")), [])
+
     def historical_media(self):
         """Existing-output fixture only; no renderer/process/model is launched."""
         key = "storage/derived/old-result.mp4"

@@ -13,6 +13,10 @@ from creator_loop.backend.runtime.creator_backup_runtime import (
     hold_creator_evidence,
     hold_creator_preservation,
 )
+from creator_loop.backend.runtime.preservation_runtime import (
+    hold_historical_preservation,
+    preservation_family,
+)
 from creator_loop.backend.runtime.reuse_backup_runtime import hold_reuse_evidence
 from creator_loop.backend.runtime.runtime_files import RuntimeHandle
 from creator_loop.backend.runtime.runtime_recovery import _identity_dead
@@ -93,6 +97,16 @@ def hold_terminal_audio_runtime(
             for p in extra
             if p.name.startswith(("analysis-reuse-", "predecessor-reuse-"))
         ]
+        historical = (
+            [p for p in extra if preservation_family(p.name)]
+            if opaque_creator is not None
+            else []
+        )
+        recheck_historical = (
+            hold_historical_preservation(root, historical, held, opaque_creator)
+            if opaque_creator is not None
+            else lambda: None
+        )
         recheck_creator = (
             hold_creator_evidence(root, db, creator, held)
             if opaque_creator is None
@@ -102,7 +116,7 @@ def hold_terminal_audio_runtime(
         records: dict[str, tuple[dict[str, Any], dict[str, Any], set[str]]] = {}
         metadata: dict[tuple[str, str], dict[str, Any]] = {}
         for directory in extra:
-            if directory in creator or directory in reuse:
+            if directory in creator or directory in reuse or directory in historical:
                 continue
             if not re.fullmatch(
                 r"(?:transcribe|processing)-[0-9a-f]{32}|whisper-[a-z0-9_]{8}",
@@ -303,6 +317,7 @@ def hold_terminal_audio_runtime(
             recheck_namespace()
             recheck_creator()
             recheck_reuse()
+            recheck_historical()
             for name, (_, _, expected_names) in records.items():
                 if {
                     p.name for p in file_io_path(runtime / name).iterdir()

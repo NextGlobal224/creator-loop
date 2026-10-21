@@ -62,6 +62,17 @@ wakeups after a browser closes; ephemeral Worker filesystem projections are not
 Windows data. Login/operator secrets remain Cloudflare bindings; entering the
 operator credential on Web does not require a local credential file.
 
+Private migration preservation also recognizes retained Facebook/semantic and
+historical component workspaces in the shared data root. Their original native
+parent/child identities must be bound and dead; read and namespace leases remain
+held through the archive. Ordinary update backup retains its previous refusal.
+The historical `voice-request-<id>/voice-request.txt` folder is a pure authored
+input descriptor (the existing producer writes text before intake), not an
+executor. Only that exact namespace is frozen and retained as unowned evidence.
+No successful execution, terminal provenance, migration or cleanup permission
+is inferred. These bytes reopen only under quarantined `evidence/`, never as
+active runtime. This preservation path does not run or develop C engines.
+
 For MANUAL requests the analysis direction is the exact user-selected brief,
 not a second model-generated plan. Native schema const and runtime identity
 checks reject changes; the existing 2000 Unicode-character input bound remains.
