@@ -76,6 +76,61 @@ create_workspace_marker(root,work,'creator-workers/fixture',kind='CREATOR_LLM_WO
     def archive(self):
         return create_preservation_archive(self.root, timeout_seconds=30)
 
+    def test_historical_voice_processing_is_inert_preservation_only(self):
+        run = "e" * 32
+        revision = "3" * 64
+        with closing(_connect_write(self.root / "creator_loop.sqlite3")) as db, db:
+            db.execute(
+                "INSERT INTO processing_runs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    run,
+                    "a",
+                    "f",
+                    "VOICE_SYNTHESIS_LOCAL_PREVIEW",
+                    "CANCELLED",
+                    "OHF-Voice/piper1-gpl",
+                    "1.8.0",
+                    "vi_VN-vais1000-medium",
+                    revision,
+                    "2026-10-21T00:00:00Z",
+                    "2026-10-21T00:00:00Z",
+                    None,
+                    None,
+                    "2026-10-21T00:00:00Z",
+                ),
+            )
+        code = """import sys
+from pathlib import Path
+from creator_loop.backend.runtime.processing_witness import record_processing_executor
+record_processing_executor(Path(sys.argv[1]),sys.argv[2],'a','f','VOICE_SYNTHESIS_LOCAL_PREVIEW',sys.argv[3])
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(self.root), run, revision],
+            env={
+                **os.environ,
+                "PYTHONPATH": str(Path(__file__).resolve().parents[2] / "app"),
+            },
+            capture_output=True,
+            timeout=15,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with self.assertRaises(RuntimeError):
+            create_update_backup(self.root)
+        path = self.archive()
+        with path.open("rb") as stream:
+            proof = verify_preservation_archive(
+                stream, self.root.parent / "voice inert restore"
+            )
+        self.assertFalse(proof["runtime_evidence_executed"])
+        self.assertFalse(proof["permits_migration_or_cleanup"])
+        # An unknown provider is not covered just because it is terminal.
+        with closing(_connect_write(self.root / "creator_loop.sqlite3")) as db, db:
+            db.execute(
+                "UPDATE processing_runs SET tool_name='unknown' WHERE run_id=?", (run,)
+            )
+        with self.assertRaisesRegex(RuntimeError, "Unsupported processing"):
+            self.archive()
+
     def test_creator_parent_and_child_extra_proof_is_preservation_only(self):
         from creator_loop.backend.runtime import creator_backup_runtime as guard
 
