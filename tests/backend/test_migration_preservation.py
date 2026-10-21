@@ -188,6 +188,75 @@ with OwnedWindowsProcess(Path(sys.executable),['-c','pass'],work/'process',compo
             with self.assertRaisesRegex(RuntimeError, "verified dead"):
                 self.archive()
 
+    def test_direct_whisper_history_is_not_terminal_processing_evidence(self):
+        from creator_loop.backend.runtime import backup_runtime as guard
+
+        workspace = self.root / "runtime" / "whisper-abcdefgh"
+        workspace.mkdir()
+        code = """import sys,json
+from pathlib import Path
+from creator_loop.backend.runtime.runtime_ownership import create_workspace_marker
+from creator_loop.backend.runtime.owned_process import OwnedWindowsProcess
+root=Path(sys.argv[1]);work=Path(sys.argv[2]);component='whisper.cpp/1.8.7/base-multilingual'
+create_workspace_marker(root,work,component,kind='WHISPER_TRANSCRIPTION_WORKSPACE')
+def record(value): (work/'child-ownership.json').write_text(json.dumps(value),encoding='utf-8')
+with OwnedWindowsProcess(Path(sys.executable),['-c','pass'],root/'logs'/'direct-whisper-fixture',component_version=component,before_resume=record) as child:
+ child.wait(5)
+(work/'raw.json').write_bytes(b'{"unqualified":"historical probe"}')
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(self.root), str(workspace)],
+            env={
+                **os.environ,
+                "PYTHONPATH": str(Path(__file__).resolve().parents[2] / "app"),
+            },
+            capture_output=True,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # Isolate this refusal from setUp's unrelated orphan B workspace.
+        with patch.object(guard, "hold_creator_evidence", return_value=lambda: None):
+            with self.assertRaisesRegex(RuntimeError, "Engine parent lacks terminal"):
+                create_update_backup(self.root)
+        archive = self.archive()
+        with archive.open("rb") as stream:
+            proof = verify_preservation_archive(
+                stream, self.root.parent / "whisper isolated"
+            )
+        self.assertFalse(proof["runtime_evidence_executed"])
+        self.assertFalse(proof["permits_migration_or_cleanup"])
+        self.assertEqual(
+            (
+                self.root.parent
+                / "whisper isolated/evidence/runtime"
+                / workspace.name
+                / "raw.json"
+            ).read_bytes(),
+            (workspace / "raw.json").read_bytes(),
+        )
+        with zipfile.ZipFile(archive) as zipped:
+            manifest = json.loads(zipped.read("preservation.json"))
+        record = next(
+            x for x in manifest["opaque_runtime"] if x["workspace"] == workspace.name
+        )
+        self.assertEqual(
+            record["provenance"], "PRESERVED_OWNER_BOUND_HISTORY_NOT_EXECUTION_PROOF"
+        )
+        with patch.object(guard, "preservation_identity_dead", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "parent must be verified dead"):
+                self.archive()
+        child_path = workspace / "child-ownership.json"
+        original = child_path.read_text("utf-8")
+        child = json.loads(original)
+        child["parent_pid"] += 1
+        child_path.write_text(json.dumps(child), "utf-8")
+        with self.assertRaisesRegex(RuntimeError, "child is unbound or still live"):
+            self.archive()
+        child_path.write_text(original, "utf-8")
+        with patch.object(guard, "_identity_dead", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "child is unbound or still live"):
+                self.archive()
+
     def historical_workspace(self, family, *, root=None):
         root = root or self.root
         workspace = root / "runtime" / (family + "-" + "c" * 32)
