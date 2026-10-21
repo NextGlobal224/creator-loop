@@ -3,9 +3,10 @@
 The explicit20October goal now releases MANUAL TEXT/IMAGE_CAPTION B beta first,
 then moves A entirely to Cloudflare. C implementation and every dependency on C
 are cancelled; retain existing VIDEO script/assets/timing without new development.
-Preserve source/history/shared data. After verified migration/cloud restore,
-retire only unnecessary project operational data/runtime/model/cache/build,
-with paths/RAM/disk before-after and A/B checked with local runtime off.
+Preserve source/history/shared data. The explicit21October resume removes local
+cleanup as a completion condition; do not delete local data for this goal.
+Guarded migration/cloud restore and A/B operation without local runtime remain
+required. This amendment does not waive canonical backup/access protections.
 
 The explicit B Web request of 18 October 2026 adds an authenticated, durable,
 Windows-independent deployment. It does not replace Windows beta.2, its data

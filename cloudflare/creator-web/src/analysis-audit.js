@@ -77,9 +77,43 @@ export function validateAnalysis(analysis,materials){
 export async function analysisHash(analysis){
  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(analysis))))).map(v=>v.toString(16).padStart(2,'0')).join('');
 }
+// A plan may contain factual attributions. These are conservative coverage
+// anchors, not an entailment classifier: the model/source review must still
+// check the complete meaning, including attributions without these cues.
+export function directionAttributions(text,catalog){
+ const names=new Set();
+ for(const q of catalog){
+  const match=q.source_quote.match(/^Source\s*:\s*(.+)$/iu);
+  if(!match)continue;
+  names.add(match[1].trim().toLocaleLowerCase());
+  for(const word of match[1].match(/\p{L}[\p{L}\p{N}.-]*/gu)??[]){
+   if(word.length>=2&&word===word.toLocaleUpperCase())names.add(word.toLocaleLowerCase());
+  }
+ }
+ return [...new Set(text.split(/(?<=[.!?;])\s+/u).map(s=>s.trim()).filter(Boolean))].filter(sentence=>{
+  const normalized=sentence.toLocaleLowerCase();
+  const reporting='(?:(?:không|chưa|có|đã|cũng|đều)\\s+)*(?:đề cập|nêu|khuyên|cho biết|mô tả|hướng dẫn|cung cấp|đề nghị|tìm|dùng|đối chiếu|xác nhận|cho rằng)(?![\\p{L}\\p{N}])';
+  return [...names].some(name=>{
+   const identity='(?<![\\p{L}\\p{N}])'+name.replace(/[.*+?^${}()|[\]\\]/gu,'\\$&')+'(?![\\p{L}\\p{N}])';
+   // Mere names in instructions such as "giới thiệu AFP" or "không gán ...
+   // cho AFP" are not factual claims. Reported speech, including negation,
+   // and an explicit parenthetical attribution still need source support.
+   return new RegExp('(?:^|[(:])\\s*theo\\s+'+identity,'u').test(normalized)||new RegExp(identity+'\\s+'+reporting,'u').test(normalized);
+  })||new RegExp('(?:nguồn|tư liệu)\\s+'+reporting,'iu').test(sentence);
+ });
+}
 export function coverageSchema(hash,fields,catalog){
  const items=fields.flatMap(f=>{
   const base={type:'object',properties:{field:{const:f.field},verdict:{type:'string',enum:['SUPPORTED','EDITORIAL_ONLY','UNRESOLVED']},premise_checks:{type:'array',maxItems:8,items:{type:'object',properties:{assertion:{type:'string',minLength:1},quote_ids:{type:'array',items:{type:'integer',minimum:0,maximum:catalog.length-1}},supported:{type:'boolean'}},required:['assertion','quote_ids','supported'],additionalProperties:false}},reason:{type:'string',minLength:1},issues:{type:'array',items:{type:'string'}}},required:['field','verdict','premise_checks','reason','issues'],additionalProperties:false};
+  if(f.field==='direction'){
+   const attributions=directionAttributions(f.text,catalog);
+   if(attributions.length){
+    if(attributions.length>8)throw Error('Direction attribution count exceeds audit premise bound');
+    base.properties.verdict.enum=['SUPPORTED','UNRESOLVED'];
+    base.properties.premise_checks.minItems=attributions.length;
+    base.properties.premise_checks.items.properties.assertion.description='Cover every complete attribution sentence verbatim, separately; other empirical premises also require checks.';
+   }
+  }
   if(!f.field.startsWith('inferences.'))return [base];
   return [base,{...base,properties:{...base.properties,verdict:{const:'HYPOTHESIS'},truth_status:{const:'UNCONFIRMED'},premise_checks:{...base.properties.premise_checks,minItems:1}},required:[...base.required,'truth_status']}];
  });
@@ -95,6 +129,10 @@ export function validateCoverage(receipt,hash,fields,catalog){
   checkPremises(check.premise_checks,catalog);
   if(hypothesis&&check.premise_checks.some(p=>p.quote_ids.some(q=>!factualQuoteIds(catalog).includes(q))))throw Error('Hypothesis background must use factual source excerpts');
   if(check.premise_checks.some(p=>!p.supported)||['SUPPORTED','HYPOTHESIS'].includes(check.verdict)&&!check.premise_checks.length||check.verdict==='EDITORIAL_ONLY'&&check.premise_checks.length||fields[i].field.startsWith('observations.')&&check.verdict!=='SUPPORTED')throw Error('Unsupported analysis premise');
+  if(fields[i].field==='direction'){
+   const attributions=directionAttributions(fields[i].text,catalog);
+   if(attributions.length&&(check.verdict!=='SUPPORTED'||attributions.some(text=>!check.premise_checks.some(p=>p.assertion===text&&p.supported&&p.quote_ids.length&&p.quote_ids.every(id=>factualQuoteIds(catalog).includes(id))))))throw Error('Direction attribution coverage missing');
+  }
  }
  return receipt;
 }
@@ -126,12 +164,13 @@ export async function analysisProfile(packet){
     schema.properties.inferences.items={type:'string',pattern:'^Giả thuyết chưa xác nhận: .+$',minLength:label.length+2};
     schema.properties.inferences.description='Có thể để []. Nếu cần, nêu giả thuyết biên tập còn chưa kiểm chứng, dựa trên điều nguồn thực sự cung cấp. Phân biệt kết luận giả thuyết với tiền đề factual: nhãn chưa xác nhận không hợp thức hóa công cụ, khả năng áp dụng hay khuyến nghị tổ chức bị bịa.';
     if(schema.properties.direction)schema.properties.direction.description='KẾ HOẠCH NỘI DUNG cho người viết: góc tiếp cận và đóng góp khác nhau của các phần, phù hợp Project/mode/format/direction đã chọn. Không biến thành quy trình kiểm chứng cho độc giả, không yêu cầu dùng công cụ ngoài snapshot, số lượng nguồn tối thiểu hoặc hứa kết quả. Giữ đúng yêu cầu factual/no-fiction nếu có.';
-    native.messages[0].content=analysisInstructions+' observations là sổ trích nguồn: chọn các câu nguồn liên quan, giữ observation bằng nguyên văn quote đúng schema, không thêm diễn giải. Chọn đủ dữ kiện và giới hạn quan trọng cho brief, không coi trích dẫn là toàn bộ nguồn hay sự tán thành. Phần diễn giải chỉ nằm trong direction/inferences với audit tiền đề riêng. Direction là kế hoạch ngắn tối đa 1200 ký tự, nêu đóng góp khác nhau của các phần; không phải bài viết hoặc các bước kiểm chứng. Use inferences:[] when no substantive inference is needed.';
+    native.messages[0].content=analysisInstructions+' observations là sổ trích nguồn: chọn các câu nguồn liên quan, giữ observation bằng nguyên văn quote đúng schema, không thêm diễn giải. Chọn đủ dữ kiện và giới hạn quan trọng cho brief, không coi trích dẫn là toàn bộ nguồn hay sự tán thành. Phần diễn giải chỉ nằm trong direction/inferences với audit tiền đề riêng. Direction là kế hoạch ngắn tối đa 1200 ký tự, nêu đóng góp khác nhau của các phần; không phải bài viết hoặc các bước kiểm chứng. Không gộp đóng góp của hai nguồn thành một lời quy kết: nguồn nào nêu công cụ, nguồn nào nêu giới hạn phải tách đúng snapshot; không suy chi tiết từ URL chưa đọc. Có thể lập kế hoạch không quy kết tổ chức, để dữ kiện ở observations. Use inferences:[] when no substantive inference is needed.';
     bindPromptSchema(native,schema,packet.stage);
    }
    if(packet.stage==='analysis'&&projectPolicy(source).fictionalOpening)native.messages[0].content+=' For this specifically commissioned screenshot-sharing Project, propose a concrete fictional information gap and voluntary request for source/context instead of inventing a verification procedure.';
    if(packet.stage==='writing')native.messages[0].content+=' The generated analysis direction is NOT evidence or a mandatory procedure. Omit any tool applicability, institutional recommendation or promised result it invents. A source fact that a handbook contains tools does not support telling this reader to use those tools for a quick check on a phone. Keep external source facts separate from voluntary requests for missing context; use natural Vietnamese rather than repeating an English question list and its translation. When continuing a commissioned fictional scene later in the article, explicitly refer to that hypothetical scene, not an observed real event. Develop connected distinct ideas instead of one-line source summaries or repeating a request for missing information before the actual closing message.';
    if(packet.stage==='writing'&&packet.format==='TEXT')compactStagePrompt(native,'writing');
+   if(packet.stage==='writing'&&packet.format==='TEXT')native.messages[0].content+=' The extractive observation rule applies ONLY to the analysis ledger, not to article prose. Compose an actual article for the explicit user purpose and chosen direction: frame that subject in the opening and connect each relevant supported idea to it. Paraphrase naturally within each exact excerpt scope; source_quote_id and premise_checks retain provenance even when public wording changes. Do not merely concatenate observation sentences or lead with irrelevant publication metadata. Exact names, dates and necessary quotations may remain exact; novelty is not permission to add facts. A factual/no-fiction brief permits source-grounded explanation and voluntary questions, not an invented event. Write the requested closing itself in clear Vietnamese, not a description of asking someone for transparency.';
    if(packet.stage==='editing')native.messages[0].content+=' A REWRITE must actually change the original passage after whitespace normalization. If a compliant opening or other passage remains word-for-word unchanged, choose KEEP with replacement:[]; never emit an identical REWRITE. Preserve existing mandatory-revision rules: they require an actual change or allowed removal. Assess the WHOLE original sentence, not merely its supported excerpt: a tool-applicability or outcome clause absent from the quote makes the original INSUFFICIENT even when its introductory source fact is supported. Preserve that negative assessment when replacing it with supported content. Do not retain a capability claim or an English/Vietnamese duplicate question list as advice.';
    if(packet.stage==='editing'&&packet.previous?.[1]?.value){
     const written=packet.previous[1].value;
@@ -139,6 +178,7 @@ export async function analysisProfile(packet){
     constrainRewrites(schema,initial);
     compactStagePrompt(native,'editing');
    }
+   if(packet.stage==='editing'&&packet.format==='TEXT')native.messages[0].content+=' Separately compare the complete article with the explicit user purpose/style/direction: correct facts alone do not establish brief fit or natural prose. A collage of source-note sentences can require REWRITE for relevance, transitions or awkward syntax while the ORIGINAL support remains SOURCE_SUPPORTED. Do not falsely mark a supported original INSUFFICIENT merely to edit it. KEEP requires both usable wording and contextual fit; preserve concise factual or quoted passages when they actually serve the brief. Do not replace editorial repair with generic advice, new empirical assertions or a promise of verification.';
    if(packet.stage==='source_audit'){
     // The fourth actual response consumed the old 4000-token ceiling without
     // a complete final channel. Keep one bounded call; preserve full coverage.
@@ -148,6 +188,8 @@ export async function analysisProfile(packet){
     native.messages[0].content+=' CONTRACT DISTINCTION: only inferences.N may instead use HYPOTHESIS with truth_status:UNCONFIRMED. This means the explicitly labelled conclusion is NOT verified and has NO demonstrated effect evidence. Check separately every embedded factual background premise against exact eligible quotes; at least one supported background premise is required. A related quote does not prove invented tool identity, availability, applicability, institutional recommendation or efficacy. Missing background support remains UNRESOLVED. Do not reject a clearly unconfirmed hypothesized conclusion solely because it lacks confirmation, and never mark that conclusion SUPPORTED. Observations and direction cannot use HYPOTHESIS. For article findings, judge the full meaning: an invitation to consider questions without a promised result does not require proof that it succeeds; a capability/benefit assertion hidden behind có thể or a purpose clause still requires evidence. Editor findings are leads, not binding verdicts; NOT_APPLICABLE needs a concrete comparison with the immutable final text, and PROJECT findings retain their mandatory rules.';
     native.messages[0].content+=' Fictional scope: a later question explicitly referring back to the labelled invented opening is not a factual report that a real screenshot exists. Do not demand a source proving the invented event; still audit real-world assertions embedded anywhere. Only the opening itself may be classified HYPOTHETICAL under the existing segment rules. A later pure question/invitation can be ADVICE without empirical premises. Distinguish these from an assertion about an actual external event or capability; do not blanket-exempt later paragraphs. Evaluate continuity and distinct development independently.';
     native.messages.push({role:'user',content:JSON.stringify({immutable_analysis_sha256:hash,immutable_analysis_fields:fields,exact_quote_catalog:catalog})});
+    native.messages.push({role:'user',content:JSON.stringify({direction_attribution_sentences:directionAttributions(analysis.direction,catalog),coverage_rule:'Each listed complete sentence needs its own verbatim assertion with eligible exact supporting quote IDs and SUPPORTED; unsupported or ambiguous whole-sentence attribution is UNRESOLVED, never blanket EDITORIAL_ONLY. This list is conservative and does not exempt other factual premises.'})});
+    if(packet.format==='TEXT')native.messages[0].content+=' For PROJECT_NONREPETITIVE_DEVELOPMENT compare the actual explicit user purpose and chosen direction with the immutable article, not the generated plan. Distinct source summaries alone do not establish explanatory development. If the requested subject is absent, connections are missing or the ending is syntactically unclear, report UNRESOLVED with the actual passages; do not declare ADDRESSED just because facts are supported or paragraphs differ. Do not require invented detail, a word quota, or a fixed screenshot situation for a different Project.';
     bindPromptSchema(native,schema,packet.stage);
    }
    const result=await binding.run(model,native,options);

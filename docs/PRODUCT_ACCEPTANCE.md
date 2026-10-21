@@ -622,3 +622,17 @@ and image upload/reopen, ordered steps/conditions/preserved inputs, and isolated
 export/restore/reload/relogin with corrupt/incompatible rollback proof on changed
 deployment. No production restore or data deletion to hide the listing defect.
 These are storage/usability gates; they do not qualify either AI output or release.
+
+21 October MANUAL TEXT job `53c81ff573e945eeaa66fab22ac7972b` completed four
+cloud stages and saved its original Draft, but independent content review is
+**QUALITY FAIL**: source-note collage, insufficient development of the selected
+screenshot brief and an unclear closing. Analysis also over-attributed details
+to AFP; its blanket EDITORIAL_ONLY audit missed those factual attributions.
+Original output and FAIL evidence remain unchanged. Web-only coverage now
+requires separate full-sentence premise checks for detected source attributions;
+this is a conservative coverage check, not deterministic semantic entailment.
+Writing/editing instructions distinguish extractive observations from fluent,
+brief-specific article prose. Offline replay/checks do not qualify new prose or
+live output. TEXT quality and then IMAGE_CAPTION acceptance remain pending.
+The explicit21October user amendment cancels local-cleanup completion conditions;
+B release then A cloud, safe migration/restore, data guards and $0 overage remain.
