@@ -7,8 +7,10 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Callable
 
+from creator_loop.backend.runtime.preservation_identity import (
+    preservation_identity_dead,
+)
 from creator_loop.backend.runtime.runtime_files import RuntimeHandle
-from creator_loop.backend.runtime.runtime_recovery import _identity_dead
 from creator_loop.backend.runtime.windows_paths import file_io_path
 
 _WORKSPACE = re.compile(
@@ -69,7 +71,7 @@ def hold_historical_preservation(
                 not isinstance(child.get(k), str) or not _ID.fullmatch(child[k])
                 for k in ("run_id", "job_id")
             )
-            or not _identity_dead(child)
+            or not preservation_identity_dead(child)
         ):
             raise RuntimeError("Historical child is unbound or still live")
 
@@ -125,7 +127,7 @@ def hold_historical_preservation(
             or not isinstance(marker.get("component_version"), str)
             or not 0 < len(marker["component_version"]) <= 512
             or not isinstance(marker.get("parent"), dict)
-            or not _identity_dead(marker["parent"])
+            or not preservation_identity_dead(marker["parent"])
         ):
             raise RuntimeError("Historical owner must be bound and verified dead")
         child = None
