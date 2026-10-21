@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from contextlib import closing
 from pathlib import Path
 
 from creator_loop.backend.runtime.database import _connect_write, initialize
@@ -34,7 +35,7 @@ class MigrationPreservationTests(unittest.TestCase):
         self.media = self.root / self.key
         self.media.write_bytes(self.original)
         self.digest = hashlib.sha256(self.original).hexdigest()
-        with _connect_write(self.root / "creator_loop.sqlite3") as db:
+        with closing(_connect_write(self.root / "creator_loop.sqlite3")) as db, db:
             db.execute(
                 "INSERT INTO assets VALUES (?,?,?,?,?)",
                 ("a", "TEXT", "fixture", "2026-10-21T00:00:00Z", None),
@@ -73,6 +74,79 @@ create_workspace_marker(root,work,'creator-workers/fixture',kind='CREATOR_LLM_WO
 
     def archive(self):
         return create_preservation_archive(self.root, timeout_seconds=30)
+
+    def historical_media(self):
+        """Existing-output fixture only; no renderer/process/model is launched."""
+        key = "storage/derived/old-result.mp4"
+        payload = b"preserve old opaque output bytes; not a playable quality sample"
+        (self.root / key).write_bytes(payload)
+        timestamp = "2026-10-21T00:00:00Z"
+        with closing(_connect_write(self.root / "creator_loop.sqlite3")) as db, db:
+            db.execute(
+                "INSERT INTO projects VALUES (?,?,?,?,?)",
+                ("p", "fixture", "ACTIVE", timestamp, None),
+            )
+            db.execute(
+                "INSERT INTO drafts VALUES (?,?,?,?)", ("d", "p", "ACTIVE", timestamp)
+            )
+            db.execute(
+                "INSERT INTO draft_versions(draft_version_id,draft_id,version_no,body_text,format,created_by,created_at) VALUES (?,?,?,?,?,?,?)",
+                ("v", "d", 1, "historical fixture", "VIDEO", "fixture", timestamp),
+            )
+            db.execute("INSERT INTO draft_version_seals VALUES (?,?)", ("v", timestamp))
+            db.execute(
+                "INSERT INTO processing_runs(run_id,asset_id,input_file_id,task_type,status,tool_name,tool_version,finished_at,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    "r",
+                    "a",
+                    "f",
+                    "DRAFT_VIDEO_RENDER",
+                    "SUCCEEDED",
+                    "historical-fixture",
+                    "1",
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            db.execute(
+                "INSERT INTO draft_render_requests VALUES (?,?,?,?,?)",
+                ("r", "v", "{}", "old fixture", timestamp),
+            )
+            db.execute(
+                "INSERT INTO draft_render_outputs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    "r",
+                    key,
+                    hashlib.sha256(payload).hexdigest(),
+                    len(payload),
+                    "video/mp4",
+                    1,
+                    1,
+                    1,
+                    "historical-fixture",
+                    "1",
+                    timestamp,
+                ),
+            )
+        return key, payload
+
+    def test_historical_output_outside_asset_files_is_preserved_and_reopened(self):
+        key, payload = self.historical_media()
+        path = self.archive()
+        with path.open("rb") as stream:
+            isolated = self.root.parent / "historical reopen"
+            proof = verify_preservation_archive(stream, isolated)
+        self.assertEqual(proof["historical_render_media_records"], 1)
+        self.assertEqual((isolated / key).read_bytes(), payload)
+        self.assertEqual((self.root / key).read_bytes(), payload)
+        self.assertFalse(proof["runtime_evidence_executed"])
+
+    def test_missing_historical_output_refuses_full_preservation(self):
+        key, _ = self.historical_media()
+        (self.root / key).unlink()
+        with self.assertRaises(OSError):
+            self.archive()
+        self.assertEqual(list((self.root / "backups").glob("preservation-*.zip")), [])
 
     def test_opaque_preserved_without_weakening_normal_backup_or_mutating_originals(
         self,
