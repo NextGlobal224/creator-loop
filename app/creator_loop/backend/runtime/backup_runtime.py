@@ -13,6 +13,9 @@ from creator_loop.backend.runtime.creator_backup_runtime import (
     hold_creator_evidence,
     hold_creator_preservation,
 )
+from creator_loop.backend.runtime.preservation_identity import (
+    preservation_identity_dead,
+)
 from creator_loop.backend.runtime.preservation_runtime import (
     hold_historical_preservation,
     preservation_family,
@@ -328,7 +331,20 @@ def hold_terminal_audio_runtime(
             if not any(
                 _same(marker["parent"], owner) for owner in asr_executors
             ) or not any(_same(marker["parent"], owner) for owner in task_children):
-                raise RuntimeError("Engine parent lacks terminal task binding")
+                if opaque_creator is None:
+                    raise RuntimeError("Engine parent lacks terminal task binding")
+                if not preservation_identity_dead(marker["parent"]):
+                    raise RuntimeError("Historical engine parent must be verified dead")
+                # Direct adapter probes predate domain task witnesses. Preserve
+                # their exact leased bytes as inert history, never as terminal
+                # processing/output evidence or permission for ordinary backup.
+                opaque_creator.append(
+                    {
+                        "workspace": name,
+                        "provenance": "PRESERVED_OWNER_BOUND_HISTORY_NOT_EXECUTION_PROOF",
+                        "component_version": marker["component_version"],
+                    }
+                )
 
         def recheck_all() -> None:
             recheck_namespace()

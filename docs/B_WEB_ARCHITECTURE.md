@@ -94,6 +94,12 @@ original text MIME and model-version digest still must agree with SQLite.
 Ordinary update backup still refuses this unsupported processing family. These
 records are evidence only; no voice engine or C pipeline runs.
 
+Historical direct Whisper adapter probes can lack domain processing/task witnesses.
+Only private preservation retains their exact whitelisted, leased bytes after
+bound native parent/child identities are proven dead, as quarantined history
+without task binding or qualified output provenance. Ordinary backup still refuses
+them; no runtime execution, recovery or deletion authority follows from retention.
+
 The Web operator archive API (`/api/preservation`) is separate from operational
 media and its unchanged 8 MiB cap. It reserves one immutable archive up to 64 MiB,
 uploads bounded 512 KiB chunks under a whole-file SHA256 identity and supports
