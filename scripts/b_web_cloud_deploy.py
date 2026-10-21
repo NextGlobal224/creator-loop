@@ -137,6 +137,23 @@ def activate_once(final_check, create_deployment, current_id, version, record_at
     return state
 
 
+def observe_activated_runtime(app, current_id, version, *, sleep=time.sleep):
+    """Bound propagation reads only; never repeat activation or mask a new version."""
+    for attempt in range(8):
+        if current_id() != version:
+            raise ValueError("Deployment changed during propagation observation")
+        runtime = app("/api/runtime")
+        if runtime["model"] != MODEL:
+            raise ValueError("Live model differs from trusted runtime")
+        if runtime["deployment"] == version:
+            return runtime
+        if attempt < 7:
+            sleep(8)
+    raise ValueError(
+        "Deployment occurred but live observation not confirmed; read before any retry"
+    )
+
+
 def verify_ci(run: dict, jobs: dict, workflow: dict, commit: str):
     if not (
         run["head_sha"] == commit
@@ -542,12 +559,7 @@ def main():
     )
     record["finished_at"] = time.time()
     Path("deploy-result.json").write_text(json.dumps(record, indent=2))
-    time.sleep(8)  # One bounded propagation wait, no inference/status poll loop.
-    runtime = app("/api/runtime")
-    if runtime["deployment"] != record["deployment"] or runtime["model"] != MODEL:
-        raise ValueError(
-            "Deployment occurred but live observation not confirmed; read before any retry"
-        )
+    observe_activated_runtime(app, current_id, record["deployment"])
     if app("/api/state")["revision"] < before["revision"]:
         raise ValueError("Domain revision regressed")
     config = json.loads(files["worker/wrangler.jsonc"])
