@@ -1,0 +1,346 @@
+"""Actual import handler with SQLite coordination stand-in, not cloud QA."""
+
+import ast
+import asyncio
+import base64
+import copy
+import hashlib
+import hmac
+import json
+import re
+import sqlite3
+import tempfile
+import time
+import unittest
+import zlib
+from contextlib import closing
+from pathlib import Path
+from types import SimpleNamespace
+from uuid import uuid4
+
+from creator_loop.backend.creator.web_domain import WebDomain, WebInputError
+from creator_loop.backend.runtime.cloud_import import B_TABLES
+from creator_loop.backend.runtime.database import _connect_write, initialize, validate
+
+from tests.backend import test_web_domain
+
+
+class CloudImportAPITests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = test_web_domain.WebDomainTests("runTest")
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve(strict=True)
+        target = self.root / "initial.sqlite3"
+        initialize(target)
+        with closing(_connect_write(target)) as db:
+            raw = db.serialize()
+        self.coord = sqlite3.connect(":memory:")
+        self.addCleanup(self.coord.close)
+        self.coord.row_factory = sqlite3.Row
+        self.coord.executescript(
+            "CREATE TABLE checkpoint(id INTEGER PRIMARY KEY,revision INTEGER,payload TEXT,sha256 TEXT);"
+            "CREATE TABLE receipts(id TEXT PRIMARY KEY,fingerprint TEXT,response TEXT);"
+            "CREATE TABLE backups(id TEXT PRIMARY KEY,record TEXT);"
+            "CREATE TABLE objects(sha256 TEXT PRIMARY KEY,size INTEGER);"
+            "CREATE TABLE object_chunks(sha256 TEXT,position INTEGER,content TEXT,PRIMARY KEY(sha256,position));"
+            "CREATE TABLE jobs(id TEXT PRIMARY KEY,status TEXT,record TEXT);"
+            "CREATE TABLE control(id TEXT PRIMARY KEY,record TEXT);"
+        )
+
+        def digest(value):
+            return hashlib.sha256(value).hexdigest()
+
+        self.coord.execute(
+            "INSERT INTO checkpoint VALUES(1,5,?,?)",
+            (base64.b64encode(zlib.compress(raw)).decode(), digest(raw)),
+        )
+        self.coord.commit()
+        source = (
+            Path(__file__).resolve().parents[2] / "cloudflare/creator-web/src/entry.py"
+        )
+        tree = ast.parse(source.read_text("utf-8"))
+        methods = {
+            "import_preserved_b",
+            "authorized",
+            "put_object",
+            "object_bytes",
+            "commit",
+            "discard_projection",
+        }
+        nodes = [
+            method
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "Database"
+            for method in node.body
+            if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and method.name in methods
+        ]
+        nodes.extend(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "unpack_database"
+        )
+        constants = {}
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name)
+                and t.id in {"VERSION", "MAX_MEDIA_TOTAL", "MAX_MEDIA_OBJECTS"}
+                for t in node.targets
+            ):
+                exec(
+                    compile(
+                        ast.Module(body=[node], type_ignores=[]), str(source), "exec"
+                    ),
+                    constants,
+                )
+        namespace = {
+            "base64": base64,
+            "sqlite3": sqlite3,
+            "hashlib": hashlib,
+            "json": json,
+            "re": re,
+            "time": time,
+            "hmac": hmac,
+            "zlib": zlib,
+            "closing": closing,
+            "WebDomain": WebDomain,
+            "WebInputError": WebInputError,
+            "_connect_write": _connect_write,
+            "validate": validate,
+            "Path": lambda value: self.root if value == "/tmp" else Path(value),
+            "digest": digest,
+            "reply": lambda value, status=200, **_: SimpleNamespace(
+                value=value, status=status
+            ),
+            **constants,
+        }
+        exec(
+            compile(ast.Module(body=nodes, type_ignores=[]), str(source), "exec"),
+            namespace,
+        )
+        self.api = type(
+            "ImportDatabaseFixture", (), {n: namespace[n] for n in methods}
+        )()
+        self.api.rows = lambda query, *args: [
+            dict(r) for r in self.coord.execute(query, args)
+        ]
+        self.api.sql = SimpleNamespace(
+            exec=lambda query, *args: self.coord.execute(query, args)
+        )
+        self.api.env = SimpleNamespace(OPERATOR_KEY="fixture")
+
+        def transaction(callback):
+            with self.coord:
+                return callback()
+
+        self.api.ctx = SimpleNamespace(
+            storage=SimpleNamespace(transactionSync=transaction)
+        )
+
+        def load():
+            row = self.api.rows("SELECT * FROM checkpoint")[0]
+            root = self.root / ("creator-web-" + uuid4().hex)
+            root.mkdir()
+            (root / "creator_loop.sqlite3").write_bytes(
+                zlib.decompress(base64.b64decode(row["payload"]))
+            )
+            with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+                for key, sha in db.execute(
+                    "SELECT storage_key,sha256 FROM asset_files WHERE role='ORIGINAL'"
+                ):
+                    p = root / key
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.write_bytes(self.api.object_bytes(sha))
+            return root, row["revision"]
+
+        self.api.load = load
+        tables = {}
+        with closing(_connect_write(self.fixture.domain.path)) as db:
+            for table in B_TABLES:
+                cursor = db.execute('SELECT * FROM "' + table + '"')
+                names = [c[0] for c in cursor.description]
+                rows = [dict(zip(names, r)) for r in cursor]
+                if rows:
+                    tables[table] = rows
+        objects = {}
+        for row in tables["asset_files"]:
+            raw = (self.fixture.root / row["storage_key"]).read_bytes()
+            objects[row["sha256"]] = {
+                "sha256": row["sha256"],
+                "size": len(raw),
+                "content_base64": base64.b64encode(raw).decode(),
+            }
+        self.backup_id = "b" * 32
+        self.coord.execute(
+            "INSERT INTO backups VALUES(?,?)",
+            (
+                self.backup_id,
+                json.dumps(
+                    {
+                        "checkpoint": self.api.rows("SELECT * FROM checkpoint"),
+                        "objects": [],
+                    }
+                ),
+            ),
+        )
+        self.coord.commit()
+        self.data = {
+            "format": "B_CLOUD_IMPORT_V1",
+            "expected_revision": 5,
+            "expected_checkpoint_sha256": self.api.rows("SELECT * FROM checkpoint")[0][
+                "sha256"
+            ],
+            "backup_id": self.backup_id,
+            "source_archive_sha256": "a" * 64,
+            "source_database_sha256": "c" * 64,
+            "source_schema_version": 9,
+            "source_cloud_receipt_sha256": "d" * 64,
+            "source_rows_sha256": digest(
+                json.dumps(
+                    tables, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                ).encode()
+            ),
+            "tables": tables,
+            "objects": list(objects.values()),
+        }
+
+    def call(self, data=None, *, key="1" * 32, path="/api/import", operator=True):
+        headers = {"Idempotency-Key": key}
+        if operator:
+            headers["X-Operator-Key"] = "fixture"
+        return asyncio.run(
+            self.api.authorized(
+                SimpleNamespace(headers=headers),
+                path,
+                "GET" if data is None else "POST",
+                data or {},
+            )
+        )
+
+    def test_import_reopen_receipt_and_same_request_do_not_duplicate_rows(self):
+        result = self.call(copy.deepcopy(self.data))
+        self.assertEqual(result.value["revision"], 6)
+        self.assertFalse(result.value["existing_rows_replaced"])
+        self.assertFalse(result.value["publication_approval_created"])
+        self.assertFalse(result.value["historical_render_media_operational"])
+        self.assertEqual(result.value["historical_render_archive_mapping"], [])
+        reopened = self.call(path="/api/imports/" + "1" * 32)
+        self.assertEqual(reopened.value, result.value)
+        repeated = self.call(copy.deepcopy(self.data))
+        self.assertEqual(repeated.value, result.value)
+        self.assertEqual(
+            self.api.rows("SELECT revision FROM checkpoint")[0]["revision"], 6
+        )
+        self.assertEqual(len(self.api.rows("SELECT * FROM receipts")), 1)
+        root, _ = self.api.load()
+        try:
+            with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+                validate(db)
+                self.assertEqual(
+                    db.execute("SELECT count(*) FROM project_references").fetchone()[0],
+                    1,
+                )
+                self.assertEqual(
+                    db.execute("SELECT count(*) FROM sources").fetchone()[0], 1
+                )
+                row = db.execute(
+                    "SELECT storage_key,sha256 FROM asset_files"
+                ).fetchone()
+                self.assertEqual(row[0], "storage/originals/" + row[1])
+                self.assertEqual(
+                    (root / row[0]).read_bytes(), self.fixture.source.encode()
+                )
+        finally:
+            self.api.discard_projection(root)
+
+    def test_operator_revision_backup_jobs_and_unknown_receipt_are_explicit(self):
+        self.assertEqual(
+            self.call(copy.deepcopy(self.data), operator=False).status, 403
+        )
+        self.assertEqual(self.call(path="/api/imports/" + "2" * 32).status, 404)
+        for damage in ("revision", "backup", "job"):
+            data = copy.deepcopy(self.data)
+            if damage == "revision":
+                data["expected_revision"] = 4
+            elif damage == "backup":
+                data["backup_id"] = "e" * 32
+            else:
+                self.coord.execute(
+                    "INSERT INTO jobs(id,status) VALUES('running','RUNNING')"
+                )
+                self.coord.commit()
+            with self.assertRaises(WebInputError):
+                self.call(data)
+            self.assertEqual(
+                self.api.rows("SELECT revision FROM checkpoint")[0]["revision"], 5
+            )
+            self.assertEqual(self.api.rows("SELECT * FROM objects"), [])
+        self.assertEqual(self.api.rows("SELECT * FROM receipts"), [])
+
+    def test_bad_media_or_late_domain_failure_roll_back_coordination_state(self):
+        for damage in ("digest", "missing", "domain"):
+            data = copy.deepcopy(self.data)
+            if damage == "digest":
+                data["objects"][0]["content_base64"] = base64.b64encode(
+                    b"corrupt"
+                ).decode()
+            elif damage == "missing":
+                data["objects"] = []
+            else:
+                data["tables"]["assets"][0]["media_type"] = "INVALID"
+                data["source_rows_sha256"] = hashlib.sha256(
+                    json.dumps(
+                        data["tables"],
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode()
+                ).hexdigest()
+            with self.assertRaises((WebInputError, ValueError)):
+                self.call(data)
+            self.assertEqual(self.api.rows("SELECT * FROM objects"), [])
+            self.assertEqual(self.api.rows("SELECT * FROM object_chunks"), [])
+            self.assertEqual(self.api.rows("SELECT * FROM receipts"), [])
+            self.assertEqual(
+                self.api.rows("SELECT revision FROM checkpoint")[0]["revision"], 5
+            )
+
+    def test_ten_mib_backup_fits_body_and_restores_without_capacity_bypass(self):
+        chunks = [b"a" * (8 * 1024 * 1024), b"b" * (2 * 1024 * 1024)]
+        with self.coord:
+            for raw in chunks:
+                self.api.put_object(hashlib.sha256(raw).hexdigest(), raw)
+        with self.assertRaises(WebInputError):
+            with self.coord:
+                self.api.put_object(hashlib.sha256(b"extra").hexdigest(), b"extra")
+        backup = self.call(path="/api/backup").value
+        restore = {
+            "confirm_data_after_backup_may_be_lost": True,
+            "expected_revision": 5,
+            "backup": backup,
+        }
+        self.assertLess(len(json.dumps(restore).encode()), 16 * 1024 * 1024)
+        result = self.call(restore, path="/api/restore")
+        self.assertEqual(result.value["revision"], 6)
+        for raw in chunks:
+            self.assertEqual(
+                self.api.object_bytes(hashlib.sha256(raw).hexdigest()), raw
+            )
+        self.assertEqual(len(self.api.rows("SELECT * FROM objects")), 2)
+
+    def test_object_count_limit_keeps_existing_bytes(self):
+        with self.coord:
+            for index in range(512):
+                raw = b"fixture" + index.to_bytes(2, "big")
+                self.api.put_object(hashlib.sha256(raw).hexdigest(), raw)
+        with self.assertRaisesRegex(WebInputError, "512"):
+            with self.coord:
+                self.api.put_object(hashlib.sha256(b"extra").hexdigest(), b"extra")
+        self.assertEqual(len(self.api.rows("SELECT * FROM objects")), 512)
+        first = b"fixture\0\0"
+        self.assertEqual(
+            self.api.object_bytes(hashlib.sha256(first).hexdigest()), first
+        )

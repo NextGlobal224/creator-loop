@@ -24,6 +24,33 @@ TARGETS = {"production": "creator-loop-b-web", "qa19": "creator-loop-b-web-qa19"
 UUID = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
 
 
+def expected_binding_types(target: str, previous_version: dict) -> dict[str, str]:
+    types = {
+        "AI": "ai",
+        "ASSETS": "assets",
+        "CREATOR_MODEL": "plain_text",
+        "CREATOR_VERSION": "version_metadata",
+        "DATABASE": "durable_object_namespace",
+        "LOGIN_PASSWORD_HASH": "secret_text",
+    }
+    if target not in TARGETS:
+        raise ValueError("Unsupported deployment target")
+    operator = [
+        b
+        for b in previous_version["resources"]["bindings"]
+        if b["name"] == "OPERATOR_KEY"
+    ]
+    if target == "production":
+        types["OPERATOR_KEY"] = "secret_text"
+    elif operator:
+        # Preserve the previously provisioned *isolated QA* operator. This
+        # verifier cannot introduce/copy secrets or allow arbitrary bindings.
+        if len(operator) != 1 or operator[0]["type"] != "secret_text":
+            raise ValueError("Unexpected existing QA operator binding")
+        types["OPERATOR_KEY"] = "secret_text"
+    return types
+
+
 def sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
@@ -589,16 +616,7 @@ def main():
         raise ValueError("Domain revision regressed")
     config = json.loads(files["worker/wrangler.jsonc"])
     settings = cloud(script + "/settings")
-    binding_types = {
-        "AI": "ai",
-        "ASSETS": "assets",
-        "CREATOR_MODEL": "plain_text",
-        "CREATOR_VERSION": "version_metadata",
-        "DATABASE": "durable_object_namespace",
-        "LOGIN_PASSWORD_HASH": "secret_text",
-    }
-    if target == "production":
-        binding_types["OPERATOR_KEY"] = "secret_text"
+    binding_types = expected_binding_types(target, previous_version)
     bindings = {b["name"]: b for b in settings["bindings"]}
     expected_namespace = next(
         b["namespace_id"]
