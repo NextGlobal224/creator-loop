@@ -10,7 +10,7 @@ required. This amendment does not waive canonical backup/access protections.
 
 The explicit B Web request of 18 October 2026 adds an authenticated, durable,
 Windows-independent deployment. It does not replace Windows beta.2, its data
-root, schema compatibility, or A/C acceptance. No principal data import is
+root or schema compatibility. A remains separately pending; C is cancelled above. No principal data import is
 permitted until the canonical backup ownership refusal has been resolved.
 
 | Component | Existing runtime | Reuse / smallest required change | Direct source |
@@ -101,7 +101,7 @@ without task binding or qualified output provenance. Ordinary backup still refus
 them; no runtime execution, recovery or deletion authority follows from retention.
 
 The Web operator archive API (`/api/preservation`) is separate from operational
-media and its unchanged 8 MiB cap. It reserves one immutable archive up to 64 MiB,
+media and its separate bounded capacity. It reserves one immutable archive up to 64 MiB,
 uploads bounded 512 KiB chunks under a whole-file SHA256 identity and supports
 read reconciliation/resume without duplicate uploads. Both login and operator
 key are required. Each chunk, aggregate hash and archive inventory must verify;
@@ -263,3 +263,46 @@ writing contract preserves the existing role purposes and asks for brief-bound
 development without a fixed segment or word minimum. Less duplicate text is
 not evidence of better prose or proportional token savings; live quality remains
 unverified when Free quota is below the unchanged complete-chain forecast.
+
+## Guarded B data import
+
+Historical render output rows retain their IDs, hashes and original storage keys.
+Their independent MP4 bytes remain in the verified private canonical archive,
+not in operational media. The import receipt explicitly reports
+`historical_render_media_operational: false` and maps each historical output to
+its source archive SHA and `media/<sha256>` member. The operator must reconcile
+this mapping against the archive's `preservation.json.render_media` before
+submission; a hash-shaped string is not proof. No new C execution or MP4
+availability is required for the manual beta. This limitation must remain in
+migration evidence; it does not authorize local deletion.
+
+The operator-only `POST /api/import` appends a reviewed, archive-derived B row
+manifest to the current schema-10 checkpoint. It requires an exact current
+revision/database digest, a cloud backup of that same checkpoint, idle cloud jobs,
+and an explicit idempotency key. `GET /api/imports/<key>` reports the existing
+receipt after an unknown response; the same input/key reopens its result, while a
+changed input refuses. The transaction includes immutable object writes,
+checkpoint CAS and receipt. A failed projection is discarded, never reused.
+
+The portable core keeps foreign keys and SQL triggers enabled. Same-ID equal rows
+are no-ops; differing rows reject the whole batch. Claim/Draft relationships
+precede their seals. Historical render requests are assembled unsealed, receive
+the preserved inputs, and are sealed with the exact historical value within the
+same transaction. No engine, active processing, publication approval or new review
+is inferred. Source hashes and a supplied archive receipt identify the operator's
+manifest; their syntax alone does not prove archive provenance. Execution still
+requires independent comparison with the actual verified cloud archive and exact
+source/row/media mappings. Only Original locators relocate to content-addressed
+cloud keys; IDs, digests, bytes and version/review history remain intact.
+
+Operational storage is bounded to 10 MiB across at most 512 immutable objects;
+per-file intake remains 8 MiB. This covers the measured B/current-production union
+of 9,944,182 bytes without enabling another service or exceeding purchased included
+resources. The object/count bounds keep media base64, the existing checkpoint
+limit of 1,800,000 encoded bytes and fixed metadata below the existing 16 MiB
+restore-body limit. Overflow refuses without deleting data. The native/fixture
+10 MiB backup-restore test is a storage check, not a Workers memory or live
+migration result: actual cloud import, reopen, backup/restore and memory-compatible
+execution remain required before production use. Existing QA operator secrets
+are preserved by cloud deployment verification; this does not copy secrets across
+targets or create an AI grant.

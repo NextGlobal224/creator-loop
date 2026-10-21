@@ -15,6 +15,7 @@ from scripts.b_web_cloud_deploy import (
     REPO,
     activate_once,
     compatible_bindings,
+    expected_binding_types,
     main,
     observe_activated_runtime,
     read_json,
@@ -27,6 +28,25 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_existing_isolated_operator_is_preserved_without_adding_a_binding(self):
+        empty = {"resources": {"bindings": []}}
+        operator = {
+            "resources": {"bindings": [{"name": "OPERATOR_KEY", "type": "secret_text"}]}
+        }
+        self.assertNotIn("OPERATOR_KEY", expected_binding_types("qa19", empty))
+        self.assertEqual(
+            expected_binding_types("qa19", operator)["OPERATOR_KEY"], "secret_text"
+        )
+        self.assertEqual(
+            expected_binding_types("production", empty)["OPERATOR_KEY"], "secret_text"
+        )
+        for bindings in (
+            [{"name": "OPERATOR_KEY", "type": "plain_text"}],
+            operator["resources"]["bindings"] * 2,
+        ):
+            with self.assertRaisesRegex(ValueError, "Unexpected existing QA"):
+                expected_binding_types("qa19", {"resources": {"bindings": bindings}})
+
     def test_existing_version_verification_reads_trusted_old_main_without_activation(
         self,
     ):

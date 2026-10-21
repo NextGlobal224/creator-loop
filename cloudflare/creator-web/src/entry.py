@@ -42,7 +42,8 @@ from workers import (
 )
 
 MAX_BODY = 16 * 1024 * 1024
-MAX_MEDIA_TOTAL = 8 * 1024 * 1024
+MAX_MEDIA_TOTAL = 10 * 1024 * 1024
+MAX_MEDIA_OBJECTS = 512
 PRESERVATION_CHUNK = 512 * 1024
 PRESERVATION_MAX = 64 * 1024 * 1024
 PRESERVATION_RESTORE_MAX = 88 * 1024 * 1024
@@ -318,12 +319,17 @@ class Database(DurableObject):
             if self.object_bytes(expected) != raw:
                 raise ValueError("Immutable object replacement refused")
             return
-        total = self.rows("SELECT COALESCE(SUM(size),0) AS size FROM objects")[0][
-            "size"
-        ]
+        usage = self.rows(
+            "SELECT COALESCE(SUM(size),0) AS size,COUNT(*) AS count FROM objects"
+        )[0]
+        total = usage["size"]
+        if usage["count"] >= MAX_MEDIA_OBJECTS:
+            raise WebInputError(
+                "Kho media beta đã đạt 512 đối tượng; xuất backup, không tự xóa dữ liệu."
+            )
         if total + len(raw) > MAX_MEDIA_TOTAL:
             raise WebInputError(
-                "Kho media beta đã đạt giới hạn tổng 8 MiB. Xuất backup; không tự xóa dữ liệu hoặc nâng gói."
+                "Kho media beta đã đạt giới hạn tổng 10 MiB. Xuất backup; không tự xóa dữ liệu hoặc nâng gói."
             )
         self.sql.exec("INSERT INTO objects VALUES(?,?)", expected, len(raw))
         for position, offset in enumerate(range(0, len(raw), 48000)):
@@ -366,6 +372,178 @@ class Database(DurableObject):
         )
         if len(changed) != 1:
             raise RuntimeError("Concurrent durable revision changed")
+
+    def import_preserved_b(self, root, revision, data):
+        """Operator append, guarded by exact preimage backup/revision and receipts.
+
+        Source lineage is operator supplied and must be independently reconciled
+        against the verified cloud archive. Hash syntax is not archive proof.
+        No existing row is replaced; this method cannot grant AI or publication.
+        """
+        from creator_loop.backend.runtime.cloud_import import append_preserved_b_rows
+
+        if (
+            set(data)
+            != {
+                "format",
+                "expected_revision",
+                "expected_checkpoint_sha256",
+                "backup_id",
+                "source_archive_sha256",
+                "source_database_sha256",
+                "source_schema_version",
+                "source_cloud_receipt_sha256",
+                "source_rows_sha256",
+                "tables",
+                "objects",
+            }
+            or data["format"] != "B_CLOUD_IMPORT_V1"
+        ):
+            raise WebInputError("Gói migration B không tương thích; chưa nhập dữ liệu.")
+        for field in (
+            "expected_checkpoint_sha256",
+            "source_archive_sha256",
+            "source_database_sha256",
+            "source_cloud_receipt_sha256",
+            "source_rows_sha256",
+        ):
+            if not isinstance(data[field], str) or not re.fullmatch(
+                "[a-f0-9]{64}", data[field]
+            ):
+                raise WebInputError("Thiếu định danh manifest migration B.")
+        if type(data["source_schema_version"]) is not int or data[
+            "source_schema_version"
+        ] not in (9, 10):
+            raise WebInputError("Migration chỉ hỗ trợ schema nguồn 9 hoặc 10.")
+        checkpoint = self.rows("SELECT * FROM checkpoint WHERE id=1")
+        if (
+            type(data["expected_revision"]) is not int
+            or data["expected_revision"] != revision
+            or len(checkpoint) != 1
+            or checkpoint[0]["revision"] != revision
+            or checkpoint[0]["sha256"] != data["expected_checkpoint_sha256"]
+        ):
+            raise WebInputError(
+                "Revision cloud đã đổi; đọc lại và đối chiếu trước khi nhập.", 409
+            )
+        if self.rows("SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"):
+            raise WebInputError("Chờ tác vụ cloud kết thúc trước migration.", 409)
+        if not isinstance(data["backup_id"], str) or not re.fullmatch(
+            "[a-f0-9]{32}", data["backup_id"]
+        ):
+            raise WebInputError("Cần backup cloud đúng revision trước migration.")
+        backups = self.rows("SELECT record FROM backups WHERE id=?", data["backup_id"])
+        if not backups:
+            raise WebInputError("Chưa có backup cloud được chỉ định.", 409)
+        backup = json.loads(backups[0]["record"])
+        if backup.get("checkpoint") != checkpoint:
+            raise WebInputError(
+                "Backup không khớp checkpoint hiện tại; chưa nhập dữ liệu.", 409
+            )
+
+        tables = data["tables"]
+        if (
+            not isinstance(tables, dict)
+            or digest(
+                json.dumps(
+                    tables,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode()
+            )
+            != data["source_rows_sha256"]
+        ):
+            raise WebInputError("Hash tập hàng nguồn không khớp manifest migration.")
+        tables = {name: [dict(row) for row in rows] for name, rows in tables.items()}
+        expected = {}
+        original_hashes = set()
+        locators = []
+        for row in tables.get("asset_files", []):
+            sha, size = row.get("sha256"), row.get("byte_size")
+            if (
+                not isinstance(sha, str)
+                or not re.fullmatch("[a-f0-9]{64}", sha)
+                or type(size) is not int
+                or not 0 < size <= 8 * 1024 * 1024
+                or sha in expected
+                and expected[sha] != size
+            ):
+                raise WebInputError(
+                    "Định danh hoặc kích thước media nguồn không hợp lệ."
+                )
+            expected[sha] = size
+            if row.get("role") == "ORIGINAL":
+                key = "storage/originals/" + sha
+                locators.append(
+                    {
+                        "file_id": row["file_id"],
+                        "source_storage_key": row["storage_key"],
+                        "target_storage_key": key,
+                        "sha256": sha,
+                    }
+                )
+                row["storage_key"] = key
+                original_hashes.add(sha)
+        objects = data["objects"]
+        if not isinstance(objects, list) or any(
+            not isinstance(o, dict) for o in objects
+        ):
+            raise WebInputError("Thiếu danh sách media migration.")
+        hashes = [o.get("sha256") for o in objects]
+        if len(hashes) != len(set(hashes)) or set(hashes) != set(expected):
+            raise WebInputError(
+                "Tập media phải khớp đầy đủ Asset File, không trùng hoặc thiếu."
+            )
+        for obj in objects:
+            if (
+                set(obj) != {"sha256", "size", "content_base64"}
+                or obj["size"] != expected[obj["sha256"]]
+            ):
+                raise WebInputError("Manifest media migration không khớp.")
+            raw = base64.b64decode(obj["content_base64"], validate=True)
+            if len(raw) != obj["size"] or digest(raw) != obj["sha256"]:
+                raise WebInputError("Byte media không khớp SHA-256; đã hủy migration.")
+            self.put_object(obj["sha256"], raw)
+            if obj["sha256"] in original_hashes:
+                destination = root / "storage/originals" / obj["sha256"]
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if destination.exists() and destination.read_bytes() != raw:
+                    raise WebInputError("Original cloud khác byte migration.", 409)
+                if not destination.exists():
+                    destination.write_bytes(raw)
+        with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+            db.execute("BEGIN IMMEDIATE")
+            result = append_preserved_b_rows(db, tables)
+            db.commit()
+        return {
+            "format": "B_CLOUD_IMPORT_RESULT_V1",
+            **result,
+            "source_archive_sha256": data["source_archive_sha256"],
+            "source_database_sha256": data["source_database_sha256"],
+            "source_cloud_receipt_sha256": data["source_cloud_receipt_sha256"],
+            "source_rows_sha256": data["source_rows_sha256"],
+            "source_lineage": "operator manifest reconciled out of band, not inferred from hash syntax",
+            "backup_id": data["backup_id"],
+            "locator_mapping": locators,
+            "historical_render_media_operational": False,
+            "historical_render_archive_mapping": [
+                {
+                    "render_run_id": row["render_run_id"],
+                    "source_storage_key": row["storage_key"],
+                    "sha256": row["sha256"],
+                    "bytes": row["byte_size"],
+                    "source_archive_sha256": data["source_archive_sha256"],
+                    "archive_member": "media/" + row["sha256"],
+                    "availability": "private canonical archive; operator must verify manifest",
+                }
+                for row in tables.get("draft_render_outputs", [])
+            ],
+            "existing_rows_replaced": False,
+            "runtime_executed": False,
+            "publication_approval_created": False,
+        }
 
     def authenticated(self, request):
         cookie = request.headers.get("Cookie") or ""
@@ -670,6 +848,30 @@ class Database(DurableObject):
             )
 
     async def authorized(self, request, path, method, data):
+        if path == "/api/import" or path.startswith("/api/imports/"):
+            secret = getattr(self.env, "OPERATOR_KEY", "")
+            if not secret or not hmac.compare_digest(
+                request.headers.get("X-Operator-Key") or "", secret
+            ):
+                return reply({"error": "Operator verification required"}, 403)
+            if path.startswith("/api/imports/"):
+                key = path.removeprefix("/api/imports/")
+                if method != "GET" or not re.fullmatch("[a-f0-9]{32}", key):
+                    return reply({"error": "Invalid migration receipt request"}, 400)
+                found = self.rows("SELECT response FROM receipts WHERE id=?", key)
+                receipt = json.loads(found[0]["response"]) if found else {}
+                if receipt.get("format") != "B_CLOUD_IMPORT_RESULT_V1":
+                    return reply(
+                        {
+                            "error": "Migration not recorded; inspect the same request before resubmitting"
+                        },
+                        404,
+                    )
+                if receipt.get("restored_away"):
+                    return reply(
+                        {"error": "Migration belongs to a state before restore"}, 409
+                    )
+                return reply(receipt)
         if path == "/api/preservation" or path.startswith("/api/preservation/"):
             secret = getattr(self.env, "OPERATOR_KEY", "")
             if not secret or not hmac.compare_digest(
@@ -963,7 +1165,9 @@ class Database(DurableObject):
                 return reply(receipt)
 
             def mutate():
-                if path == "/api/projects":
+                if path == "/api/import":
+                    result = self.import_preserved_b(root, revision, data)
+                elif path == "/api/projects":
                     result = domain.project(data.get("title", ""))
                 elif path == "/api/materials":
                     if not data.get("project_id"):
