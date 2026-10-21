@@ -14,6 +14,7 @@ from scripts.b_web_cloud_deploy import (
     REPO,
     activate_once,
     compatible_bindings,
+    observe_activated_runtime,
     read_json,
     runtime_files,
     static_header_policy,
@@ -24,6 +25,46 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_propagation_reads_are_bounded_and_never_mask_changed_deployment(self):
+        app = MagicMock(
+            side_effect=[
+                {"deployment": "old", "model": MODEL},
+                {"deployment": "candidate", "model": MODEL},
+            ]
+        )
+        sleeper = MagicMock()
+        observed = observe_activated_runtime(
+            app, lambda: "candidate", "candidate", sleep=sleeper
+        )
+        self.assertEqual(observed["deployment"], "candidate")
+        sleeper.assert_called_once_with(8)
+        app = MagicMock(return_value={"deployment": "old", "model": MODEL})
+        sleeper.reset_mock()
+        with self.assertRaisesRegex(ValueError, "not confirmed"):
+            observe_activated_runtime(
+                app, lambda: "candidate", "candidate", sleep=sleeper
+            )
+        self.assertEqual(app.call_count, 8)
+        self.assertEqual(sleeper.call_count, 7)
+        app.reset_mock()
+        with self.assertRaisesRegex(ValueError, "Deployment changed"):
+            observe_activated_runtime(app, lambda: "other", "candidate", sleep=sleeper)
+        app.assert_not_called()
+        for failure in (RuntimeError("HTTP403"),):
+            app = MagicMock(side_effect=failure)
+            with self.assertRaisesRegex(RuntimeError, "HTTP403"):
+                observe_activated_runtime(
+                    app, lambda: "candidate", "candidate", sleep=sleeper
+                )
+            self.assertEqual(app.call_count, 1)
+        with self.assertRaisesRegex(ValueError, "model differs"):
+            observe_activated_runtime(
+                lambda _: {"deployment": "candidate", "model": "changed"},
+                lambda: "candidate",
+                "candidate",
+                sleep=sleeper,
+            )
+
     def test_https_client_identifies_application_and_preserves_same_origin_json(self):
         origin = "https://qa.invalid"
         response = MagicMock()
