@@ -11,6 +11,7 @@ import unittest
 import zipfile
 from contextlib import closing
 from pathlib import Path
+from unittest.mock import patch
 
 from creator_loop.backend.runtime.database import _connect_write, initialize
 from creator_loop.backend.runtime.migration_preservation import (
@@ -74,6 +75,63 @@ create_workspace_marker(root,work,'creator-workers/fixture',kind='CREATOR_LLM_WO
 
     def archive(self):
         return create_preservation_archive(self.root, timeout_seconds=30)
+
+    def test_creator_parent_and_child_extra_proof_is_preservation_only(self):
+        from creator_loop.backend.runtime import creator_backup_runtime as guard
+
+        # Produce real bound parent/child records in this fixture, both exited.
+        self.workspace = self.root / "runtime" / ("creator-workers-" + "b" * 32)
+        self.workspace.mkdir()
+        code = """import sys,json
+from pathlib import Path
+from creator_loop.backend.runtime.runtime_ownership import create_workspace_marker
+from creator_loop.backend.runtime.owned_process import OwnedWindowsProcess
+root=Path(sys.argv[1]);work=Path(sys.argv[2])
+create_workspace_marker(root,work,'creator-workers/fixture',kind='CREATOR_LLM_WORKSPACE')
+def record(value): (work/'child-ownership.json').write_text(json.dumps(value),encoding='utf-8')
+with OwnedWindowsProcess(Path(sys.executable),['-c','pass'],work/'process',component_version='creator-workers/fixture',before_resume=record) as child:
+ child.wait(5)
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(self.root), str(self.workspace)],
+            env={
+                **os.environ,
+                "PYTHONPATH": str(Path(__file__).resolve().parents[2] / "app"),
+            },
+            capture_output=True,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        error = PermissionError("native handle unavailable")
+        error.winerror = 5
+        with (
+            patch.object(guard, "_identity_dead", side_effect=error),
+            patch.object(
+                guard,
+                "preservation_identity_dead",
+                wraps=guard.preservation_identity_dead,
+            ) as extra,
+        ):
+            with self.assertRaises(PermissionError):
+                create_update_backup(self.root)
+            extra.assert_not_called()
+            path = self.archive()
+            extra.assert_any_call(
+                json.loads((self.workspace / "ownership.json").read_text("utf-8"))[
+                    "parent"
+                ]
+            )
+            extra.assert_any_call(
+                json.loads((self.workspace / "child-ownership.json").read_text("utf-8"))
+            )
+            with path.open("rb") as stream:
+                proof = verify_preservation_archive(
+                    stream, self.root.parent / "creator isolated"
+                )
+            self.assertTrue(proof["all_archive_bytes_verified"])
+        with patch.object(guard, "preservation_identity_dead", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "verified dead"):
+                self.archive()
 
     def historical_workspace(self, family, *, root=None):
         root = root or self.root
