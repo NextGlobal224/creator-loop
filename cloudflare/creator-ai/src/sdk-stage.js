@@ -3,6 +3,14 @@ import {createWorkersAI} from "workers-ai-provider";
 
 export const SDK_COMPONENT = "workers-ai-provider@4.0.0/ai@7.0.142";
 
+// Windows keeps its existing bound. Web's four alarm-owned stages may wait
+// 120s each, within the existing 600s job lease; never retry on expiry.
+export function stageDeadline(env){
+  const value=env.CREATOR_STAGE_TIMEOUT_MS??85000;
+  if(value!==85000&&value!==120000)throw new Error('Invalid bounded stage deadline');
+  return value;
+}
+
 // The native binding may ignore the SDK's abort signal. Bound our wait too;
 // this does not promise cancellation of already submitted remote inference.
 async function abortableBinding(invoke, signal) {

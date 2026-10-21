@@ -22,7 +22,7 @@ function sourceObservations(catalog){
   return [{type:'object',properties:{material_id:{const:q.material_id},quote:{const:q.source_quote},observation:{const:q.source_quote}},required:['material_id','quote','observation'],additionalProperties:false}];
  });
 }
-function validateExtractive(analysis,catalog){
+function validateExtractive(analysis,catalog,manualDirection){
  if(analysis.observations.length>40)throw Error('Source observation count exceeds domain contract');
  const eligible=new Set(factualQuoteIds(catalog).map(id=>JSON.stringify([catalog[id].material_id,catalog[id].source_quote]))),seen=new Set();
  for(const o of analysis.observations){
@@ -30,7 +30,8 @@ function validateExtractive(analysis,catalog){
   if(o.observation!==o.quote||!eligible.has(key)||seen.has(key))throw Error('Extractive source observation required');
   seen.add(key);
  }
- if(analysis.direction.length>1200)throw Error('Editorial plan exceeds declared bound');
+ if(Array.from(analysis.direction).length>(manualDirection===null?1200:2000))throw Error('Editorial plan exceeds declared bound');
+ if(manualDirection!==null&&analysis.direction!==manualDirection)throw Error('Manual direction must preserve the user selection');
 }
 function finalChannelDiagnostic(result){
  const content=result?.choices?.[0]?.message?.content;
@@ -138,6 +139,8 @@ export function validateCoverage(receipt,hash,fields,catalog){
 }
 export async function analysisProfile(packet){
  const source=JSON.parse(packet.writing_prompt.slice(packet.writing_prompt.indexOf('\n{')+1));
+ const manualDirection=packet.mode==='MANUAL'?source.direction:null;
+ if(manualDirection!==null&&(typeof manualDirection!=='string'||!manualDirection.trim()||Array.from(manualDirection).length>2000))throw Error('Invalid selected manual direction');
  const catalog=quoteCatalog(source.materials);
  if(!catalog.length)throw Error('Missing analysis source catalog');
  const analysis=packet.previous?.[0]?.value;
@@ -160,14 +163,16 @@ export async function analysisProfile(packet){
     const observations=sourceObservations(catalog);
     if(!observations.length)throw Error('No factual source observations available');
     schema.properties.observations={type:'array',minItems:1,maxItems:Math.min(40,observations.length),items:{oneOf:observations}};
-    if(schema.properties.direction)schema.properties.direction.maxLength=1200;
+    if(schema.properties.direction)schema.properties.direction.maxLength=manualDirection===null?1200:2000;
+    if(manualDirection!==null)schema.properties.direction.const=manualDirection;
     schema.properties.inferences.items={type:'string',pattern:'^Giả thuyết chưa xác nhận: .+$',minLength:label.length+2};
     schema.properties.inferences.description='Có thể để []. Nếu cần, nêu giả thuyết biên tập còn chưa kiểm chứng, dựa trên điều nguồn thực sự cung cấp. Phân biệt kết luận giả thuyết với tiền đề factual: nhãn chưa xác nhận không hợp thức hóa công cụ, khả năng áp dụng hay khuyến nghị tổ chức bị bịa.';
     if(schema.properties.direction)schema.properties.direction.description='KẾ HOẠCH NỘI DUNG cho người viết: góc tiếp cận và đóng góp khác nhau của các phần, phù hợp Project/mode/format/direction đã chọn. Không biến thành quy trình kiểm chứng cho độc giả, không yêu cầu dùng công cụ ngoài snapshot, số lượng nguồn tối thiểu hoặc hứa kết quả. Giữ đúng yêu cầu factual/no-fiction nếu có.';
     native.messages[0].content=analysisInstructions+' observations là sổ trích nguồn: chọn các câu nguồn liên quan, giữ observation bằng nguyên văn quote đúng schema, không thêm diễn giải. Chọn đủ dữ kiện và giới hạn quan trọng cho brief, không coi trích dẫn là toàn bộ nguồn hay sự tán thành. Phần diễn giải chỉ nằm trong direction/inferences với audit tiền đề riêng. Direction là kế hoạch ngắn tối đa 1200 ký tự, nêu đóng góp khác nhau của các phần; không phải bài viết hoặc các bước kiểm chứng. Không gộp đóng góp của hai nguồn thành một lời quy kết: nguồn nào nêu công cụ, nguồn nào nêu giới hạn phải tách đúng snapshot; không suy chi tiết từ URL chưa đọc. Có thể lập kế hoạch không quy kết tổ chức, để dữ kiện ở observations. Use inferences:[] when no substantive inference is needed.';
+    if(manualDirection!==null)native.messages[0].content+=' MANUAL override: direction is the already selected user brief, not a new model plan. Return that exact schema const unchanged (up to 2000 Unicode characters); do not add steps, source claims or metadata comparisons. Its presence is NOT proof of source support: observations, article and immutable analysis audit retain all source checks.';
     bindPromptSchema(native,schema,packet.stage);
    }
-   if(packet.stage==='analysis'&&projectPolicy(source).fictionalOpening)native.messages[0].content+=' For this specifically commissioned screenshot-sharing Project, propose a concrete fictional information gap and voluntary request for source/context instead of inventing a verification procedure.';
+   if(packet.stage==='analysis'&&manualDirection===null&&projectPolicy(source).fictionalOpening)native.messages[0].content+=' For this specifically commissioned screenshot-sharing Project, propose a concrete fictional information gap and voluntary request for source/context instead of inventing a verification procedure.';
    if(packet.stage==='writing')native.messages[0].content+=' The generated analysis direction is NOT evidence or a mandatory procedure. Omit any tool applicability, institutional recommendation or promised result it invents. A source fact that a handbook contains tools does not support telling this reader to use those tools for a quick check on a phone. Keep external source facts separate from voluntary requests for missing context; use natural Vietnamese rather than repeating an English question list and its translation. When continuing a commissioned fictional scene later in the article, explicitly refer to that hypothetical scene, not an observed real event. Develop connected distinct ideas instead of one-line source summaries or repeating a request for missing information before the actual closing message.';
    if(packet.stage==='writing'&&packet.format==='TEXT')compactStagePrompt(native,'writing');
    if(packet.stage==='writing'&&packet.format==='TEXT')native.messages[0].content+=' The extractive observation rule applies ONLY to the analysis ledger, not to article prose. Compose an actual article for the explicit user purpose and chosen direction: frame that subject in the opening and connect each relevant supported idea to it. Paraphrase naturally within each exact excerpt scope; source_quote_id and premise_checks retain provenance even when public wording changes. Do not merely concatenate observation sentences or lead with irrelevant publication metadata. Exact names, dates and necessary quotations may remain exact; novelty is not permission to add facts. A factual/no-fiction brief permits source-grounded explanation and voluntary questions, not an invented event. Write the requested closing itself in clear Vietnamese, not a description of asking someone for transparency.';
@@ -198,7 +203,7 @@ export async function analysisProfile(packet){
    diagnostic={response_received:!!result,response_channel:typeof result?.choices?.[0]?.message?.content==='string'?'choices':Object.hasOwn(result??{},'response')?'response':'unknown',validation:'NOT_REQUIRED',...finalChannelDiagnostic(result)};
    try{
    if(packet.stage==='analysis'){
-    const {value}=nativeJSON(result);rejectedJSON=value;validateAnalysis(value,source.materials);validateExtractive(value,catalog);
+    const {value}=nativeJSON(result);rejectedJSON=value;validateAnalysis(value,source.materials);validateExtractive(value,catalog,manualDirection);
    }
    if(packet.stage==='source_audit'){
     const {value,replace}=nativeJSON(result);

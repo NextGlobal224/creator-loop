@@ -62,6 +62,24 @@ wakeups after a browser closes; ephemeral Worker filesystem projections are not
 Windows data. Login/operator secrets remain Cloudflare bindings; entering the
 operator credential on Web does not require a local credential file.
 
+For MANUAL requests the analysis direction is the exact user-selected brief,
+not a second model-generated plan. Native schema const and runtime identity
+checks reject changes; the existing 2000 Unicode-character input bound remains.
+This does not certify the brief's factual premises: immutable analysis and
+article audits still check every source claim. AUTOMATIC retains generated
+plans and its existing 1200-character bound.
+
+Web explicitly allows 120 seconds per native stage, within its existing
+600-second job lease (four stages, at most 480 seconds of inference waits).
+Windows keeps the existing 85-second default. These are client wait bounds,
+not guarantees of provider cancellation or completion. There is no automatic
+retry. Missing native usage after abort remains unresolved; envelope RECEIVED
+alone is not a native inference receipt, and reservations are not refunded.
+The actual a616 TEXT run failed at editing after the old 85-second bound;
+analysis/writing also contain unsupported development. Its original output,
+missing editing receipt and FAIL history must remain. Offline rejection tests
+do not establish improved live output quality or qualify the beta.
+
 Named manual cloud backups pin the committed DB image and immutable object
 manifest in the same DO. At most three snapshots are retained, with no silent
 deletion; referenced media are never garbage-collected. Download reconstructs

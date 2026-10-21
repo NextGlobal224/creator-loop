@@ -997,6 +997,7 @@ class Database(DurableObject):
                     "stage": stage,
                     "previous": previous,
                     "format": creator.output_format,
+                    "mode": creator.mode,
                 }
                 encoded = json.dumps(packet, ensure_ascii=False)
                 if len(encoded.encode()) > 64 * 1024:
