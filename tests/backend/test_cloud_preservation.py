@@ -75,8 +75,12 @@ class CloudPreservationTests(unittest.TestCase):
         self.ns = load_api()
         isolated = tempfile.TemporaryDirectory(prefix="cloud-archive-fixture-")
         self.addCleanup(isolated.cleanup)
+        # Hosted Windows TEMP can use an 8.3 parent alias. Native restore
+        # leases deliberately require the canonical path, as the native
+        # preservation fixtures do; do not relax that production guard.
+        isolated_root = Path(isolated.name).resolve(strict=True)
         self.ns["Path"] = lambda value: (
-            Path(isolated.name) if value == "/tmp" else Path(value)
+            isolated_root if value == "/tmp" else Path(value)
         )
         self.db = sqlite3.connect(":memory:")
         self.addCleanup(self.db.close)
