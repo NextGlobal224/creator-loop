@@ -24,6 +24,18 @@ test('actual SDK extraction selects source facts across all Draft formats with m
   assert.equal(calls,1);assert.equal(result.ok,true,JSON.stringify(result));assert.deepEqual(result.stage_result.value,value);
  }
 });
+
+test('actual Web bridge passes MANUAL selection into the profile without changing the Windows body protocol',async()=>{
+ for(const format of ['TEXT','IMAGE_CAPTION']){
+  const p={...packet(format),mode:'MANUAL'},selected=JSON.parse(p.writing_prompt.slice(p.writing_prompt.indexOf('\n{')+1)).direction;
+  let calls=0;
+  const result=JSON.parse(await stage({run:async(_,native)=>{
+   calls++;assert.equal(native.response_format.json_schema.properties.direction.const,selected);
+   return {choices:[{finish_reason:'stop',message:{content:JSON.stringify({...value,direction:selected})}}],usage:{}};
+  }},'@cf/openai/gpt-oss-120b',JSON.stringify(p),'fixture'));
+  assert.equal(calls,1);assert.equal(result.ok,true,JSON.stringify(result));assert.equal(result.stage_result.value.direction,selected);
+ }
+});
 test('ignored native constraints cannot add interpretation, metadata, duplicate observations or oversized plan',async()=>{
  for(const mutate of [v=>v.observations[0].observation+=' nên có hiệu quả',v=>v.observations[0]={material_id:'m',quote:'Source: Example',observation:'Source: Example'},v=>v.observations.push({...v.observations[0]}),v=>v.direction='x'.repeat(1201)]){
   const v=structuredClone(value);mutate(v);

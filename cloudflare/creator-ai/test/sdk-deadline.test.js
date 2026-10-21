@@ -1,9 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {generateStage} from '../src/sdk-stage.js';
+import {generateStage,stageDeadline} from '../src/sdk-stage.js';
 import {safeFailure} from '../src/quality.js';
 
 const settings={instructions:'Offline signal boundary',input:'Fixture only',schema:{type:'object',properties:{ok:{type:'boolean'}},required:['ok'],additionalProperties:false},budget:20,temperature:0};
+test('Web can use the explicit bounded alarm deadline while Windows keeps its default',()=>{
+  assert.equal(stageDeadline({}),85000);
+  assert.equal(stageDeadline({CREATOR_STAGE_TIMEOUT_MS:120000}),120000);
+  for(const value of [0,120001,Infinity,'120000'])assert.throws(()=>stageDeadline({CREATOR_STAGE_TIMEOUT_MS:value}),/bounded stage deadline/);
+});
 async function bounded(promise){
   let timer;
   try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Abort did not settle a non-cooperative binding')),1000);})]);}

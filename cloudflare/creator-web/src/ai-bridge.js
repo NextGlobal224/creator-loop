@@ -11,10 +11,10 @@ export async function stage(binding, model, packetJson, version) {
   const packet=JSON.parse(packetJson);let calls=0,nativeUsage=null;
   const profile=await analysisProfile(packet);
   const counted={async run(...args){if(++calls>1)throw Error("One model call per declared stage");return profile.run({run:async(...nativeArgs)=>{const result=await binding.run(...nativeArgs);nativeUsage=result?.usage??null;return result;}},...args);}};
-  const env={AI:counted,CREATOR_MODEL:model,CREATOR_VERSION:{id:version},CREATOR_KEY:"internal-ffi-only"};
+  const env={AI:counted,CREATOR_MODEL:model,CREATOR_VERSION:{id:version},CREATOR_KEY:"internal-ffi-only",CREATOR_STAGE_TIMEOUT_MS:120000};
   let envelope;
   if(packet.format==="TEXT"){
-    const {format,...body}=packet;
+    const {format,mode,...body}=packet;
     const response=await nativeTextWorker.fetch(new Request("https://internal.invalid/b/generate",{
       method:"POST",headers:{"content-type":"application/json",authorization:"Bearer internal-ffi-only"},body:JSON.stringify(body),
     }),env);
