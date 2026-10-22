@@ -16,3 +16,7 @@ test('source review offers only latest versions but leaves source history intact
  assert.deepEqual(currentEvidence(versions).map(v=>v.content),['new','other']);
  assert.equal(versions[2].content,'old');assert.equal(versions.length,3);
 });
+test('timed source selection follows original time, not random Evidence IDs',()=>{
+ const v=(id,no,start,content)=>({evidence_id:id,version_no:no,locator_type:'TIME_RANGE',locator_data:JSON.stringify({start_ms:start,end_ms:start+100,track:'audio'}),content});
+ assert.deepEqual(currentEvidence([v('a',1,1000,'late'),v('b',1,0,'old'),v('b',2,200,'corrected')]).map(v=>v.content),['corrected','late']);
+});
