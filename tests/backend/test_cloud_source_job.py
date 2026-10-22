@@ -17,6 +17,11 @@ from creator_loop.backend.knowledge.cloud_audio import (
     probe_pcm_wav,
     store_cloud_transcript,
 )
+from creator_loop.backend.knowledge.cloud_image import (
+    IMAGE_MODEL,
+    probe_image,
+    store_cloud_image,
+)
 from creator_loop.backend.runtime.database import _connect_write
 
 from tests.backend import test_cloud_import_api
@@ -32,6 +37,9 @@ class CloudSourceJobTests(unittest.TestCase):
         namespace = self.api.authorized.__func__.__globals__
         namespace.update(
             WHISPER_MODEL=WHISPER_MODEL,
+            IMAGE_MODEL=IMAGE_MODEL,
+            probe_image=probe_image,
+            store_cloud_image=store_cloud_image,
             probe_pcm_wav=probe_pcm_wav,
             store_cloud_transcript=store_cloud_transcript,
             python_to_rpc=lambda value: value,
@@ -42,7 +50,7 @@ class CloudSourceJobTests(unittest.TestCase):
             Path(__file__).resolve().parents[2] / "cloudflare/creator-web/src/entry.py"
         )
         tree = ast.parse(source.read_text("utf8"))
-        names = {"alarm", "transcribe_source", "save_job", "sync_run"}
+        names = {"alarm", "extract_source", "save_job", "sync_run"}
         for node in tree.body:
             if (
                 isinstance(node, ast.FunctionDef)
@@ -160,7 +168,7 @@ class CloudSourceJobTests(unittest.TestCase):
         )
 
     def test_missing_grant_and_wrong_project_never_enqueue_or_call(self):
-        with self.assertRaisesRegex(WebInputError, "operator ASR"):
+        with self.assertRaisesRegex(WebInputError, "operator đọc nguồn"):
             self.enqueue()
         self.grant()
         other = self.fixture.call(

@@ -19,6 +19,10 @@ from creator_loop.backend.knowledge.cloud_audio import (
     correct_cloud_audio_range,
     prepare_cloud_transcription,
 )
+from creator_loop.backend.knowledge.cloud_image import (
+    correct_cloud_image,
+    prepare_cloud_image,
+)
 from creator_loop.backend.knowledge.evidence_correction import correct_text_evidence
 from creator_loop.backend.knowledge.evidence_review import current_evidence_review
 from creator_loop.backend.knowledge.source_use import (
@@ -296,6 +300,46 @@ class WebDomain:
                 raise WebInputError(str(error)) from None
         # Audio bytes are transient; never store a base64 copy in a job row.
         return {k: v for k, v in packet.items() if k != "audio"}
+
+    def begin_source_image(
+        self, data: dict[str, Any], run_id: str, version: str
+    ) -> dict[str, Any]:
+        project, file = data.get("project_id", ""), data.get("file_id", "")
+        self._project_original(project, file)
+        with closing(_connect_write(self.path)) as db:
+            try:
+                packet = prepare_cloud_image(
+                    db,
+                    data_root=self.root,
+                    file_id=file,
+                    run_id=run_id,
+                    version=version,
+                )
+            except ValueError as error:
+                raise WebInputError(str(error)) from None
+        return {k: v for k, v in packet.items() if k != "image"}
+
+    def source_image_region(self, data: dict[str, Any]) -> dict[str, Any]:
+        project, file = data.get("project_id", ""), data.get("file_id", "")
+        if self._project_original(project, file)["media_type"] != "IMAGE":
+            raise WebInputError("Chọn nguồn ảnh để đối chiếu vùng ảnh.")
+        with closing(_connect_write(self.path)) as db:
+            row = db.execute(
+                "SELECT anchor_file_id FROM evidence_versions WHERE evidence_version_id=?",
+                (data.get("evidence_version_id", ""),),
+            ).fetchone()
+            if row is None or row[0] != file:
+                raise WebInputError("Vùng đang sửa không thuộc nguồn ảnh này.")
+            version = correct_cloud_image(
+                db,
+                data_root=self.root,
+                evidence_version_id=data["evidence_version_id"],
+                region=data.get("region", {}),
+                content=data.get("content", ""),
+                actor="WEB_CLIENT",
+                reason=data.get("reason", ""),
+            )
+        return {"evidence_version_id": version, "review_state": "PENDING"}
 
     def source_use(self, data: dict[str, Any]) -> dict[str, Any]:
         project_id, file_id = data.get("project_id", ""), data.get("file_id", "")

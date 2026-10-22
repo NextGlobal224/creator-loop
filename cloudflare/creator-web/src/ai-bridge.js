@@ -3,6 +3,7 @@ import {formatStage} from "./format-stages.js";
 import {SDK_COMPONENT} from "../../creator-ai/src/sdk-stage.js";
 import {analysisProfile} from './analysis-audit.js';
 export {transcribeSource} from './source-audio.js';
+export {analyzeSourceImage} from './source-image.js';
 
 export function components(){return JSON.stringify({sdk:SDK_COMPONENT,formats:["TEXT","IMAGE_CAPTION","VIDEO"],protocol:"immutable-source-audit"});}
 
