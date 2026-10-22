@@ -23,7 +23,7 @@ export function mountSourceReview({api,getProject,afterChange,say,startSourceJob
   $('#source-audio').removeAttribute('src');$('#source-audio-save').disabled=true;
   if(data.media_type==='AUDIO')$('#source-audio').src='/media/'+encodeURIComponent(s.file);
   $('#source-start-ms').value='';$('#source-end-ms').value='';$('#source-transcript').value='';
-  $('#source-timed-status').textContent='Hiện nghe/sửa trên Web hỗ trợ PCM WAV tối đa 2 phút/8 MiB. Trích xuất cần quyền operator đúng model và quota/dự phòng trong gói. Chọn đoạn transcript để đối chiếu; upload không thay đọc nguồn.';
+  $('#source-timed-status').textContent='Hiện nghe/sửa trên Web hỗ trợ WAV PCM hoặc float32 tối đa 2 phút/8 MiB. Trích xuất cần quyền operator đúng model và quota/dự phòng trong gói. Chọn đoạn transcript để đối chiếu; upload không thay đọc nguồn.';
   const parsed=data.source_extraction?.parsed;
   $('#source-model-text').value=parsed?.text??'';
   const notes={OVERLAPPING_SEGMENT:'Đoạn chồng thời gian',FULL_TEXT_SEGMENT_MISMATCH:'Có nội dung chưa gắn khớp với đoạn thời gian',UNTRANSCRIBED_RANGES:'Có khoảng chưa trích xuất được',MISSING_AVG_LOGPROB:'Thiếu độ tin cậy lời nói',MISSING_NO_SPEECH_PROB:'Chưa có độ tin cậy về lời nói/im lặng',MISSING_COMPRESSION_RATIO:'Chưa có chỉ số kiểm tra lặp',SUSPECT_AVG_LOGPROB:'Lời nói có độ tin cậy thấp',SUSPECT_NO_SPEECH_PROB:'Có thể là khoảng không có lời nói',SUSPECT_COMPRESSION_RATIO:'Nội dung có thể lặp hoặc nhận sai'};

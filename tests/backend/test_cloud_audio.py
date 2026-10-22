@@ -1,8 +1,10 @@
 """Offline hostile protocol fixtures, not ASR/content/cloud acceptance."""
 
 import copy
+import hashlib
 import io
 import json
+import struct
 import tempfile
 import unittest
 import wave
@@ -34,6 +36,28 @@ def wav(seconds=2):
 
 
 class CloudAudioTests(unittest.TestCase):
+    def test_ieee_float32_original_is_bounded_without_transcoding(self):
+        fmt = struct.pack("<HHIIHHH", 3, 1, 16000, 64000, 4, 32, 0)
+        samples = struct.pack("<f", 0.25) * 16000
+        chunks = b"fmt " + struct.pack("<I", len(fmt)) + fmt
+        chunks += b"fact" + struct.pack("<II", 4, 16000)
+        chunks += b"data" + struct.pack("<I", len(samples)) + samples
+        raw = b"RIFF" + struct.pack("<I", len(chunks) + 4) + b"WAVE" + chunks
+        result = probe_pcm_wav(raw)
+        self.assertEqual(result.duration_ms, 1000)
+        self.assertEqual(result.sha256, hashlib.sha256(raw).hexdigest())
+        self.assertEqual((result.channels, result.sample_width), (1, 4))
+        invalid = []
+        for value in (float("nan"), float("inf"), 1.5):
+            invalid.append(raw[:-4] + struct.pack("<f", value))
+        invalid.append(raw[:46] + struct.pack("<I", 16001) + raw[50:])
+        invalid.append(raw[:36] + b"\x01\0" + raw[38:])
+        extra = raw[:38] + raw[38:50] + raw[38:]
+        invalid.append(extra[:4] + struct.pack("<I", len(extra) - 8) + extra[8:])
+        for value in invalid:
+            with self.subTest(size=len(value)), self.assertRaises(ValueError):
+                probe_pcm_wav(value)
+
     def setUp(self):
         self.raw = wav()
         self.probe = probe_pcm_wav(self.raw)

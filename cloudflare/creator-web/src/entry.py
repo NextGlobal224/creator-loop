@@ -1054,16 +1054,47 @@ class Database(DurableObject):
                     else:
                         mime = "audio/wav"
                         verified_pcm = True
-                return Response(
-                    raw,
-                    headers={
-                        **HEADERS,
-                        "Content-Type": mime,
-                        "Content-Disposition": "inline"
-                        if mime.startswith("image/") or verified_pcm
-                        else "attachment",
-                    },
-                )
+                headers = {
+                    **HEADERS,
+                    "Content-Type": mime,
+                    "Content-Disposition": "inline"
+                    if mime.startswith("image/") or verified_pcm
+                    else "attachment",
+                }
+                if verified_pcm:
+                    headers["Accept-Ranges"] = "bytes"
+                    headers["Content-Length"] = str(len(raw))
+                    value = request.headers.get("Range")
+                    if value is not None:
+                        match = (
+                            re.fullmatch(r"bytes=(\d*)-(\d*)", value)
+                            if len(value) <= 128
+                            else None
+                        )
+                        start, end = 0, len(raw) - 1
+                        valid = bool(match and any(match.groups()))
+                        if valid and match:
+                            first, last = match.groups()
+                            if first:
+                                start = int(first)
+                                if last:
+                                    end = min(int(last), end)
+                            else:
+                                suffix = int(last)
+                                valid = suffix > 0
+                                start = max(0, len(raw) - suffix)
+                            valid = valid and start <= end and start < len(raw)
+                        if not valid:
+                            headers["Content-Range"] = "bytes */" + str(len(raw))
+                            headers["Content-Length"] = "0"
+                            return Response(b"", status=416, headers=headers)
+                        body = raw[start : end + 1]
+                        headers["Content-Range"] = (
+                            f"bytes {start}-{end}/{len(raw)}"
+                        )
+                        headers["Content-Length"] = str(len(body))
+                        return Response(body, status=206, headers=headers)
+                return Response(raw, headers=headers)
             finally:
                 self.discard_projection(root)
         if path == "/api/backup" and method == "GET":
