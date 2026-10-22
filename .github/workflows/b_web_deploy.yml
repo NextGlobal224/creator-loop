@@ -81,5 +81,6 @@ jobs:
           path: |
             deploy-result.json
             deploy.log
+            included-resource-error.json
           if-no-files-found: ignore
           retention-days: 14
