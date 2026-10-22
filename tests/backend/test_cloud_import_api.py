@@ -279,6 +279,29 @@ class CloudImportAPITests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Media changed"):
             self.call(path="/media/" + file["file_id"])
 
+    def test_restore_receipt_read_is_operator_only_and_never_replays_mutation(self):
+        key = "f" * 32
+        route = "/api/restore-receipts/" + key
+        self.assertEqual(self.call(path=route, operator=False).status, 403)
+        self.assertEqual(self.call(path=route + "wrong").status, 400)
+        self.assertEqual(self.call({}, path=route).status, 400)
+        absent = self.call(path=route)
+        self.assertEqual(absent.status, 404)
+        self.assertFalse(absent.value["recorded"])
+        self.coord.execute(
+            "INSERT INTO receipts VALUES(?,?,?)", (key, "fixture", '{"revision":6}')
+        )
+        self.assertEqual(self.call(path=route).status, 404)  # Other operation identity.
+        self.coord.execute(
+            "INSERT INTO control VALUES(?,?)", ("pre-restore-" + key, "[]")
+        )
+        self.coord.commit()
+        before = self.coord.total_changes
+        found = self.call(path=route)
+        self.assertTrue(found.value["recorded"])
+        self.assertEqual(found.value["receipt"], {"revision": 6})
+        self.assertEqual(self.coord.total_changes, before)
+
     def test_import_reopen_receipt_and_same_request_do_not_duplicate_rows(self):
         result = self.call(copy.deepcopy(self.data))
         self.assertEqual(result.value["revision"], 6)

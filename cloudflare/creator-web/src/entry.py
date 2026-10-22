@@ -852,6 +852,28 @@ class Database(DurableObject):
             )
 
     async def authorized(self, request, path, method, data):
+        if path.startswith("/api/restore-receipts/"):
+            secret = getattr(self.env, "OPERATOR_KEY", "")
+            if not secret or not hmac.compare_digest(
+                request.headers.get("X-Operator-Key") or "", secret
+            ):
+                return reply({"error": "Operator verification required"}, 403)
+            key = path.removeprefix("/api/restore-receipts/")
+            if method != "GET" or not re.fullmatch("[a-f0-9]{32}", key):
+                return reply({"error": "Invalid restore receipt request"}, 400)
+            prior = self.rows("SELECT response FROM receipts WHERE id=?", key)
+            preimage = self.rows(
+                "SELECT 1 FROM control WHERE id=?", "pre-restore-" + key
+            )
+            if not prior or not preimage:
+                return reply({"recorded": False, "request_id": key}, 404)
+            return reply(
+                {
+                    "recorded": True,
+                    "request_id": key,
+                    "receipt": json.loads(prior[0]["response"]),
+                }
+            )
         if path in ("/api/import", "/api/schema-migrate") or path.startswith(
             ("/api/imports/", "/api/schema-migrations/")
         ):
