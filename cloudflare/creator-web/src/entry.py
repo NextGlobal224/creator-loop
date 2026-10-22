@@ -1475,6 +1475,47 @@ class Database(DurableObject):
                             409,
                         )
                     incoming = data.get("backup", {})
+                    if "schema_migration_id" in data:
+                        secret = getattr(self.env, "OPERATOR_KEY", "")
+                        if not secret or not hmac.compare_digest(
+                            request.headers.get("X-Operator-Key") or "", secret
+                        ):
+                            raise WebInputError("Operator verification required", 403)
+                        migration_id = data["schema_migration_id"]
+                        expected_hash = data.get("expected_backup_sha256")
+                        if (
+                            "backup" in data
+                            or not isinstance(migration_id, str)
+                            or not re.fullmatch("[a-f0-9]{32}", migration_id)
+                            or not isinstance(expected_hash, str)
+                            or not re.fullmatch("[a-f0-9]{64}", expected_hash)
+                        ):
+                            raise WebInputError("Tham chiếu backup cloud không hợp lệ.")
+                        pinned = self.rows(
+                            "SELECT record FROM control WHERE id=?",
+                            "pre-schema11-" + migration_id,
+                        )
+                        if not pinned:
+                            raise WebInputError("Không tìm thấy preimage migration.", 404)
+                        incoming = json.loads(pinned[0]["record"])
+                        if not isinstance(incoming, dict) or not isinstance(
+                            incoming.get("objects"), list
+                        ):
+                            raise WebInputError("Preimage thiếu manifest media.")
+                        for obj in incoming["objects"]:
+                            raw = self.object_bytes(obj["sha256"])
+                            if len(raw) != obj["size"] or digest(raw) != obj["sha256"]:
+                                raise WebInputError("Media preimage không khớp.")
+                            obj["content_base64"] = base64.b64encode(raw).decode()
+                        if digest(
+                            json.dumps(
+                                incoming,
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ).encode()
+                        ) != expected_hash:
+                            raise WebInputError("Checksum gói preimage không khớp.")
                     if (
                         not isinstance(incoming, dict)
                         or incoming.get("format") != "CREATOR_WEB_BACKUP_V1"

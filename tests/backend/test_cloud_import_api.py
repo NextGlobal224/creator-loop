@@ -534,9 +534,41 @@ class CloudImportAPITests(unittest.TestCase):
         self.assertEqual(self.call(path=pin_path, operator=False).status, 403)
         pinned = self.call(path=pin_path).value
         self.assertEqual(pinned, before)
+        reference = {
+            "schema_migration_id": "a" * 32,
+            "expected_backup_sha256": hashlib.sha256(
+                json.dumps(
+                    pinned, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                ).encode()
+            ).hexdigest(),
+            "expected_revision": 6,
+            "confirm_data_after_backup_may_be_lost": True,
+            "confirm_schema10_additive_upgrade": True,
+        }
+        reference["schema_migration_id"] = pin_path.split("/")[-2]
+        checkpoint = self.api.rows("SELECT * FROM checkpoint")
+        receipts = self.api.rows("SELECT * FROM receipts")
+        for invalid, message in (
+            ({**reference, "expected_backup_sha256": "0" * 64}, "Checksum"),
+            ({**reference, "schema_migration_id": "0" * 32}, "Không tìm"),
+            ({**reference, "backup": pinned}, "không hợp lệ"),
+        ):
+            with self.assertRaisesRegex(WebInputError, message):
+                self.call(invalid, key="3" * 32, path="/api/restore")
+            self.assertEqual(self.api.rows("SELECT * FROM checkpoint"), checkpoint)
+            self.assertEqual(self.api.rows("SELECT * FROM receipts"), receipts)
+        with self.assertRaisesRegex(WebInputError, "Operator"):
+            self.call(reference, key="3" * 32, path="/api/restore", operator=False)
+        self.assertLess(len(json.dumps(reference).encode()), 512)
+        restored = self.call(reference, key="3" * 32, path="/api/restore").value
+        self.assertTrue(restored["restored"])
+        self.assertEqual(
+            self.call(reference, key="3" * 32, path="/api/restore").value, restored
+        )
+        self.assertEqual(self.api.rows("SELECT * FROM backups"), old_slots)
         restore = {
             "backup": pinned,
-            "expected_revision": 6,
+            "expected_revision": 7,
             "confirm_data_after_backup_may_be_lost": True,
             "confirm_schema10_additive_upgrade": True,
         }
