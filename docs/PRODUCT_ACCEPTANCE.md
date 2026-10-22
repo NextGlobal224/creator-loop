@@ -1,5 +1,14 @@
 ## B_RELEASED — cổng đầu vào bắt buộc bổ sung 22/10/2026
 
+WIP ghi âm 22/10: parser transcript/time range, giữ nguyên phản hồi model và
+các cờ không chắc chắn; sửa lời nói/phạm vi tạo phiên bản HUMAN mới PENDING,
+không tự xác nhận nguồn hoặc factual/đăng. Web có nghe/sửa theo mili giây và
+kiểm Project/anchor/current version; player chỉ phát inline PCM WAV đã kiểm
+byte (tối đa 2 phút/8 MiB). Kiểm domain/API và trình duyệt cách ly đạt;
+chưa nối job ASR/usage trên Durable Object, chưa deploy hoặc nghiệm thu nguồn
+ghi âm thật. Video/ảnh và các cổng chất lượng AI vẫn chưa đạt. Không dùng
+WIP này để ghi B_RELEASED.
+
 WIP triển khai TEXT: giao diện mở bản gốc, chọn/sửa phạm vi `TEXT_RANGE`,
 chọn/bỏ/yêu cầu đối chiếu và xác nhận riêng theo Project. Lựa chọn lưu snapshot
 bất biến; không tạo Evidence ACCEPT hoặc duyệt đăng. Draft chỉ nhận phiên bản
