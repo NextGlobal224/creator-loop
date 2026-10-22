@@ -403,6 +403,76 @@ class CloudImportAPITests(unittest.TestCase):
             json.loads(self.api.rows("SELECT record FROM control")[0]["record"]), before
         )
 
+    def test_migration_preimage_is_recoverable_without_deleting_full_backup_slots(self):
+        legacy = self.root / "legacy-pin.sqlite3"
+        with (
+            patch.object(database, "MIGRATIONS", database.MIGRATIONS[:10]),
+            patch.object(database, "SCHEMA_VERSION", 10),
+            patch.object(
+                database,
+                "validate",
+                side_effect=lambda db: validate(db, expected_version=10),
+            ),
+        ):
+            initialize(legacy)
+        with closing(_connect_write(legacy)) as db:
+            raw = db.serialize()
+        with self.coord:
+            self.coord.execute(
+                "UPDATE checkpoint SET payload=?,sha256=?",
+                (
+                    base64.b64encode(zlib.compress(raw)).decode(),
+                    hashlib.sha256(raw).hexdigest(),
+                ),
+            )
+            for key in ("c" * 32, "d" * 32):
+                self.coord.execute("INSERT INTO backups VALUES(?,?)", (key, "{}"))
+            self.api.put_object(hashlib.sha256(b"media").hexdigest(), b"media")
+        before = self.call(path="/api/backup").value
+        old_slots = self.api.rows("SELECT * FROM backups")
+        data = {
+            "expected_revision": 5,
+            "expected_checkpoint_sha256": before["checkpoint"][0]["sha256"],
+            "backup_mode": "PIN_CURRENT_PREIMAGE",
+            "target_schema": 11,
+            "confirm_additive_source_use_migration": True,
+        }
+        self.assertEqual(
+            self.call(data, path="/api/schema-migrate", operator=False).status, 403
+        )
+        with patch.dict(
+            self.api.authorized.__globals__,
+            {
+                "_migrate_locked": lambda *args: (_ for _ in ()).throw(
+                    RuntimeError("failure after pin")
+                )
+            },
+        ):
+            with self.assertRaises(RuntimeError):
+                self.call(data, path="/api/schema-migrate")
+        self.assertEqual(self.api.rows("SELECT * FROM control"), [])
+        self.assertEqual(self.call(path="/api/backup").value, before)
+        result = self.call(data, path="/api/schema-migrate").value
+        self.assertEqual(self.call(data, path="/api/schema-migrate").value, result)
+        self.assertEqual(self.api.rows("SELECT * FROM backups"), old_slots)
+        self.assertEqual(len(self.api.rows("SELECT * FROM control")), 1)
+        pin_path = result["preimage_backup_path"]
+        self.assertEqual(self.call(path=pin_path, operator=False).status, 403)
+        pinned = self.call(path=pin_path).value
+        self.assertEqual(pinned, before)
+        restore = {
+            "backup": pinned,
+            "expected_revision": 6,
+            "confirm_data_after_backup_may_be_lost": True,
+            "confirm_schema10_additive_upgrade": True,
+        }
+        self.assertTrue(
+            self.call(restore, key="2" * 32, path="/api/restore").value["restored"]
+        )
+        after = self.call(path="/api/backup").value
+        self.assertEqual(after["objects"], before["objects"])
+        self.assertEqual(self.api.rows("SELECT * FROM backups"), old_slots)
+
     def test_shared_source_active_in_other_project_blocks_correction_and_choice(self):
         with self.coord:
             self.coord.execute(

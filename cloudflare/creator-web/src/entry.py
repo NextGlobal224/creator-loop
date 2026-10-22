@@ -853,7 +853,7 @@ class Database(DurableObject):
 
     async def authorized(self, request, path, method, data):
         if path in ("/api/import", "/api/schema-migrate") or path.startswith(
-            "/api/imports/"
+            ("/api/imports/", "/api/schema-migrations/")
         ):
             secret = getattr(self.env, "OPERATOR_KEY", "")
             if not secret or not hmac.compare_digest(
@@ -1026,6 +1026,31 @@ class Database(DurableObject):
                     ],
                 }
             )
+        if (
+            path.startswith("/api/schema-migrations/")
+            and path.endswith("/backup")
+            and method == "GET"
+        ):
+            migration_id = path.split("/")[-2]
+            found = self.rows(
+                "SELECT record FROM control WHERE id=?", "pre-schema11-" + migration_id
+            )
+            if not found:
+                return reply({"error": "Không tìm thấy preimage migration"}, 404)
+            backup = json.loads(found[0]["record"])
+            if (
+                not isinstance(backup, dict)
+                or backup.get("format") != "CREATOR_WEB_BACKUP_V1"
+            ):
+                return reply({"error": "Preimage cũ chưa có manifest media"}, 409)
+            for obj in backup["objects"]:
+                raw = self.object_bytes(obj["sha256"])
+                if len(raw) != obj["size"] or digest(raw) != obj["sha256"]:
+                    raise WebInputError(
+                        "Media preimage không khớp; chưa tạo gói recovery"
+                    )
+                obj["content_base64"] = base64.b64encode(raw).decode()
+            return reply(backup)
         if path == "/api/backups" and method == "GET":
             return reply(
                 {
@@ -1189,30 +1214,44 @@ class Database(DurableObject):
                 if path == "/api/schema-migrate":
                     if (
                         schema_version != 10
-                        or set(data)
+                        or set(data) - {"backup_id", "backup_mode"}
                         != {
                             "expected_revision",
                             "expected_checkpoint_sha256",
-                            "backup_id",
                             "target_schema",
                             "confirm_additive_source_use_migration",
                         }
                         or data["target_schema"] != 11
                         or data["confirm_additive_source_use_migration"] is not True
+                        or ("backup_id" in data) == ("backup_mode" in data)
+                        or (
+                            "backup_mode" in data
+                            and data["backup_mode"] != "PIN_CURRENT_PREIMAGE"
+                        )
                     ):
                         raise WebInputError(
                             "Chỉ cho phép nâng schema10→11 có xác nhận riêng."
                         )
                     checkpoint = self.rows("SELECT * FROM checkpoint WHERE id=1")
-                    saved = self.rows(
-                        "SELECT record FROM backups WHERE id=?", data["backup_id"]
+                    saved = (
+                        self.rows(
+                            "SELECT record FROM backups WHERE id=?", data["backup_id"]
+                        )
+                        if "backup_id" in data
+                        else None
                     )
                     if (
                         len(checkpoint) != 1
-                        or len(saved) != 1
                         or data["expected_revision"] != revision
                         or checkpoint[0]["sha256"] != data["expected_checkpoint_sha256"]
-                        or json.loads(saved[0]["record"])["checkpoint"] != checkpoint
+                        or (
+                            saved is not None
+                            and (
+                                len(saved) != 1
+                                or json.loads(saved[0]["record"])["checkpoint"]
+                                != checkpoint
+                            )
+                        )
                         or self.rows(
                             "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING')"
                         )
@@ -1221,10 +1260,24 @@ class Database(DurableObject):
                             "Cần backup cloud đúng checkpoint và không còn job đang chạy; chưa nâng schema.",
                             409,
                         )
+                    objects = self.rows("SELECT * FROM objects")
+                    for obj in objects:
+                        raw = self.object_bytes(obj["sha256"])
+                        if len(raw) != obj["size"] or digest(raw) != obj["sha256"]:
+                            raise WebInputError(
+                                "Media preimage không khớp; chưa nâng schema"
+                            )
                     self.sql.exec(
                         "INSERT INTO control VALUES(?,?)",
                         "pre-schema11-" + key,
-                        json.dumps(checkpoint),
+                        json.dumps(
+                            {
+                                "format": "CREATOR_WEB_BACKUP_V1",
+                                "version": VERSION,
+                                "checkpoint": checkpoint,
+                                "objects": objects,
+                            }
+                        ),
                     )
                     with closing(
                         _connect_write(root / "creator_loop.sqlite3")
@@ -1236,7 +1289,10 @@ class Database(DurableObject):
                         "migration": "SOURCE_USE_SCHEMA11",
                         "previous_schema": 10,
                         "schema_version": 11,
-                        "backup_id": data["backup_id"],
+                        "backup_id": data.get("backup_id"),
+                        "preimage_backup_path": "/api/schema-migrations/"
+                        + key
+                        + "/backup",
                         "previous_checkpoint_sha256": checkpoint[0]["sha256"],
                         "previous_checkpoint_retained": True,
                         "no_source_selection_granted": True,

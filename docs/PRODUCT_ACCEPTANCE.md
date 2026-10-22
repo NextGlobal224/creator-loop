@@ -9,6 +9,10 @@ cách ly đã đạt; chưa thay bằng chứng cloud, tư liệu thật hoặc 
 Chuyển schema10→11: trước deploy phải xác minh không còn job đang chạy;
 giữ backup cloud đúng checkpoint/revision, rồi operator gọi migration có CAS
 và xác nhận riêng. Legacy10 đọc được nhưng không nhận ghi thường trước nâng.
+Nếu ba slot backup thường đã đầy, operator có thể xác nhận pin preimage dành
+riêng migration: cùng checkpoint/revision và toàn bộ index media, hash kiểm lại,
+lưu nguyên tử với migration và mở qua đường recovery riêng. Không xóa backup
+cũ hoặc tăng ba slot. Phải restore cách ly từ chính pin này trước production.
 Restore backup10 vào runtime11 cần xác nhận nâng cấu trúc riêng; thất bại không
 commit checkpoint/media. Không restore production để QA; kiểm cách ly trước.
 
