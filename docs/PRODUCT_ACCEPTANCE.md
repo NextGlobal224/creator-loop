@@ -1,5 +1,15 @@
 ## B_RELEASED — cổng đầu vào bắt buộc bổ sung 22/10/2026
 
+ASR ghi âm — WIP nối job cloud sau PR122: cùng Durable Object/alarm/receipt,
+một lời gọi Whisper Turbo cho PCM WAV đã kiểm hash/thời lượng; grant operator
+riêng đúng model nhưng giữ sổ/dự phòng 5.000 và trần phí ngoài gói USD0.
+Không lưu bản base64 của ghi âm vào hàng job. Mất lease hoặc Dừng không tự
+gửi lại; receipt/native output vẫn giữ, phản hồi muộn không làm sống lại job.
+Web hiển thị toàn văn máy, cờ nghi sai/khoảng chưa đọc, nghe/sửa theo thời gian
+và xác nhận dùng nguồn riêng. Đã có transcript thì dùng lại/đối chiếu, không
+trích xuất lại nguyên trạng. Đây là source WIP và kiểm handler/provider giả;
+chưa có review/CI/deploy hoặc ASR thật cho nhánh job mới, chưa B_RELEASED.
+
 WIP ghi âm 22/10: parser transcript/time range, giữ nguyên phản hồi model và
 các cờ không chắc chắn; sửa lời nói/phạm vi tạo phiên bản HUMAN mới PENDING,
 không tự xác nhận nguồn hoặc factual/đăng. Web có nghe/sửa theo mili giây và

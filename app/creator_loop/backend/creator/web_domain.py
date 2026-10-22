@@ -15,7 +15,10 @@ from creator_loop.backend.creator.generation_records import _persist
 from creator_loop.backend.creator.projects import add_project_reference, create_project
 from creator_loop.backend.creator.research_pipeline import ResearchPipeline
 from creator_loop.backend.knowledge.claims import _timestamp
-from creator_loop.backend.knowledge.cloud_audio import correct_cloud_audio_range
+from creator_loop.backend.knowledge.cloud_audio import (
+    correct_cloud_audio_range,
+    prepare_cloud_transcription,
+)
 from creator_loop.backend.knowledge.evidence_correction import correct_text_evidence
 from creator_loop.backend.knowledge.evidence_review import current_evidence_review
 from creator_loop.backend.knowledge.source_use import (
@@ -165,6 +168,23 @@ class WebDomain:
                 "media_type": material["media_type"],
                 "text": text,
                 "evidence_versions": evidence,
+                "latest_transcript_artifact": next(
+                    (
+                        dict(
+                            zip(("sha256", "byte_size", "run_id", "input_sha256"), row)
+                        )
+                        for row in db.execute(
+                            """SELECT f.sha256,f.byte_size,f.processing_run_id,o.sha256
+                         FROM asset_files f JOIN processing_runs p ON p.run_id=f.processing_run_id
+                         JOIN asset_files o ON o.file_id=f.parent_file_id
+                         WHERE f.parent_file_id=? AND f.role='OTHER' AND f.mime_type='application/json'
+                         AND p.tool_name='CLOUDFLARE_WORKERS_AI_SOURCE' AND p.status='SUCCEEDED'
+                         ORDER BY f.created_at DESC,f.rowid DESC LIMIT 1""",
+                            (file_id,),
+                        )
+                    ),
+                    None,
+                ),
                 "source_use": current_source_use(db, project_id, file_id),
                 "factual_approval": False,
                 "publication_approval": False,
@@ -255,6 +275,27 @@ class WebDomain:
                 reason=data.get("reason", ""),
             )
         return {"evidence_version_id": version, "review_state": "PENDING"}
+
+    def begin_source_transcription(
+        self, data: dict[str, Any], run_id: str, version: str
+    ) -> dict[str, Any]:
+        project, file = data.get("project_id", ""), data.get("file_id", "")
+        self._project_original(project, file)
+        with closing(_connect_write(self.path)) as db:
+            try:
+                packet = prepare_cloud_transcription(
+                    db,
+                    data_root=self.root,
+                    file_id=file,
+                    run_id=run_id,
+                    version=version,
+                )
+            except ValueError as error:
+                # This probe emits fixed validation messages, never native
+                # provider errors, source contents or filesystem paths.
+                raise WebInputError(str(error)) from None
+        # Audio bytes are transient; never store a base64 copy in a job row.
+        return {k: v for k, v in packet.items() if k != "audio"}
 
     def source_use(self, data: dict[str, Any]) -> dict[str, Any]:
         project_id, file_id = data.get("project_id", ""), data.get("file_id", "")

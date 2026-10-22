@@ -15,6 +15,7 @@ from creator_loop.backend.knowledge.cloud_audio import (
     WHISPER_MODEL,
     correct_cloud_audio_range,
     parse_whisper_transcript,
+    prepare_cloud_transcription,
     probe_pcm_wav,
     store_cloud_transcript,
 )
@@ -207,6 +208,38 @@ class CloudAudioTests(unittest.TestCase):
                 ),
             )
         return root, db, file
+
+    def test_prepare_source_run_binds_original_and_refuses_replay_without_inference(
+        self,
+    ):
+        root, db, file = self.storage_fixture()
+        key = "a" * 32
+        packet = prepare_cloud_transcription(
+            db, data_root=root, file_id=file["file_id"], run_id=key, version="fixture"
+        )
+        self.assertEqual(packet["input_sha256"], self.probe.sha256)
+        self.assertEqual(packet["duration_ms"], 2000)
+        self.assertEqual(
+            db.execute(
+                "SELECT status,task_type FROM processing_runs WHERE run_id=?", (key,)
+            ).fetchone(),
+            ("QUEUED", "SOURCE_TRANSCRIPTION"),
+        )
+        with self.assertRaisesRegex(ValueError, "đã tồn tại"):
+            prepare_cloud_transcription(
+                db,
+                data_root=root,
+                file_id=file["file_id"],
+                run_id=key,
+                version="fixture",
+            )
+        self.assertEqual(
+            db.execute("SELECT COUNT(*) FROM evidence_versions").fetchone()[0], 0
+        )
+        self.assertEqual(
+            db.execute("SELECT COUNT(*) FROM review_events").fetchone()[0], 0
+        )
+        validate(db)
 
     def test_web_correction_is_project_bound_and_reopens_exact_timed_version(self):
         root, db, file = self.storage_fixture()

@@ -6,6 +6,7 @@ cloud duration/decoder path; a file extension is never a duration bound.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import json
@@ -57,6 +58,73 @@ class CloudTranscript:
     warnings: tuple[str, ...]
     untranscribed_ranges: tuple[tuple[int, int], ...] = ()
     review_state: str = "PENDING"
+
+
+def prepare_cloud_transcription(
+    db: sqlite3.Connection,
+    *,
+    data_root: Path,
+    file_id: str,
+    run_id: str,
+    version: str,
+) -> dict[str, Any]:
+    """Prepare one verified source run inside the durable reservation transaction.
+
+    The caller owns Project membership, the existing included-only grant and
+    idempotency. This function neither calls AI nor grants source-use permission.
+    """
+    if (
+        not isinstance(run_id, str)
+        or len(run_id) != 32
+        or any(c not in "0123456789abcdef" for c in run_id)
+    ):
+        raise ValueError("Run identity không hợp lệ")
+    with atomic_transaction(db):
+        row = db.execute(
+            """SELECT f.asset_id,f.storage_key,f.sha256,f.byte_size,f.duration_ms
+            FROM asset_files f JOIN assets a USING(asset_id)
+            WHERE f.file_id=? AND f.role='ORIGINAL' AND a.media_type='AUDIO'
+            AND a.deleted_at IS NULL""",
+            (file_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("Cần bản ghi âm gốc còn hiệu lực")
+        if db.execute(
+            """SELECT 1 FROM processing_runs WHERE input_file_id=?
+            AND tool_name='CLOUDFLARE_WORKERS_AI_SOURCE' AND model_name=? AND status='SUCCEEDED'""",
+            (file_id, WHISPER_MODEL),
+        ).fetchone():
+            raise ValueError(
+                "Đã có transcript; mở nguồn để nghe đối chiếu và sửa, không gọi lại AI."
+            )
+        raw = _anchor_path(data_root, "ORIGINAL", row[1]).read_bytes()
+        probe = probe_pcm_wav(raw)
+        if (probe.sha256, probe.byte_size) != row[2:4] or row[4] not in (
+            None,
+            probe.duration_ms,
+        ):
+            raise ValueError("Byte/thời lượng nguồn không khớp")
+        if db.execute(
+            "SELECT 1 FROM processing_runs WHERE run_id=?", (run_id,)
+        ).fetchone():
+            raise ValueError("Run đã tồn tại; đọc trạng thái cũ, không gửi lại")
+        db.execute(
+            "UPDATE asset_files SET duration_ms=? WHERE file_id=?",
+            (probe.duration_ms, file_id),
+        )
+        db.execute(
+            """INSERT INTO processing_runs(run_id,asset_id,input_file_id,task_type,status,
+            tool_name,tool_version,model_name,model_version,created_at)
+            VALUES(?,?,?,'SOURCE_TRANSCRIPTION','QUEUED','CLOUDFLARE_WORKERS_AI_SOURCE',?,?,?,?)""",
+            (run_id, row[0], file_id, version, WHISPER_MODEL, version, _timestamp()),
+        )
+        return {
+            "request_id": run_id,
+            "model": WHISPER_MODEL,
+            "input_sha256": probe.sha256,
+            "duration_ms": probe.duration_ms,
+            "audio": base64.b64encode(raw).decode(),
+        }
 
 
 def probe_pcm_wav(raw: bytes) -> CloudAudioProbe:

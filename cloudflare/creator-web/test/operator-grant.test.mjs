@@ -22,3 +22,9 @@ test('Paid accepts only verified included allocation without increasing old fore
  const payload=boundedGrant(input,110000);assert.equal(payload.account_plan,'Paid');assert.equal(payload.included_only,true);assert.equal(payload.max_extra_charge_usd,0);assert.equal(payload.estimated_chain_neurons,5000);assert.equal(payload.grant,'B-finish-20261017-free');
  for(const change of [{includedOnlyConfirmed:false},{remaining:4999},{remaining:10001},{accountPlan:'Unlimited'}])assert.throws(()=>boundedGrant({...input,...change},110000));
 });
+test('source transcription uses one fixed model call with unchanged reserve and included-only gates',()=>{
+ const input={remaining:6000,observedAt:100000,confirmed:true,purpose:'SOURCE_TRANSCRIPTION',accountPlan:'Paid',includedOnlyConfirmed:true};
+ const grant=boundedGrant(input,110000);
+ assert.equal(grant.model,'@cf/openai/whisper-large-v3-turbo');assert.equal(grant.remaining_calls,1);assert.equal(grant.estimated_chain_neurons,5000);assert.equal(grant.max_extra_charge_usd,0);
+ for(const change of [{purpose:'OTHER'},{includedOnlyConfirmed:false},{remaining:4999},{confirmed:false}])assert.throws(()=>boundedGrant({...input,...change},110000));
+});

@@ -2,6 +2,7 @@ import nativeTextWorker from "../../creator-ai/src/index.js";
 import {formatStage} from "./format-stages.js";
 import {SDK_COMPONENT} from "../../creator-ai/src/sdk-stage.js";
 import {analysisProfile} from './analysis-audit.js';
+export {transcribeSource} from './source-audio.js';
 
 export function components(){return JSON.stringify({sdk:SDK_COMPONENT,formats:["TEXT","IMAGE_CAPTION","VIDEO"],protocol:"immutable-source-audit"});}
 

@@ -27,6 +27,11 @@ from creator_loop.backend.creator.web_domain import (
     WebInputError,
     request_from_json,
 )
+from creator_loop.backend.knowledge.cloud_audio import (
+    WHISPER_MODEL,
+    probe_pcm_wav,
+    store_cloud_transcript,
+)
 from creator_loop.backend.runtime.database import (
     MIGRATIONS,
     _connect_write,
@@ -907,6 +912,22 @@ class Database(DurableObject):
             ):
                 return reply({"error": "Operator verification required"}, 403)
             return self.preservation_api(path, method, data)
+        if path == "/api/source-grant-status" and method == "GET":
+            found = self.rows("SELECT record FROM control WHERE id='grant'")
+            grant = json.loads(found[0]["record"]) if found else {}
+            available = (
+                valid_included_grant(grant, WHISPER_MODEL, time.time())
+                and grant["remaining_calls"] == 1
+            )
+            return reply(
+                {
+                    "available": available,
+                    "model": WHISPER_MODEL,
+                    "message": "Quyền ASR operator còn hiệu lực; không phải phép đo quota trực tiếp."
+                    if available
+                    else "Chưa có quyền ASR operator còn hiệu lực. Cần kiểm quota trong gói và dự phòng trước khi cấp đúng model; chưa gửi AI.",
+                }
+            )
         if path == "/api/grant-status" and method == "GET":
             found = self.rows("SELECT record FROM control WHERE id='grant'")
             grant = json.loads(found[0]["record"]) if found else {}
@@ -966,12 +987,13 @@ class Database(DurableObject):
                 }
                 or data["grant"] != "B-finish-20261017-free"
                 or data["account_plan"] not in ("Free", "Paid")
-                or data["model"] != self.env.CREATOR_MODEL
+                or data["model"] not in (self.env.CREATOR_MODEL, WHISPER_MODEL)
+                or (data["model"] == WHISPER_MODEL and data["remaining_calls"] != 1)
             ):
                 raise WebInputError(
                     "Cần bằng chứng đúng account/Workers plan và phần bao gồm; chưa tạo quyền AI."
                 )
-            if not valid_included_grant(data, self.env.CREATOR_MODEL, time.time()):
+            if not valid_included_grant(data, data["model"], time.time()):
                 raise WebInputError(
                     "Chưa đủ phần bao gồm, dự phòng 5.000 hoặc bằng chứng đã hết hạn. Paid phải xác nhận phí ngoài gói $0; chưa tạo quyền AI."
                 )
@@ -1177,12 +1199,38 @@ class Database(DurableObject):
             if method == "GET":
                 if path == "/api/source-review":
                     query = parse_qs(urlsplit(request.url).query)
-                    return reply(
-                        domain.source_review(
-                            query.get("project_id", [""])[0],
-                            query.get("file_id", [""])[0],
-                        )
+                    review = domain.source_review(
+                        query.get("project_id", [""])[0],
+                        query.get("file_id", [""])[0],
                     )
+                    artifact = review.pop("latest_transcript_artifact", None)
+                    if artifact:
+                        raw = self.object_bytes(artifact["sha256"])
+                        if (
+                            len(raw) != artifact["byte_size"]
+                            or len(raw) > 256 * 1024
+                            or digest(raw) != artifact["sha256"]
+                        ):
+                            raise WebInputError(
+                                "Bằng chứng transcript không khớp; giữ bản gốc để đối chiếu."
+                            )
+                        content = json.loads(raw)
+                        if (
+                            content.get("format") != "CREATOR_CLOUD_TRANSCRIPT_V1"
+                            or content.get("run_id") != artifact["run_id"]
+                            or content.get("input_file_id") != review["file_id"]
+                            or content.get("input_sha256") != artifact["input_sha256"]
+                        ):
+                            raise WebInputError(
+                                "Transcript không gắn đúng nguồn/run; chưa dùng kết quả."
+                            )
+                        review["source_extraction"] = {
+                            "run_id": artifact["run_id"],
+                            "model": content["model"],
+                            "parsed": content["parsed"],
+                            "artifact_sha256": artifact["sha256"],
+                        }
+                    return reply(review)
                 if path == "/api/state":
                     await self.recover_wakeup()
                     project_id = parse_qs(urlsplit(request.url).query).get(
@@ -1344,6 +1392,44 @@ class Database(DurableObject):
                     raw = base64.b64decode(data.pop("content_base64"), validate=True)
                     result = domain.intake(data, raw)
                     self.put_object(result["sha256"], raw)
+                elif path == "/api/source-jobs":
+                    if set(data) != {"project_id", "file_id"}:
+                        raise WebInputError("Chọn đúng Project và nguồn ghi âm.")
+                    if self.rows(
+                        "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
+                    ):
+                        raise WebInputError(
+                            "Còn tác vụ đang chạy; mở trạng thái hoặc Dừng trước.", 409
+                        )
+                    grants = self.rows("SELECT record FROM control WHERE id='grant'")
+                    grant = json.loads(grants[0]["record"]) if grants else {}
+                    if (
+                        not valid_included_grant(grant, WHISPER_MODEL, time.time())
+                        or grant["remaining_calls"] != 1
+                    ):
+                        raise WebInputError(
+                            "Chưa có quyền operator ASR còn hiệu lực với quota/dự phòng trong gói. Chưa gửi AI."
+                        )
+                    source = domain.begin_source_transcription(data, key, VERSION)
+                    grant["remaining_calls"] = 0
+                    grant["reserved_pipeline"] = key
+                    self.sql.exec(
+                        "UPDATE control SET record=? WHERE id='grant'",
+                        json.dumps(grant),
+                    )
+                    result = {
+                        "id": key,
+                        "kind": "SOURCE_TRANSCRIPTION",
+                        "status": "QUEUED",
+                        "stage": 0,
+                        "request": data,
+                        "sources": [source | {"file_id": data["file_id"]}],
+                        "input_fingerprint": fingerprint,
+                        "created_at": time.time(),
+                        "calls": [],
+                        "grant": grant,
+                    }
+                    self.save_job(result)
                 elif path == "/api/material-links":
                     result = domain.link_material(
                         data.get("project_id", ""), data.get("material_id", "")
@@ -1389,6 +1475,47 @@ class Database(DurableObject):
                             409,
                         )
                     incoming = data.get("backup", {})
+                    if "schema_migration_id" in data:
+                        secret = getattr(self.env, "OPERATOR_KEY", "")
+                        if not secret or not hmac.compare_digest(
+                            request.headers.get("X-Operator-Key") or "", secret
+                        ):
+                            raise WebInputError("Operator verification required", 403)
+                        migration_id = data["schema_migration_id"]
+                        expected_hash = data.get("expected_backup_sha256")
+                        if (
+                            "backup" in data
+                            or not isinstance(migration_id, str)
+                            or not re.fullmatch("[a-f0-9]{32}", migration_id)
+                            or not isinstance(expected_hash, str)
+                            or not re.fullmatch("[a-f0-9]{64}", expected_hash)
+                        ):
+                            raise WebInputError("Tham chiếu backup cloud không hợp lệ.")
+                        pinned = self.rows(
+                            "SELECT record FROM control WHERE id=?",
+                            "pre-schema11-" + migration_id,
+                        )
+                        if not pinned:
+                            raise WebInputError("Không tìm thấy preimage migration.", 404)
+                        incoming = json.loads(pinned[0]["record"])
+                        if not isinstance(incoming, dict) or not isinstance(
+                            incoming.get("objects"), list
+                        ):
+                            raise WebInputError("Preimage thiếu manifest media.")
+                        for obj in incoming["objects"]:
+                            raw = self.object_bytes(obj["sha256"])
+                            if len(raw) != obj["size"] or digest(raw) != obj["sha256"]:
+                                raise WebInputError("Media preimage không khớp.")
+                            obj["content_base64"] = base64.b64encode(raw).decode()
+                        if digest(
+                            json.dumps(
+                                incoming,
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ).encode()
+                        ) != expected_hash:
+                            raise WebInputError("Checksum gói preimage không khớp.")
                     if (
                         not isinstance(incoming, dict)
                         or incoming.get("format") != "CREATOR_WEB_BACKUP_V1"
@@ -1465,7 +1592,7 @@ class Database(DurableObject):
                                 _migrate_locked(check, 10)
                         validate(check)
                         check.execute(
-                            "UPDATE processing_runs SET status='FAILED',finished_at=?,error_code='RESTORED_INTERRUPTED_WEB_RUN' WHERE tool_name='CLOUDFLARE_WORKERS_AI_WEB' AND status IN ('QUEUED','RUNNING')",
+                            "UPDATE processing_runs SET status='FAILED',finished_at=?,error_code='RESTORED_INTERRUPTED_WEB_RUN' WHERE tool_name IN ('CLOUDFLARE_WORKERS_AI_WEB','CLOUDFLARE_WORKERS_AI_SOURCE') AND status IN ('QUEUED','RUNNING')",
                             (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),),
                         )
                         check.commit()
@@ -1586,7 +1713,7 @@ class Database(DurableObject):
                 )
                 return result
 
-            if path == "/api/jobs":
+            if path in ("/api/jobs", "/api/source-jobs"):
                 # Persist the wake-up BEFORE the queued-job transaction. Crash
                 # before commit leaves an idle alarm; crash after commit cannot
                 # strand a durable job without a durable wake-up. Revision CAS
@@ -1610,6 +1737,113 @@ class Database(DurableObject):
                     ) from None
                 raise
             return reply(result)
+        finally:
+            self.discard_projection(root)
+
+    async def transcribe_source(self, job):
+        root, _ = self.load()
+        try:
+            WebDomain(root)._project_original(
+                job["request"]["project_id"], job["request"]["file_id"]
+            )
+            with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+                row = db.execute(
+                    "SELECT storage_key,sha256 FROM asset_files WHERE file_id=? AND role='ORIGINAL'",
+                    (job["request"]["file_id"],),
+                ).fetchone()
+            if row is None or row[0] != "storage/originals/" + row[1]:
+                raise ValueError("Source original changed")
+            raw = (root / row[0]).read_bytes()
+            probe = probe_pcm_wav(raw)
+            source = job["sources"][0]
+            if (
+                probe.sha256 != source["input_sha256"]
+                or probe.duration_ms != source["duration_ms"]
+            ):
+                raise ValueError("Source identity changed after reservation")
+            packet = {
+                **{k: v for k, v in source.items() if k != "file_id"},
+                "audio": base64.b64encode(raw).decode(),
+            }
+        finally:
+            self.discard_projection(root)
+        grant = job.get("grant", {})
+        if (
+            not valid_included_grant(grant, WHISPER_MODEL, time.time())
+            or grant.get("remaining_calls") != 0
+            or grant.get("reserved_pipeline") != job["id"]
+        ):
+            raise WebInputError(
+                "Quyền ASR/quota đã hết hạn trước khi gửi. Chưa gọi AI; giữ reservation, không tự thử lại."
+            )
+        call = {
+            "stage": "transcription",
+            "request_id": job["id"],
+            "reserved_at": time.time(),
+            "outcome": "UNKNOWN",
+            "input_sha256": source["input_sha256"],
+        }
+        job["calls"].append(call)
+        job["stage"] = 1
+        self.save_job(job)
+        sdk = import_from_javascript("creator_ai.mjs")
+        encoded = await sdk.transcribeSource(
+            python_to_rpc(self.env.AI),
+            json.dumps(packet),
+            str(self.env.CREATOR_VERSION.id),
+        )
+        if len(encoded.encode()) > 512 * 1024:
+            raise ValueError("Source response exceeds retained protocol")
+        response = json.loads(encoded)
+        call.update(
+            outcome="UNKNOWN" if response.get("unknown_outcome") else "RECEIVED",
+            finished_at=time.time(),
+            model_calls=response.get("model_calls"),
+            measured_usage=response.get("native_usage"),
+        )
+        if response.get("unknown_outcome"):
+            job["unknown_outcome"] = True
+        job["stage_outputs"] = [response]
+        current = json.loads(
+            self.rows("SELECT record FROM jobs WHERE id=?", job["id"])[0]["record"]
+        )
+        if current["status"] != "RUNNING":
+            current.update(calls=job["calls"], stage_outputs=job["stage_outputs"])
+            self.save_job(current)
+            return
+        self.save_job(job)
+        if (
+            not response.get("ok")
+            or response.get("model") != WHISPER_MODEL
+            or response.get("worker_version") != str(self.env.CREATOR_VERSION.id)
+            or response.get("request_id") != job["id"]
+            or response.get("input_sha256") != source["input_sha256"]
+            or response.get("model_calls") != 1
+        ):
+            raise ValueError("Source model/response binding rejected")
+        root, revision = self.load()
+        try:
+
+            def finish():
+                with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+                    result = store_cloud_transcript(
+                        db,
+                        data_root=root,
+                        file_id=job["request"]["file_id"],
+                        run_id=job["id"],
+                        native_response=response["native_response"],
+                    )
+                self.put_object(result["sha256"], result["content"])
+                self.commit(root, revision)
+                job.update(
+                    status="SUCCEEDED",
+                    finished_at=time.time(),
+                    evidence_version_ids=result["evidence_version_ids"],
+                    message="Đã trích xuất; cần nghe đối chiếu và xác nhận nguồn, chưa duyệt factual/đăng.",
+                )
+                self.save_job(job)
+
+            self.ctx.storage.transactionSync(finish)
         finally:
             self.discard_projection(root)
 
@@ -1675,6 +1909,9 @@ class Database(DurableObject):
         self.sync_run(job)
         await self.ctx.storage.setAlarm(int(job["lease_until"] * 1000) + 1)
         try:
+            if job.get("kind") == "SOURCE_TRANSCRIPTION":
+                await self.transcribe_source(job)
+                return
             creator = request_from_json(
                 {k: v for k, v in job["request"].items() if k != "actor"}
             )
@@ -1857,7 +2094,7 @@ class Database(DurableObject):
                 self.ctx.storage.transactionSync(finish)
             finally:
                 self.discard_projection(root)
-        except Exception:
+        except Exception as error:
             current = json.loads(
                 self.rows("SELECT record FROM jobs WHERE id=?", job["id"])[0]["record"]
             )
@@ -1865,7 +2102,9 @@ class Database(DurableObject):
                 job.update(
                     status="FAILED",
                     finished_at=time.time(),
-                    message="Không hoàn tất; không tự retry/fallback. Kiểm kết quả từng request trước lượt mới.",
+                    message=str(error)
+                    if isinstance(error, WebInputError)
+                    else "Không hoàn tất; không tự retry/fallback. Kiểm kết quả từng request trước lượt mới.",
                 )
                 self.sync_run(job)
 
