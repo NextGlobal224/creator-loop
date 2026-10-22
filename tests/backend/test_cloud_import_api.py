@@ -16,11 +16,18 @@ import zlib
 from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import uuid4
 
 from creator_loop.backend.creator.web_domain import WebDomain, WebInputError
+from creator_loop.backend.runtime import database
 from creator_loop.backend.runtime.cloud_import import B_TABLES
-from creator_loop.backend.runtime.database import _connect_write, initialize, validate
+from creator_loop.backend.runtime.database import (
+    _connect_write,
+    _migrate_locked,
+    initialize,
+    validate,
+)
 
 from tests.backend import test_web_domain
 
@@ -110,6 +117,7 @@ class CloudImportAPITests(unittest.TestCase):
             "WebInputError": WebInputError,
             "_connect_write": _connect_write,
             "validate": validate,
+            "_migrate_locked": _migrate_locked,
             "Path": lambda value: self.root if value == "/tmp" else Path(value),
             "digest": digest,
             "reply": lambda value, status=200, **_: SimpleNamespace(
@@ -330,6 +338,92 @@ class CloudImportAPITests(unittest.TestCase):
                 self.api.object_bytes(hashlib.sha256(raw).hexdigest()), raw
             )
         self.assertEqual(len(self.api.rows("SELECT * FROM objects")), 2)
+
+    def test_schema10_restore_requires_explicit_upgrade_and_preserves_rollback(self):
+        legacy = self.root / "legacy.sqlite3"
+        with (
+            patch.object(database, "MIGRATIONS", database.MIGRATIONS[:10]),
+            patch.object(database, "SCHEMA_VERSION", 10),
+            patch.object(
+                database,
+                "validate",
+                side_effect=lambda db: validate(db, expected_version=10),
+            ),
+        ):
+            initialize(legacy)
+            legacy_root = legacy.parent / "legacy-data"
+            legacy_root.mkdir()
+            legacy.replace(legacy_root / "creator_loop.sqlite3")
+            project = WebDomain(legacy_root).project("Nguồn trước nâng schema")[
+                "project_id"
+            ]
+        with closing(_connect_write(legacy_root / "creator_loop.sqlite3")) as db:
+            raw = db.serialize()
+        backup = {
+            "format": "CREATOR_WEB_BACKUP_V1",
+            "version": self.call(path="/api/backup").value["version"],
+            "checkpoint": [
+                {
+                    "payload": base64.b64encode(zlib.compress(raw)).decode(),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                }
+            ],
+            "objects": [],
+        }
+        data = {
+            "backup": backup,
+            "expected_revision": 5,
+            "confirm_data_after_backup_may_be_lost": True,
+        }
+        before = self.api.rows("SELECT * FROM checkpoint")
+        with self.assertRaisesRegex(WebInputError, "schema10"):
+            self.call(data, path="/api/restore")
+        self.assertEqual(self.api.rows("SELECT * FROM checkpoint"), before)
+        self.assertEqual(self.api.rows("SELECT * FROM control"), [])
+        data["confirm_schema10_additive_upgrade"] = True
+        result = self.call(data, path="/api/restore")
+        self.assertTrue(result.value["restored"])
+        root, revision = self.api.load()
+        self.assertEqual(revision, 6)
+        with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+            validate(db)
+            self.assertEqual(
+                db.execute("SELECT project_id FROM projects").fetchone()[0], project
+            )
+            self.assertEqual(
+                db.execute(
+                    "SELECT COUNT(*) FROM project_material_use_versions"
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                db.execute("SELECT COUNT(*) FROM review_events").fetchone()[0], 0
+            )
+        self.assertEqual(
+            json.loads(self.api.rows("SELECT record FROM control")[0]["record"]), before
+        )
+
+    def test_shared_source_active_in_other_project_blocks_correction_and_choice(self):
+        with self.coord:
+            self.coord.execute(
+                "INSERT INTO jobs VALUES(?,?,?)",
+                (
+                    "job",
+                    "RUNNING",
+                    json.dumps(
+                        {
+                            "request": {"project_id": "other"},
+                            "sources": [{"file_id": "shared"}],
+                        }
+                    ),
+                ),
+            )
+        before = self.api.rows("SELECT * FROM checkpoint")
+        for path in ("/api/source-ranges", "/api/source-use"):
+            with self.assertRaisesRegex(WebInputError, "nguồn dùng chung"):
+                self.call({"project_id": "new", "file_id": "shared"}, path=path)
+        self.assertEqual(self.api.rows("SELECT * FROM checkpoint"), before)
+        self.assertEqual(self.api.rows("SELECT * FROM receipts"), [])
 
     def test_object_count_limit_keeps_existing_bytes(self):
         with self.coord:

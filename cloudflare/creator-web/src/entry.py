@@ -30,6 +30,7 @@ from creator_loop.backend.creator.web_domain import (
 from creator_loop.backend.runtime.database import (
     MIGRATIONS,
     _connect_write,
+    _migrate_locked,
     initialize,
     validate,
 )
@@ -283,7 +284,10 @@ class Database(DurableObject):
         else:
             initialize(path)
         with closing(_connect_write(path)) as db:
-            validate(db)
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+            if version not in (10, 11):
+                raise ValueError("Unsupported Web checkpoint schema")
+            validate(db, expected_version=version)
             originals = db.execute(
                 "SELECT storage_key,sha256,byte_size FROM asset_files WHERE role='ORIGINAL'"
             ).fetchall()
@@ -848,7 +852,9 @@ class Database(DurableObject):
             )
 
     async def authorized(self, request, path, method, data):
-        if path == "/api/import" or path.startswith("/api/imports/"):
+        if path in ("/api/import", "/api/schema-migrate") or path.startswith(
+            "/api/imports/"
+        ):
             secret = getattr(self.env, "OPERATOR_KEY", "")
             if not secret or not hmac.compare_digest(
                 request.headers.get("X-Operator-Key") or "", secret
@@ -1107,6 +1113,14 @@ class Database(DurableObject):
         try:
             domain = WebDomain(root)
             if method == "GET":
+                if path == "/api/source-review":
+                    query = parse_qs(urlsplit(request.url).query)
+                    return reply(
+                        domain.source_review(
+                            query.get("project_id", [""])[0],
+                            query.get("file_id", [""])[0],
+                        )
+                    )
                 if path == "/api/state":
                     await self.recover_wakeup()
                     project_id = parse_qs(urlsplit(request.url).query).get(
@@ -1165,7 +1179,69 @@ class Database(DurableObject):
                 return reply(receipt)
 
             def mutate():
-                if path == "/api/import":
+                with closing(_connect_write(root / "creator_loop.sqlite3")) as check:
+                    schema_version = check.execute("PRAGMA user_version").fetchone()[0]
+                if schema_version == 10 and path != "/api/schema-migrate":
+                    raise WebInputError(
+                        "Dữ liệu đang ở bản schema trước. Operator phải lưu backup cloud và nâng schema có kiểm tra trước khi ghi; bản gốc vẫn giữ.",
+                        409,
+                    )
+                if path == "/api/schema-migrate":
+                    if (
+                        schema_version != 10
+                        or set(data)
+                        != {
+                            "expected_revision",
+                            "expected_checkpoint_sha256",
+                            "backup_id",
+                            "target_schema",
+                            "confirm_additive_source_use_migration",
+                        }
+                        or data["target_schema"] != 11
+                        or data["confirm_additive_source_use_migration"] is not True
+                    ):
+                        raise WebInputError(
+                            "Chỉ cho phép nâng schema10→11 có xác nhận riêng."
+                        )
+                    checkpoint = self.rows("SELECT * FROM checkpoint WHERE id=1")
+                    saved = self.rows(
+                        "SELECT record FROM backups WHERE id=?", data["backup_id"]
+                    )
+                    if (
+                        len(checkpoint) != 1
+                        or len(saved) != 1
+                        or data["expected_revision"] != revision
+                        or checkpoint[0]["sha256"] != data["expected_checkpoint_sha256"]
+                        or json.loads(saved[0]["record"])["checkpoint"] != checkpoint
+                        or self.rows(
+                            "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING')"
+                        )
+                    ):
+                        raise WebInputError(
+                            "Cần backup cloud đúng checkpoint và không còn job đang chạy; chưa nâng schema.",
+                            409,
+                        )
+                    self.sql.exec(
+                        "INSERT INTO control VALUES(?,?)",
+                        "pre-schema11-" + key,
+                        json.dumps(checkpoint),
+                    )
+                    with closing(
+                        _connect_write(root / "creator_loop.sqlite3")
+                    ) as check:
+                        with check:
+                            check.execute("BEGIN IMMEDIATE")
+                            _migrate_locked(check, 10)
+                    result = {
+                        "migration": "SOURCE_USE_SCHEMA11",
+                        "previous_schema": 10,
+                        "schema_version": 11,
+                        "backup_id": data["backup_id"],
+                        "previous_checkpoint_sha256": checkpoint[0]["sha256"],
+                        "previous_checkpoint_retained": True,
+                        "no_source_selection_granted": True,
+                    }
+                elif path == "/api/import":
                     result = self.import_preserved_b(root, revision, data)
                 elif path == "/api/projects":
                     result = domain.project(data.get("title", ""))
@@ -1178,6 +1254,24 @@ class Database(DurableObject):
                 elif path == "/api/material-links":
                     result = domain.link_material(
                         data.get("project_id", ""), data.get("material_id", "")
+                    )
+                elif path in ("/api/source-ranges", "/api/source-use"):
+                    if self.rows(
+                        """SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') AND
+                        (json_extract(record,'$.request.project_id')=? OR EXISTS(
+                          SELECT 1 FROM json_each(jobs.record,'$.sources') source
+                          WHERE json_extract(source.value,'$.file_id')=?)) LIMIT 1""",
+                        data.get("project_id", ""),
+                        data.get("file_id", ""),
+                    ):
+                        raise WebInputError(
+                            "Project hoặc nguồn dùng chung đang có tác vụ. Dừng và chờ kết thúc trước khi sửa/chọn lại nguồn.",
+                            409,
+                        )
+                    result = (
+                        domain.source_text_range(data)
+                        if path == "/api/source-ranges"
+                        else domain.source_use(data)
                     )
                 elif path == "/api/restore":
                     if data.get("confirm_data_after_backup_may_be_lost") is not True:
@@ -1256,6 +1350,21 @@ class Database(DurableObject):
                     with closing(
                         _connect_write(root / "creator_loop.sqlite3")
                     ) as check:
+                        source_schema = check.execute("PRAGMA user_version").fetchone()[
+                            0
+                        ]
+                        if source_schema == 10:
+                            if (
+                                data.get("confirm_schema10_additive_upgrade")
+                                is not True
+                            ):
+                                raise WebInputError(
+                                    "Backup schema10 cần xác nhận nâng cấu trúc nguồn lên11 khi khôi phục; bản gốc/byte media và backup vẫn được giữ."
+                                )
+                            validate(check, expected_version=10)
+                            with check:
+                                check.execute("BEGIN IMMEDIATE")
+                                _migrate_locked(check, 10)
                         validate(check)
                         check.execute(
                             "UPDATE processing_runs SET status='FAILED',finished_at=?,error_code='RESTORED_INTERRUPTED_WEB_RUN' WHERE tool_name='CLOUDFLARE_WORKERS_AI_WEB' AND status IN ('QUEUED','RUNNING')",

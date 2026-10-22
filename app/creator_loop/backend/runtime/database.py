@@ -20,6 +20,7 @@ MIGRATIONS = (
     "0008_facebook_research",
     "0009_creator_render_workflows",
     "0010_creator_draft_choices",
+    "0011_project_material_use",
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 

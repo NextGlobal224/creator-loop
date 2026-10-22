@@ -1,3 +1,32 @@
+## B_RELEASED — cổng đầu vào bắt buộc bổ sung 22/10/2026
+
+WIP triển khai TEXT: giao diện mở bản gốc, chọn/sửa phạm vi `TEXT_RANGE`,
+chọn/bỏ/yêu cầu đối chiếu và xác nhận riêng theo Project. Lựa chọn lưu snapshot
+bất biến; không tạo Evidence ACCEPT hoặc duyệt đăng. Draft chỉ nhận phiên bản
+nguồn được chọn còn hiệu lực. Kiểm tra local 20 ca domain/API và trình duyệt
+cách ly đã đạt; chưa thay bằng chứng cloud, tư liệu thật hoặc các gate media.
+
+Chuyển schema10→11: trước deploy phải xác minh không còn job đang chạy;
+giữ backup cloud đúng checkpoint/revision, rồi operator gọi migration có CAS
+và xác nhận riêng. Legacy10 đọc được nhưng không nhận ghi thường trước nâng.
+Restore backup10 vào runtime11 cần xác nhận nâng cấu trúc riêng; thất bại không
+commit checkpoint/media. Không restore production để QA; kiểm cách ly trước.
+
+Nguồn: chỉ dẫn trực tiếp người dùng ngày 22/10/2026; contract đầy đủ tại repo gốc `docs/finish-with-evidence-scope.json`, 81 yêu cầu/18 giới hạn, SHA-256 `805d09fed075896da3678fcf1c2c2361896714c12d5fcb946dd9156671e1ca69`. Giữ mọi cổng MANUAL TEXT/IMAGE_CAPTION và các giới hạn trước. Hai Draft đạt không đủ để ghi B_RELEASED. Đọc video đầu vào của B không phụ thuộc xuất MP4 của C hoặc VIDEO Draft đầu ra; C vẫn đã bỏ.
+
+| Đầu vào/công đoạn | Source Web đã đối chiếu tại cd033f72 | Còn thiếu trước B_RELEASED |
+|---|---|---|
+| Ghi âm | Upload/bản gốc/liên kết Project có; AUDIO chỉ byte opaque | ASR cloud, transcript có thời gian/đoạn nghi sai, nghe đối chiếu thật, duyệt/chọn/sửa/version/relogin |
+| Video | Upload/bản gốc có; chưa đường đọc lời nói/hình ảnh trên Web | Đọc speech và hình ảnh liên quan trên cloud, time anchors mở đúng đoạn, nêu phần chưa đọc, QA bằng nguồn thật |
+| Text | Dán/tệp UTF-8 NFC/original/Project/chọn cho Draft có | UI mở đoạn nguồn TEXT_RANGE, sửa/chọn/bỏ/xác nhận trước Draft, version/review/relogin bằng nguồn thật |
+| Ảnh | Original/preview/chọn ảnh caption/nguồn-quyền có | Giữ contract ảnh và nghiệm thu thực; URL/storage không chứng minh đã đọc hoặc hiểu ảnh |
+| Chung | Cloud DO/domain phiên bản/job Draft có | Tiếp nhận → bản gốc → trích xuất → người dùng xem/sửa/chọn/bỏ/xác nhận → version/review → Draft chỉ dùng phần cho phép; cloud progress/Stop/idempotency, đúng Project, đăng nhập mới mở lại |
+
+Tất cả kết quả máy sinh/QA mặc định chưa được người dùng duyệt. Không tự Evidence ACCEPT/APPROVE hoặc đăng bài. Upload/storage/fixture/CI không thay đối chiếu nội dung nguồn thật. Stable ASR đại diện vẫn riêng; không miễn chức năng ghi âm/video beta mới bổ sung. Chỉ tài nguyên bao gồm Cloudflare, phí vượt gói USD0; giữ grant/reservation/dự phòng5000, không chuyển xử lý về Windows.
+
+Phạm vi bằng chứng hiện tại: `web_domain.py` intake ghi rõ AUDIO/VIDEO opaque/no-ASR; `public/app.js` chỉ chọn material.text và báo media chưa xử lý; `/media` chỉ image inline, chưa player/seek. Domain có Evidence/locator/version/review để tái sử dụng, nhưng nhiều adapter audio/video native phụ thuộc Qt/ffmpeg không được đưa nguyên vào Worker. Public UI vẫn cùng hash với deployment đã verify; đây là đối chiếu source/byte deployment, chưa phải QA trình duyệt cho luồng đầu vào mới.
+
+
 ## Resume compatible predecessors before a complete live audit — 17 October 2026
 
 b8250a3 CI39043488603 passed all three required checks, deployed/pinned/health
