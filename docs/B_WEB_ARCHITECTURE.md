@@ -3,8 +3,10 @@
 The explicit20October goal now releases MANUAL TEXT/IMAGE_CAPTION B beta first,
 then moves A entirely to Cloudflare. C implementation and every dependency on C
 are cancelled; retain existing VIDEO script/assets/timing without new development.
-Preserve source/history/shared data. The explicit21October resume removes local
-cleanup as a completion condition; do not delete local data for this goal.
+Preserve source/history/shared data. The latest explicit resume retains guarded
+local cleanup after B_RELEASED and verified A/B migration, cloud backup/restore,
+hash/FK checks and cutover. Do not delete local data during B qualification or
+freeze the shared local A/B database as a default B-only write fence.
 Guarded migration/cloud restore and A/B operation without local runtime remain
 required. This amendment does not waive canonical backup/access protections.
 

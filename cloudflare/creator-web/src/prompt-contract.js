@@ -3,6 +3,25 @@
 export const READABLE_CONTRACT_MARKER='\nReturn one JSON object. The complete JSON Schema is attached as response_format. Readable shape summary (not another schema):\n';
 const schemaMarker='\nReturn only JSON matching this schema:\n';
 
+// MANUAL analysis.direction is the exact selected brief, not an AI proposal.
+// Replace the inherited conflicting clauses instead of appending an override.
+export function bindSelectedManualBrief(native,packet,source){
+ if(packet.mode!=='MANUAL'||!['TEXT','IMAGE_CAPTION'].includes(packet.format)||!['writing','editing'].includes(packet.stage))return false;
+ const system=native.messages.find(m=>m.role==='system'&&typeof m.content==='string');
+ if(!system||typeof source.direction!=='string'||!source.direction.trim())throw Error('Selected manual brief missing');
+ if(packet.stage==='writing'){
+  const clauses=[['The generated analysis direction is NOT evidence or a mandatory procedure.','The selected MANUAL direction is the required editorial brief, never source evidence or permission to invent a factual procedure.']];
+  if(packet.format==='TEXT')clauses.push(['The analysis direction is only a creative proposal, never selected instructions or source evidence.','The MANUAL analysis direction preserves the user-selected editorial brief; follow it within all source constraints, never treat it as factual evidence.']);
+  for(const [old,replacement] of clauses){
+   if(!system.content.includes(old))throw Error('Expected inherited direction clause missing');
+   system.content=system.content.replace(old,replacement);
+  }
+ }
+ native.messages.push({role:'user',content:'SELECTED MANUAL EDITORIAL BRIEF (authenticated user choices, not source evidence; factual/source rules still apply):\n'+JSON.stringify({purpose:source.purpose,audience:source.audience,style:source.style,direction:source.direction})});
+ if(packet.stage==='editing')system.content+=' Operation semantics: if an original passage is both supported and usable for this brief, KEEP it with replacement:[]. A REWRITE cannot copy that original passage anywhere into its replacements, including copying a supported sentence and then appending advice; change the passage itself, or keep it and avoid an unnecessary addition. REMOVE only where the existing paragraph/mandatory-revision rules allow. Judge source support separately from relevance: a supported publication date can still be irrelevant as the opening. An uncited voluntary request with no factual premise or promised outcome is SUGGESTION, not INSUFFICIENT solely for lacking a source; outcome/tool/institution claims still need exact evidence. If the brief asks for a sender message, write that actual message once at the end, not repeated advice describing a request.';
+ return true;
+}
+
 export function compactStagePrompt(native,stage){
  const message=native.messages.find(m=>m.role==='user'&&typeof m.content==='string'&&m.content.includes(schemaMarker));
  if(!message)return false; // Direct profile fixtures can omit SDK wrappers.
