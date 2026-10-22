@@ -115,8 +115,26 @@ export function coverageSchema(hash,fields,catalog){
     base.properties.premise_checks.items.properties.assertion.description='Cover every complete attribution sentence verbatim, separately; other empirical premises also require checks.';
    }
   }
-  if(!f.field.startsWith('inferences.'))return [base];
-  return [base,{...base,properties:{...base.properties,verdict:{const:'HYPOTHESIS'},truth_status:{const:'UNCONFIRMED'},premise_checks:{...base.properties.premise_checks,minItems:1}},required:[...base.required,'truth_status']}];
+  // Match validateCoverage at the native boundary: an exact observation still
+  // needs a checked premise/quote; SUPPORTED with [] cannot become a receipt.
+  // Keep negative assessments representable instead of forcing a positive audit.
+  const branch=verdict=>{
+   const result=structuredClone(base);result.properties.verdict={const:verdict};
+   const premises=result.properties.premise_checks;
+   if(['SUPPORTED','HYPOTHESIS'].includes(verdict)){
+    premises.minItems=Math.max(1,premises.minItems??0);
+    premises.items.properties.quote_ids.minItems=1;
+    premises.items.properties.supported={const:true};
+   }
+   if(verdict==='EDITORIAL_ONLY')premises.maxItems=0;
+   return result;
+  };
+  const branches=[branch('SUPPORTED'),branch('UNRESOLVED')];
+  if(!f.field.startsWith('observations.')&&base.properties.verdict.enum.includes('EDITORIAL_ONLY'))branches.push(branch('EDITORIAL_ONLY'));
+  if(f.field.startsWith('inferences.')){
+   const hypothesis=branch('HYPOTHESIS');hypothesis.properties.truth_status={const:'UNCONFIRMED'};hypothesis.required.push('truth_status');branches.push(hypothesis);
+  }
+  return branches;
  });
  return {type:'object',properties:{analysis_sha256:{const:hash},checks:{type:'array',minItems:fields.length,maxItems:fields.length,items:{oneOf:items}}},required:['analysis_sha256','checks'],additionalProperties:false};
 }
