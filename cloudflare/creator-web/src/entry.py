@@ -987,7 +987,9 @@ class Database(DurableObject):
             try:
                 with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
                     row = db.execute(
-                        "SELECT storage_key,sha256,mime_type FROM asset_files WHERE file_id=? AND role='ORIGINAL'",
+                        """SELECT f.storage_key,f.sha256,f.mime_type,a.media_type
+                        FROM asset_files f JOIN assets a USING(asset_id)
+                        WHERE f.file_id=? AND f.role='ORIGINAL' AND a.deleted_at IS NULL""",
                         (fid,),
                     ).fetchone()
                 if not row:
@@ -995,13 +997,26 @@ class Database(DurableObject):
                 raw = (root / row[0]).read_bytes()
                 if digest(raw) != row[1]:
                     raise ValueError("Media changed")
+                mime = row[2]
+                verified_pcm = False
+                if row[3] == "AUDIO":
+                    mime = "application/octet-stream"
+                    from creator_loop.backend.knowledge.cloud_audio import probe_pcm_wav
+
+                    try:
+                        probe_pcm_wav(raw)
+                    except ValueError:
+                        pass  # Opaque/unsupported audio remains a download.
+                    else:
+                        mime = "audio/wav"
+                        verified_pcm = True
                 return Response(
                     raw,
                     headers={
                         **HEADERS,
-                        "Content-Type": row[2],
+                        "Content-Type": mime,
                         "Content-Disposition": "inline"
-                        if row[2].startswith("image/")
+                        if mime.startswith("image/") or verified_pcm
                         else "attachment",
                     },
                 )
@@ -1311,7 +1326,11 @@ class Database(DurableObject):
                     result = domain.link_material(
                         data.get("project_id", ""), data.get("material_id", "")
                     )
-                elif path in ("/api/source-ranges", "/api/source-use"):
+                elif path in (
+                    "/api/source-ranges",
+                    "/api/source-audio-ranges",
+                    "/api/source-use",
+                ):
                     if self.rows(
                         """SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') AND
                         (json_extract(record,'$.request.project_id')=? OR EXISTS(
@@ -1324,11 +1343,12 @@ class Database(DurableObject):
                             "Project hoặc nguồn dùng chung đang có tác vụ. Dừng và chờ kết thúc trước khi sửa/chọn lại nguồn.",
                             409,
                         )
-                    result = (
-                        domain.source_text_range(data)
-                        if path == "/api/source-ranges"
-                        else domain.source_use(data)
-                    )
+                    if path == "/api/source-ranges":
+                        result = domain.source_text_range(data)
+                    elif path == "/api/source-audio-ranges":
+                        result = domain.source_audio_range(data)
+                    else:
+                        result = domain.source_use(data)
                 elif path == "/api/restore":
                     if data.get("confirm_data_after_backup_may_be_lost") is not True:
                         raise WebInputError(

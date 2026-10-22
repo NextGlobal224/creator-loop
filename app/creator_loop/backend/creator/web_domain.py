@@ -15,6 +15,7 @@ from creator_loop.backend.creator.generation_records import _persist
 from creator_loop.backend.creator.projects import add_project_reference, create_project
 from creator_loop.backend.creator.research_pipeline import ResearchPipeline
 from creator_loop.backend.knowledge.claims import _timestamp
+from creator_loop.backend.knowledge.cloud_audio import correct_cloud_audio_range
 from creator_loop.backend.knowledge.evidence_correction import correct_text_evidence
 from creator_loop.backend.knowledge.evidence_review import current_evidence_review
 from creator_loop.backend.knowledge.source_use import (
@@ -219,6 +220,41 @@ class WebDomain:
             "content": version.content,
             "review_state": "PENDING",
         }
+
+    def source_audio_range(self, data: dict[str, Any]) -> dict[str, Any]:
+        project_id, file_id = data.get("project_id", ""), data.get("file_id", "")
+        start, end, content = (
+            data.get("start_ms"),
+            data.get("end_ms"),
+            data.get("content"),
+        )
+        if (
+            type(start) is not int
+            or type(end) is not int
+            or not isinstance(content, str)
+        ):
+            raise WebInputError("Nhập transcript và khoảng thời gian mili giây nguyên.")
+        material = self._project_original(project_id, file_id)
+        if material["media_type"] != "AUDIO":
+            raise WebInputError("Sửa transcript hiện hỗ trợ nguồn ghi âm PCM WAV.")
+        with closing(_connect_write(self.path)) as db:
+            row = db.execute(
+                "SELECT anchor_file_id FROM evidence_versions WHERE evidence_version_id=?",
+                (data.get("evidence_version_id", ""),),
+            ).fetchone()
+            if row is None or row[0] != file_id:
+                raise WebInputError("Đoạn đang sửa không thuộc nguồn này.")
+            version = correct_cloud_audio_range(
+                db,
+                data_root=self.root,
+                evidence_version_id=data.get("evidence_version_id", ""),
+                start_ms=start,
+                end_ms=end,
+                content=content,
+                actor="WEB_CLIENT",
+                reason=data.get("reason", ""),
+            )
+        return {"evidence_version_id": version, "review_state": "PENDING"}
 
     def source_use(self, data: dict[str, Any]) -> dict[str, Any]:
         project_id, file_id = data.get("project_id", ""), data.get("file_id", "")

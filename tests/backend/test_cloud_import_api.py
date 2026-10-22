@@ -228,6 +228,57 @@ class CloudImportAPITests(unittest.TestCase):
             )
         )
 
+    def test_media_player_only_serves_verified_pcm_as_inline_wav(self):
+        from tests.backend.test_cloud_audio import wav
+
+        domain = self.fixture.domain
+        project = domain.project("Isolated playback fixture")["project_id"]
+        self.api.load = lambda: (self.fixture.root, 5)
+        self.api.discard_projection = lambda root: None
+        namespace = self.api.authorized.__func__.__globals__
+        namespace["HEADERS"] = {}
+        namespace["Response"] = lambda raw, headers: SimpleNamespace(
+            raw=raw, headers=headers
+        )
+        for raw, expected in (
+            (wav(), "audio/wav"),
+            (b"opaque audio", "application/octet-stream"),
+        ):
+            file = domain.intake(
+                {
+                    "project_id": project,
+                    "media_type": "AUDIO",
+                    "display_name": "fixture.wav",
+                },
+                raw,
+            )
+            result = self.call(path="/media/" + file["file_id"])
+            self.assertEqual(result.raw, raw)
+            self.assertEqual(result.headers["Content-Type"], expected)
+            self.assertEqual(
+                result.headers["Content-Disposition"],
+                "inline" if expected == "audio/wav" else "attachment",
+            )
+        with _connect_write(domain.path) as db:
+            db.execute(
+                "UPDATE assets SET media_type='VIDEO' WHERE asset_id=?",
+                (file["asset_id"],),
+            )
+            db.execute(
+                "UPDATE asset_files SET mime_type='audio/wav' WHERE file_id=?",
+                (file["file_id"],),
+            )
+        spoof = self.call(path="/media/" + file["file_id"])
+        self.assertEqual(spoof.headers["Content-Disposition"], "attachment")
+        with _connect_write(domain.path) as db:
+            row = db.execute(
+                "SELECT storage_key FROM asset_files WHERE file_id=?",
+                (file["file_id"],),
+            ).fetchone()
+        (self.fixture.root / row[0]).write_bytes(b"corrupted")
+        with self.assertRaisesRegex(ValueError, "Media changed"):
+            self.call(path="/media/" + file["file_id"])
+
     def test_import_reopen_receipt_and_same_request_do_not_duplicate_rows(self):
         result = self.call(copy.deepcopy(self.data))
         self.assertEqual(result.value["revision"], 6)
@@ -489,7 +540,11 @@ class CloudImportAPITests(unittest.TestCase):
                 ),
             )
         before = self.api.rows("SELECT * FROM checkpoint")
-        for path in ("/api/source-ranges", "/api/source-use"):
+        for path in (
+            "/api/source-ranges",
+            "/api/source-audio-ranges",
+            "/api/source-use",
+        ):
             with self.assertRaisesRegex(WebInputError, "nguồn dùng chung"):
                 self.call({"project_id": "new", "file_id": "shared"}, path=path)
         self.assertEqual(self.api.rows("SELECT * FROM checkpoint"), before)
