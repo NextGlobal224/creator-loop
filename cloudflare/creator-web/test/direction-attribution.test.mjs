@@ -14,7 +14,8 @@ test('source attribution within a plan cannot inherit an editorial-only exemptio
  assert.deepEqual(sentences,['Theo BETA, công cụ X giúp tìm ảnh gốc.','Cả hai nguồn đều đề cập giới hạn và công cụ này.']);
  assert.throws(()=>validateCoverage(r,hash,fields,catalog),/Direction attribution coverage/);
  const rule=coverageSchema(hash,fields,catalog).properties.checks.items.oneOf.find(x=>x.properties.field.const==='direction');
- assert.deepEqual(rule.properties.verdict.enum,['SUPPORTED','UNRESOLVED']);assert.equal(rule.properties.premise_checks.minItems,2);
+ assert.equal(rule.properties.verdict.const,'SUPPORTED');assert.equal(rule.properties.premise_checks.minItems,2);
+ assert.ok(coverageSchema(hash,fields,catalog).properties.checks.items.oneOf.some(x=>x.properties.field.const==='direction'&&x.properties.verdict.const==='UNRESOLVED'));
  // A token support check for a fragment is not coverage of the full assertion.
  r.checks[1].verdict='SUPPORTED';r.checks[1].premise_checks=[{assertion:'Công cụ X',quote_ids:[1],supported:true}];
  assert.throws(()=>validateCoverage(r,hash,fields,catalog),/coverage/);

@@ -60,7 +60,15 @@ test('actual editing still rejects copied original plus extra advice; KEEP remai
 test('missing inherited manual clause fails before inference; VIDEO and other stages unchanged',()=>{
  const native={messages:[{role:'system',content:'Unexpected new protocol'}]};
  assert.throws(()=>bindSelectedManualBrief(native,{mode:'MANUAL',format:'TEXT',stage:'writing'},{direction:'Chosen brief'}),/Expected inherited/);
- for(const packet of [{mode:'AUTOMATIC',format:'TEXT',stage:'writing'},{mode:'MANUAL',format:'VIDEO',stage:'writing'},{mode:'MANUAL',format:'TEXT',stage:'source_audit'}]){
+ for(const packet of [{mode:'AUTOMATIC',format:'TEXT',stage:'writing'},{mode:'MANUAL',format:'VIDEO',stage:'writing'},{mode:'MANUAL',format:'TEXT',stage:'analysis'}]){
   const n=structuredClone(native),before=structuredClone(n);assert.equal(bindSelectedManualBrief(n,packet,{direction:'Chosen brief'}),false);assert.deepEqual(n,before);
  }
+});
+test('manual audit receives the same selected deliverable and conditional-context boundaries',()=>{
+ const n={messages:[{role:'system',content:'Keep all source requirements'}]};
+ const source={purpose:'Giải thích',audience:'Người đọc',style:'Rõ',direction:'Kết bằng lời nhắn hỏi nguồn'};
+ assert.equal(bindSelectedManualBrief(n,{mode:'MANUAL',format:'TEXT',stage:'source_audit'},source),true);
+ assert.match(n.messages[0].content,/not an actual sender message/);
+ assert.match(n.messages[0].content,/first\/required step or an earliest occurrence still needs exact source support/);
+ assert.equal(JSON.parse(n.messages[1].content.split('\n')[1]).direction,source.direction);
 });

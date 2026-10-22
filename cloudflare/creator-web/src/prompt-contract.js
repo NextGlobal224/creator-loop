@@ -6,7 +6,7 @@ const schemaMarker='\nReturn only JSON matching this schema:\n';
 // MANUAL analysis.direction is the exact selected brief, not an AI proposal.
 // Replace the inherited conflicting clauses instead of appending an override.
 export function bindSelectedManualBrief(native,packet,source){
- if(packet.mode!=='MANUAL'||!['TEXT','IMAGE_CAPTION'].includes(packet.format)||!['writing','editing'].includes(packet.stage))return false;
+ if(packet.mode!=='MANUAL'||!['TEXT','IMAGE_CAPTION'].includes(packet.format)||!['writing','editing','source_audit'].includes(packet.stage))return false;
  const system=native.messages.find(m=>m.role==='system'&&typeof m.content==='string');
  if(!system||typeof source.direction!=='string'||!source.direction.trim())throw Error('Selected manual brief missing');
  if(packet.stage==='writing'){
@@ -18,6 +18,8 @@ export function bindSelectedManualBrief(native,packet,source){
   }
  }
  native.messages.push({role:'user',content:'SELECTED MANUAL EDITORIAL BRIEF (authenticated user choices, not source evidence; factual/source rules still apply):\n'+JSON.stringify({purpose:source.purpose,audience:source.audience,style:source.style,direction:source.direction})});
+ system.content+=' MANUAL deliverable: lời nhắn người đọc có thể gửi, nếu brief yêu cầu, phải là chính lời nhắn đó (câu hỏi/lời đề nghị trực tiếp), không phải lời khuyên hãy hỏi người gửi. Nếu brief yêu cầu kiểu kết khác thì dùng đúng kiểu kết ấy. Bốn vai đoạn là chức năng phát triển chủ đề đã chọn, không phải bốn ngăn để xếp hết câu nguồn: chỉ chọn ý liên quan, giải thích mối nối/điều kiện/giới hạn được nguồn hỗ trợ; bỏ ví dụ ngoài trọng tâm dù có nguồn. Không thêm chi tiết, độ chắc chắn, thứ tự bắt buộc hoặc phạm vi so sánh mà trích đoạn không có. Phân biệt một câu dẫn điều kiện chung với một khẳng định sự kiện có thật; mọi tiền đề công cụ/hiệu quả/quy trình/quy kết trong câu ấy vẫn phải có căn cứ. Các yêu cầu này không biến brief thành bằng chứng factual.';
+ if(packet.stage==='source_audit')system.content+=' Audit the immutable public wording against that selected MANUAL deliverable. An instruction to ask for a source is not an actual sender message when one was requested. Different source summaries alone do not show developed explanatory connections. A generic conditional context is not a report of an observed event, but an asserted first/required step or an earliest occurrence still needs exact source support; do not exempt a whole sentence because only its context is conditional. Do not repair the article or invent a positive verdict.';
  if(packet.stage==='editing')system.content+=' Operation semantics: if an original passage is both supported and usable for this brief, KEEP it with replacement:[]. A REWRITE cannot copy that original passage anywhere into its replacements, including copying a supported sentence and then appending advice; change the passage itself, or keep it and avoid an unnecessary addition. REMOVE only where the existing paragraph/mandatory-revision rules allow. Judge source support separately from relevance: a supported publication date can still be irrelevant as the opening. An uncited voluntary request with no factual premise or promised outcome is SUGGESTION, not INSUFFICIENT solely for lacking a source; outcome/tool/institution claims still need exact evidence. If the brief asks for a sender message, write that actual message once at the end, not repeated advice describing a request.';
  return true;
 }

@@ -1,10 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {fromJSONSchema} from '../../creator-ai/node_modules/zod/index.js';
 import {analysisFields,analysisHash,validateAnalysis,validateCoverage,analysisProfile,coverageSchema} from '../src/analysis-audit.js';
 const materials=[{material_id:'m',text:'COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến.'}];
 const catalog=[{material_id:'m',source_quote:materials[0].text}];
 const analysis={observations:[{material_id:'m',quote:materials[0].text,observation:materials[0].text}],inferences:['Giả thuyết chưa xác nhận: Bạn có thể cân nhắc hỏi lại người gửi.'],direction:'Đề xuất tự viết: hỏi đường dẫn gốc, không dự đoán kết quả.'};
 function receipt(hash,fields){return {analysis_sha256:hash,checks:fields.map((f,i)=>({field:f.field,verdict:i===0?'SUPPORTED':'EDITORIAL_ONLY',premise_checks:i===0?[{assertion:f.text,quote_ids:[0],supported:true}]:[],reason:'Fixture only, no quality acceptance',issues:[]}))};}
+
+test('native coverage schema rejects the live empty-supported-premise failure and retains negative audits',async()=>{
+ const fields=analysisFields(analysis),hash=await analysisHash(analysis),valid=receipt(hash,fields);
+ const schema=fromJSONSchema(coverageSchema(hash,fields,catalog));
+ assert.equal(schema.safeParse(valid).success,true);
+ for(const mutate of [r=>r.checks[0].premise_checks=[],r=>r.checks[0].verdict='EDITORIAL_ONLY',r=>r.checks[0].premise_checks[0].quote_ids=[],r=>r.checks[0].premise_checks[0].supported=false,r=>r.checks[2].premise_checks.push({assertion:'An empirical claim',quote_ids:[0],supported:true})]){
+  const changed=structuredClone(valid);mutate(changed);
+  assert.equal(schema.safeParse(changed).success,false);
+  assert.throws(()=>validateCoverage(changed,hash,fields,catalog));
+ }
+ const negative=structuredClone(valid);negative.checks[0].verdict='UNRESOLVED';negative.checks[0].issues=['Source does not support this assertion'];negative.checks[0].premise_checks=[];
+ assert.equal(schema.safeParse(negative).success,true);
+ assert.throws(()=>validateCoverage(negative,hash,fields,catalog),/unresolved/);
+});
 test('immutable analysis audit requires every field/hash/order and no unsupported premise',async()=>{
  const fields=validateAnalysis(analysis,materials),hash=await analysisHash(analysis);assert.equal(fields.length,3);assert.equal(validateCoverage(receipt(hash,fields),hash,fields,catalog).checks.length,3);
  for(const mutate of [r=>r.checks.pop(),r=>r.checks.reverse(),r=>r.analysis_sha256='0'.repeat(64),r=>r.checks[1].issues.push('Unsupported efficacy'),r=>r.checks[2].verdict='UNRESOLVED',r=>r.checks[0].premise_checks[0].supported=false,r=>r.checks[1].premise_checks.push({assertion:'Tools recommended by UNESCO',quote_ids:[],supported:false})]){
