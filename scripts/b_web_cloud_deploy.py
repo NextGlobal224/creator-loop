@@ -55,6 +55,56 @@ def sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def read_included_usage(account: str, headers: dict, start: str, end: str) -> dict:
+    """Bound query size, not the accounting window; never retry failed reads."""
+    selections = {
+        "workersInvocationsAdaptive": "(limit:1){sum{requests cpuTimeUs}}",
+        "durableObjectsInvocationsAdaptiveGroups": "(limit:1){sum{requests}}",
+        "durableObjectsPeriodicGroups": "(limit:1){sum{duration rowsRead rowsWritten}}",
+        "durableObjectsSqlStorageGroups": "(limit:100){dimensions{namespaceId} max{storedBytes}}",
+    }
+    usage = {}
+    for node, selection in selections.items():
+        selection = selection.replace(
+            "){", ",filter:{datetime_geq:$s,datetime_leq:$e}){", 1
+        )
+        observed, _ = read_json(
+            "https://api.cloudflare.com/client/v4/graphql",
+            headers,
+            {
+                "query": "query($a:string,$s:string,$e:string){viewer{accounts(filter:{accountTag:$a}){"
+                + node
+                + selection
+                + "}}}",
+                "variables": {"a": account, "s": start, "e": end},
+            },
+        )
+        if observed.get("errors"):
+            # Keep only bounded diagnostic codes; provider messages can contain
+            # account identifiers. No query retry or activation follows this.
+            codes = []
+            for error in observed["errors"][:8]:
+                code = error.get("extensions", {}).get("code")
+                codes.append(
+                    code
+                    if type(code) is str
+                    and code in {"budget", "rate_limit", "limits", "bad_query"}
+                    else "unknown"
+                )
+            Path("included-resource-error.json").write_text(
+                json.dumps({"node": node, "codes": codes, "model_calls": 0})
+            )
+            raise ValueError("Cannot verify included resources: " + node)
+        accounts = observed["data"]["viewer"]["accounts"]
+        if len(accounts) != 1:
+            raise ValueError("Included-resource account observation missing")
+        rows = accounts[0][node]
+        if not rows or (node.endswith("SqlStorageGroups") and len(rows) >= 100):
+            raise ValueError("Included-resource observation absent or truncated")
+        usage[node] = rows
+    return usage
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise RuntimeError("Redirect refused")
@@ -448,27 +498,12 @@ def main():
     from datetime import datetime, timedelta, timezone
 
     now = datetime.now(timezone.utc)
-    query = """query($a:string,$s:string,$e:string){viewer{accounts(filter:{accountTag:$a}){
-      workersInvocationsAdaptive(limit:1,filter:{datetime_geq:$s,datetime_leq:$e}){sum{requests cpuTimeUs}}
-      durableObjectsInvocationsAdaptiveGroups(limit:1,filter:{datetime_geq:$s,datetime_leq:$e}){sum{requests}}
-      durableObjectsPeriodicGroups(limit:1,filter:{datetime_geq:$s,datetime_leq:$e}){sum{duration rowsRead rowsWritten}}
-      durableObjectsSqlStorageGroups(limit:1000,filter:{datetime_geq:$s,datetime_leq:$e}){dimensions{namespaceId} max{storedBytes}}
-    }}}"""
-    observed, _ = read_json(
-        "https://api.cloudflare.com/client/v4/graphql",
+    usage = read_included_usage(
+        account,
         headers,
-        {
-            "query": query,
-            "variables": {
-                "a": account,
-                "s": (now - timedelta(days=31)).isoformat(),
-                "e": now.isoformat(),
-            },
-        },
+        (now - timedelta(days=31)).isoformat(),
+        now.isoformat(),
     )
-    if observed.get("errors"):
-        raise ValueError("Cannot verify included resources")
-    usage = observed["data"]["viewer"]["accounts"][0]
     w = usage["workersInvocationsAdaptive"][0]["sum"]
     d = usage["durableObjectsPeriodicGroups"][0]["sum"]
     requests = usage["durableObjectsInvocationsAdaptiveGroups"][0]["sum"]["requests"]
@@ -480,7 +515,7 @@ def main():
         and d["duration"] + 60000 < 400000
         and d["rowsRead"] + 10000000 < 25000000000
         and d["rowsWritten"] + 1000000 < 50000000
-        and 0 < len(storage) < 1000
+        and 0 < len(storage) < 100
         and sum(s["max"]["storedBytes"] for s in storage) + 512 * 1024**2 < 5 * 1024**3
     ):
         raise ValueError("Included-resource guard closed")

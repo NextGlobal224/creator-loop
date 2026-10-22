@@ -18,6 +18,7 @@ from scripts.b_web_cloud_deploy import (
     expected_binding_types,
     main,
     observe_activated_runtime,
+    read_included_usage,
     read_json,
     runtime_files,
     static_header_policy,
@@ -28,6 +29,79 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_usage_error_artifact_never_copies_arbitrary_provider_codes(self):
+        for code in ("private-account-identifier", {"token": "private"}, 12345):
+            with (
+                self.subTest(code=code),
+                patch(
+                    "scripts.b_web_cloud_deploy.read_json",
+                    return_value=({"errors": [{"extensions": {"code": code}}]}, {}),
+                ),
+                patch("scripts.b_web_cloud_deploy.Path.write_text") as write,
+            ):
+                with self.assertRaises(ValueError):
+                    read_included_usage("fixture", {}, "start", "end")
+                self.assertEqual(
+                    json.loads(write.call_args.args[0])["codes"], ["unknown"]
+                )
+
+    def test_usage_query_failure_stops_without_retry_and_retains_safe_code(self):
+        with (
+            patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                return_value=(
+                    {
+                        "errors": [
+                            {
+                                "message": "private-account",
+                                "extensions": {"code": "budget"},
+                            }
+                        ]
+                    },
+                    {},
+                ),
+            ) as read,
+            patch("scripts.b_web_cloud_deploy.Path.write_text") as write,
+        ):
+            with self.assertRaisesRegex(ValueError, "Cannot verify included"):
+                read_included_usage("fixture", {}, "start", "end")
+        self.assertEqual(read.call_count, 1)
+        self.assertEqual(
+            json.loads(write.call_args.args[0]),
+            {
+                "node": "workersInvocationsAdaptive",
+                "codes": ["budget"],
+                "model_calls": 0,
+            },
+        )
+
+    def test_usage_queries_keep_full_window_and_reject_truncated_storage(self):
+        nodes = (
+            "workersInvocationsAdaptive",
+            "durableObjectsInvocationsAdaptiveGroups",
+            "durableObjectsPeriodicGroups",
+            "durableObjectsSqlStorageGroups",
+        )
+
+        def read(url, headers, data):
+            node = next(n for n in nodes if n + "(" in data["query"])
+            self.assertEqual(sum(n + "(" in data["query"] for n in nodes), 1)
+            self.assertEqual(
+                data["variables"], {"a": "fixture", "s": "full-start", "e": "full-end"}
+            )
+            self.assertNotIn("limit:1000", data["query"])
+            rows = (
+                [{"sum": {}}]
+                if node != nodes[-1]
+                else [{"max": {"storedBytes": 1}}] * 100
+            )
+            return {"data": {"viewer": {"accounts": [{node: rows}]}}}, {}
+
+        with patch("scripts.b_web_cloud_deploy.read_json", side_effect=read) as query:
+            with self.assertRaisesRegex(ValueError, "truncated"):
+                read_included_usage("fixture", {}, "full-start", "full-end")
+        self.assertEqual(query.call_count, 4)
+
     def test_existing_isolated_operator_is_preserved_without_adding_a_binding(self):
         empty = {"resources": {"bindings": []}}
         operator = {
