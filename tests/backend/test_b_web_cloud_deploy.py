@@ -7,6 +7,7 @@ import json
 import os
 import unittest
 import zipfile
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 from scripts.b_web_cloud_deploy import (
@@ -29,6 +30,117 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_daily_accounting_covers_full_window_and_storage_namespace_peaks(self):
+        first = datetime(2026, 9, 22, tzinfo=timezone.utc)
+        last = first + timedelta(days=31)
+        seen = {}
+
+        def read(url, headers, data):
+            self.assertEqual(data["variables"]["a"], "fixture")
+            start, end = (
+                datetime.fromisoformat(data["variables"][k]) for k in ("s", "e")
+            )
+            self.assertGreater(end, start)
+            self.assertLessEqual(end - start, timedelta(days=1))
+            node = next(
+                n
+                for n in (
+                    "workersInvocationsAdaptive",
+                    "durableObjectsInvocationsAdaptiveGroups",
+                    "durableObjectsPeriodicGroups",
+                    "durableObjectsSqlStorageGroups",
+                )
+                if n + "(" in data["query"]
+            )
+            seen.setdefault(node, []).append((start, end))
+            index = len(seen[node])
+            if node == "workersInvocationsAdaptive":
+                rows = [{"sum": {"requests": index, "cpuTimeUs": index * 1000}}]
+            elif node == "durableObjectsInvocationsAdaptiveGroups":
+                rows = [{"sum": {"requests": index}}]
+            elif node == "durableObjectsPeriodicGroups":
+                rows = [
+                    {
+                        "sum": {
+                            "duration": index,
+                            "rowsRead": index * 2,
+                            "rowsWritten": index * 3,
+                        }
+                    }
+                ]
+            else:
+                rows = [
+                    {
+                        "dimensions": {"namespaceId": "A"},
+                        "max": {"storedBytes": 100 - index},
+                    },
+                    {"dimensions": {"namespaceId": "B"}, "max": {"storedBytes": index}},
+                ]
+            return {"data": {"viewer": {"accounts": [{node: rows}]}}}, {}
+
+        with patch("scripts.b_web_cloud_deploy.read_json", side_effect=read) as query:
+            result = read_included_usage(
+                "fixture", {}, first.isoformat(), last.isoformat()
+            )
+        self.assertEqual(query.call_count, 124)
+        for windows in seen.values():
+            self.assertEqual((windows[0][0], windows[-1][1]), (first, last))
+            self.assertTrue(all(a[1] == b[0] for a, b in zip(windows, windows[1:])))
+            self.assertEqual(len(windows), len(set(windows)))
+        self.assertEqual(
+            result["workersInvocationsAdaptive"][0]["sum"],
+            {"requests": 496, "cpuTimeUs": 496000},
+        )
+        self.assertEqual(
+            result["durableObjectsPeriodicGroups"][0]["sum"],
+            {"duration": 496, "rowsRead": 992, "rowsWritten": 1488},
+        )
+        self.assertEqual(
+            sum(
+                r["max"]["storedBytes"]
+                for r in result["durableObjectsSqlStorageGroups"]
+            ),
+            130,
+        )
+
+    def test_daily_accounting_invalid_missing_negative_or_expired_is_closed(self):
+        start, end = "2026-10-01T00:00:00+00:00", "2026-10-02T00:00:00+00:00"
+        for rows in (
+            None,
+            [{"sum": {"requests": 1}}],
+            [{"sum": {"requests": -1, "cpuTimeUs": 1}}],
+            [{"sum": {"requests": 1, "cpuTimeUs": float("nan")}}],
+        ):
+            with (
+                self.subTest(rows=rows),
+                patch(
+                    "scripts.b_web_cloud_deploy.read_json",
+                    return_value=(
+                        {
+                            "data": {
+                                "viewer": {
+                                    "accounts": [{"workersInvocationsAdaptive": rows}]
+                                }
+                            }
+                        },
+                        {},
+                    ),
+                ),
+            ):
+                with self.assertRaises(ValueError):
+                    read_included_usage("fixture", {}, start, end)
+        with (
+            patch("scripts.b_web_cloud_deploy.read_json") as read,
+            patch("scripts.b_web_cloud_deploy.time.monotonic", side_effect=[0, 121]),
+        ):
+            with self.assertRaisesRegex(ValueError, "deadline"):
+                read_included_usage("fixture", {}, start, end)
+            read.assert_not_called()
+        with patch("scripts.b_web_cloud_deploy.read_json") as read:
+            with self.assertRaisesRegex(ValueError, "accounting window"):
+                read_included_usage("fixture", {}, "2026-08-01T00:00:00+00:00", end)
+            read.assert_not_called()
+
     def test_usage_error_artifact_never_copies_arbitrary_provider_codes(self):
         for code in ("private-account-identifier", {"token": "private"}, 12345):
             with (
@@ -40,7 +152,12 @@ class CloudDeploymentTests(unittest.TestCase):
                 patch("scripts.b_web_cloud_deploy.Path.write_text") as write,
             ):
                 with self.assertRaises(ValueError):
-                    read_included_usage("fixture", {}, "start", "end")
+                    read_included_usage(
+                        "fixture",
+                        {},
+                        "2026-10-01T00:00:00+00:00",
+                        "2026-10-02T00:00:00+00:00",
+                    )
                 self.assertEqual(
                     json.loads(write.call_args.args[0])["codes"], ["unknown"]
                 )
@@ -64,7 +181,12 @@ class CloudDeploymentTests(unittest.TestCase):
             patch("scripts.b_web_cloud_deploy.Path.write_text") as write,
         ):
             with self.assertRaisesRegex(ValueError, "Cannot verify included"):
-                read_included_usage("fixture", {}, "start", "end")
+                read_included_usage(
+                    "fixture",
+                    {},
+                    "2026-10-01T00:00:00+00:00",
+                    "2026-10-02T00:00:00+00:00",
+                )
         self.assertEqual(read.call_count, 1)
         self.assertEqual(
             json.loads(write.call_args.args[0]),
@@ -87,11 +209,20 @@ class CloudDeploymentTests(unittest.TestCase):
             node = next(n for n in nodes if n + "(" in data["query"])
             self.assertEqual(sum(n + "(" in data["query"] for n in nodes), 1)
             self.assertEqual(
-                data["variables"], {"a": "fixture", "s": "full-start", "e": "full-end"}
+                data["variables"],
+                {
+                    "a": "fixture",
+                    "s": "2026-10-01T00:00:00+00:00",
+                    "e": "2026-10-02T00:00:00+00:00",
+                },
             )
             self.assertNotIn("limit:1000", data["query"])
             rows = (
-                [{"sum": {}}]
+                [{"sum": {"requests": 1, "cpuTimeUs": 1}}]
+                if node == nodes[0]
+                else [{"sum": {"requests": 1}}]
+                if node == nodes[1]
+                else [{"sum": {"duration": 1, "rowsRead": 1, "rowsWritten": 1}}]
                 if node != nodes[-1]
                 else [{"max": {"storedBytes": 1}}] * 100
             )
@@ -99,7 +230,12 @@ class CloudDeploymentTests(unittest.TestCase):
 
         with patch("scripts.b_web_cloud_deploy.read_json", side_effect=read) as query:
             with self.assertRaisesRegex(ValueError, "truncated"):
-                read_included_usage("fixture", {}, "full-start", "full-end")
+                read_included_usage(
+                    "fixture",
+                    {},
+                    "2026-10-01T00:00:00+00:00",
+                    "2026-10-02T00:00:00+00:00",
+                )
         self.assertEqual(query.call_count, 4)
 
     def test_existing_isolated_operator_is_preserved_without_adding_a_binding(self):
@@ -253,7 +389,10 @@ class CloudDeploymentTests(unittest.TestCase):
                                         {"sum": {"requests": 1}}
                                     ],
                                     "durableObjectsSqlStorageGroups": [
-                                        {"max": {"storedBytes": 1}}
+                                        {
+                                            "dimensions": {"namespaceId": "fixture"},
+                                            "max": {"storedBytes": 1},
+                                        }
                                     ],
                                 }
                             ]

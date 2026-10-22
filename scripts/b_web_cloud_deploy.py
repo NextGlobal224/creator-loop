@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import subprocess
@@ -12,6 +13,7 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+from datetime import datetime, timedelta
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path, PurePosixPath
@@ -56,52 +58,125 @@ def sha(raw: bytes) -> str:
 
 
 def read_included_usage(account: str, headers: dict, start: str, end: str) -> dict:
-    """Bound query size, not the accounting window; never retry failed reads."""
+    """Cover the same full window with <=128 distinct, <=24h reads; no retry.
+
+    Adjacent inclusive boundaries may overcount a boundary event. They cannot
+    omit one. Storage is the maximum per namespace across the entire window,
+    never the last day's value or a single namespace's maximum.
+    """
+    first, last = datetime.fromisoformat(start), datetime.fromisoformat(end)
+    if (
+        first.utcoffset() is None
+        or last.utcoffset() is None
+        or not timedelta(0) < last - first <= timedelta(days=31)
+    ):
+        raise ValueError("Invalid full accounting window")
+    windows = []
+    cursor = first
+    while cursor < last:
+        stop = min(cursor + timedelta(days=1), last)
+        windows.append((cursor.isoformat(), stop.isoformat()))
+        cursor = stop
     selections = {
         "workersInvocationsAdaptive": "(limit:1){sum{requests cpuTimeUs}}",
         "durableObjectsInvocationsAdaptiveGroups": "(limit:1){sum{requests}}",
         "durableObjectsPeriodicGroups": "(limit:1){sum{duration rowsRead rowsWritten}}",
         "durableObjectsSqlStorageGroups": "(limit:100){dimensions{namespaceId} max{storedBytes}}",
     }
+    sum_fields = {
+        "workersInvocationsAdaptive": {"requests", "cpuTimeUs"},
+        "durableObjectsInvocationsAdaptiveGroups": {"requests"},
+        "durableObjectsPeriodicGroups": {"duration", "rowsRead", "rowsWritten"},
+    }
     usage = {}
+    started = time.monotonic()
     for node, selection in selections.items():
         selection = selection.replace(
             "){", ",filter:{datetime_geq:$s,datetime_leq:$e}){", 1
         )
-        observed, _ = read_json(
-            "https://api.cloudflare.com/client/v4/graphql",
-            headers,
-            {
-                "query": "query($a:string,$s:string,$e:string){viewer{accounts(filter:{accountTag:$a}){"
-                + node
-                + selection
-                + "}}}",
-                "variables": {"a": account, "s": start, "e": end},
-            },
-        )
-        if observed.get("errors"):
-            # Keep only bounded diagnostic codes; provider messages can contain
-            # account identifiers. No query retry or activation follows this.
-            codes = []
-            for error in observed["errors"][:8]:
-                code = error.get("extensions", {}).get("code")
-                codes.append(
-                    code
-                    if type(code) is str
-                    and code in {"budget", "rate_limit", "limits", "bad_query"}
-                    else "unknown"
-                )
-            Path("included-resource-error.json").write_text(
-                json.dumps({"node": node, "codes": codes, "model_calls": 0})
+        collected = []
+        namespaces = {}
+        for window_start, window_end in windows:
+            if time.monotonic() - started > 120:
+                raise ValueError("Included-resource observation deadline exceeded")
+            observed, _ = read_json(
+                "https://api.cloudflare.com/client/v4/graphql",
+                headers,
+                {
+                    "query": "query($a:string,$s:string,$e:string){viewer{accounts(filter:{accountTag:$a}){"
+                    + node
+                    + selection
+                    + "}}}",
+                    "variables": {"a": account, "s": window_start, "e": window_end},
+                },
             )
-            raise ValueError("Cannot verify included resources: " + node)
-        accounts = observed["data"]["viewer"]["accounts"]
-        if len(accounts) != 1:
-            raise ValueError("Included-resource account observation missing")
-        rows = accounts[0][node]
-        if not rows or (node.endswith("SqlStorageGroups") and len(rows) >= 100):
-            raise ValueError("Included-resource observation absent or truncated")
-        usage[node] = rows
+            if observed.get("errors"):
+                # Keep only bounded diagnostic codes; provider messages can contain
+                # account identifiers. No query retry or activation follows this.
+                codes = []
+                for error in observed["errors"][:8]:
+                    code = error.get("extensions", {}).get("code")
+                    codes.append(
+                        code
+                        if type(code) is str
+                        and code in {"budget", "rate_limit", "limits", "bad_query"}
+                        else "unknown"
+                    )
+                Path("included-resource-error.json").write_text(
+                    json.dumps({"node": node, "codes": codes, "model_calls": 0})
+                )
+                raise ValueError("Cannot verify included resources: " + node)
+            accounts = observed["data"]["viewer"]["accounts"]
+            if len(accounts) != 1:
+                raise ValueError("Included-resource account observation missing")
+            rows = accounts[0][node]
+            if not isinstance(rows, list) or len(rows) >= (
+                100 if node.endswith("SqlStorageGroups") else 2
+            ):
+                raise ValueError("Included-resource observation absent or truncated")
+            if node.endswith("SqlStorageGroups"):
+                seen = set()
+                for row in rows:
+                    namespace = row["dimensions"]["namespaceId"]
+                    value = row["max"]["storedBytes"]
+                    if (
+                        not isinstance(namespace, str)
+                        or not namespace
+                        or namespace in seen
+                    ):
+                        raise ValueError("Invalid storage namespace observation")
+                    if (
+                        type(value) not in (int, float)
+                        or not math.isfinite(value)
+                        or value < 0
+                    ):
+                        raise ValueError("Invalid included-resource usage")
+                    seen.add(namespace)
+                    namespaces[namespace] = max(namespaces.get(namespace, 0), value)
+            else:
+                for row in rows:
+                    if set(row["sum"]) != sum_fields[node]:
+                        raise ValueError("Included-resource metric missing")
+                    for value in row["sum"].values():
+                        if (
+                            type(value) not in (int, float)
+                            or not math.isfinite(value)
+                            or value < 0
+                        ):
+                            raise ValueError("Invalid included-resource usage")
+                collected.extend(rows)
+        if node.endswith("SqlStorageGroups"):
+            usage[node] = [{"max": {"storedBytes": v}} for v in namespaces.values()]
+        else:
+            totals = {}
+            for row in collected:
+                for key, value in row["sum"].items():
+                    totals[key] = totals.get(key, 0) + value
+            usage[node] = [{"sum": totals}] if collected else []
+        if not usage[node]:
+            raise ValueError("Included-resource observation absent across full window")
+    if time.monotonic() - started > 120:
+        raise ValueError("Included-resource observation deadline exceeded")
     return usage
 
 
