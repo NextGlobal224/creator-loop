@@ -47,6 +47,24 @@ class WebDomainTests(unittest.TestCase):
                 "material_ids": [self.selected.material_id],
             }
         )
+        self.source_version = self.domain.source_text_range(
+            {
+                "project_id": self.project["project_id"],
+                "file_id": self.material["file_id"],
+                "start": 0,
+                "end": len(self.source),
+            }
+        )["evidence_version_id"]
+        self.domain.source_use(
+            {
+                "project_id": self.project["project_id"],
+                "file_id": self.material["file_id"],
+                "state": "SELECTED",
+                "evidence_version_ids": [self.source_version],
+                "expected_parent": None,
+                "explicit_source_use_choice": True,
+            }
+        )
 
     def test_project_material_links_are_explicit_many_to_many_and_enforced(self):
         a = self.project["project_id"]
@@ -63,6 +81,18 @@ class WebDomainTests(unittest.TestCase):
         self.domain.link_material(b, self.selected.material_id)
         self.assertEqual(len(self.domain.state(b)["materials"]), 1)
         self.assertEqual(len(self.domain.state(a)["materials"]), 1)
+        with self.assertRaisesRegex(ValueError, "chọn/xác nhận"):
+            self.domain.prepare(replace(self.request, project_id=b))
+        self.domain.source_use(
+            {
+                "project_id": b,
+                "file_id": self.material["file_id"],
+                "state": "SELECTED",
+                "evidence_version_ids": [self.source_version],
+                "expected_parent": None,
+                "explicit_source_use_choice": True,
+            }
+        )
         self.assertEqual(
             len(self.domain.prepare(replace(self.request, project_id=b))), 1
         )

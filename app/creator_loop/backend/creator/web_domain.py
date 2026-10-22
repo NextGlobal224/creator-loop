@@ -15,6 +15,17 @@ from creator_loop.backend.creator.generation_records import _persist
 from creator_loop.backend.creator.projects import add_project_reference, create_project
 from creator_loop.backend.creator.research_pipeline import ResearchPipeline
 from creator_loop.backend.knowledge.claims import _timestamp
+from creator_loop.backend.knowledge.evidence_correction import correct_text_evidence
+from creator_loop.backend.knowledge.evidence_review import current_evidence_review
+from creator_loop.backend.knowledge.source_use import (
+    current_source_use,
+    permitted_source_versions,
+    select_source_use,
+)
+from creator_loop.backend.knowledge.text_evidence import (
+    create_text_evidence,
+    read_verified_text_snapshot,
+)
 from creator_loop.backend.library.library import Asset, LibraryRepository, Source
 from creator_loop.backend.runtime.database import _connect_write, validate
 from creator_loop.backend.runtime.transactions import atomic_transaction
@@ -107,6 +118,130 @@ class WebDomain:
         self.path = root / "creator_loop.sqlite3"
         self.pipeline = WebPipeline(root)
 
+    def _project_original(self, project_id: str, file_id: str) -> dict[str, Any]:
+        material = next(
+            (m for m in self.state(project_id)["materials"] if m["file_id"] == file_id),
+            None,
+        )
+        if material is None:
+            raise WebInputError("Nguồn chưa liên kết với Project đang chọn.")
+        return material
+
+    def source_review(self, project_id: str, file_id: str) -> dict[str, Any]:
+        material = self._project_original(project_id, file_id)
+        with closing(_connect_write(self.path)) as db:
+            text = None
+            if material["media_type"] == "TEXT":
+                _, text = read_verified_text_snapshot(db, file_id, self.root)
+            evidence = []
+            for row in db.execute(
+                """SELECT v.evidence_version_id,v.evidence_id,v.version_no,v.content,
+                   v.locator_type,v.locator_data,v.producer_type
+                   FROM evidence_versions v JOIN evidences e USING(evidence_id)
+                   WHERE v.anchor_file_id=? AND e.deleted_at IS NULL
+                   ORDER BY v.evidence_id,v.version_no""",
+                (file_id,),
+            ):
+                item = dict(
+                    zip(
+                        (
+                            "evidence_version_id",
+                            "evidence_id",
+                            "version_no",
+                            "content",
+                            "locator_type",
+                            "locator_data",
+                            "producer_type",
+                        ),
+                        row,
+                    )
+                )
+                item["review_state"] = current_evidence_review(db, row[0])
+                evidence.append(item)
+            return {
+                "project_id": project_id,
+                "file_id": file_id,
+                "media_type": material["media_type"],
+                "text": text,
+                "evidence_versions": evidence,
+                "source_use": current_source_use(db, project_id, file_id),
+                "factual_approval": False,
+                "publication_approval": False,
+            }
+
+    def source_text_range(self, data: dict[str, Any]) -> dict[str, Any]:
+        project_id, file_id = data.get("project_id", ""), data.get("file_id", "")
+        start, end = data.get("start"), data.get("end")
+        if type(start) is not int or type(end) is not int:
+            raise WebInputError("Chọn phạm vi ký tự nguyên trong bản nguồn.")
+        reason = data.get("reason", "Sửa phạm vi nguồn")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
+            raise WebInputError("Ghi lý do sửa phạm vi từ 1 đến 2.000 ký tự.")
+        material = self._project_original(project_id, file_id)
+        if material["media_type"] != "TEXT":
+            raise WebInputError("Chọn đoạn nguyên văn chỉ dùng cho nguồn TEXT.")
+        with closing(_connect_write(self.path)) as db:
+            if data.get("evidence_version_id"):
+                old = db.execute(
+                    "SELECT anchor_file_id FROM evidence_versions WHERE evidence_version_id=?",
+                    (data["evidence_version_id"],),
+                ).fetchone()
+                if old is None or old[0] != file_id:
+                    raise WebInputError("Đoạn đang sửa không thuộc nguồn này.")
+                corrected = correct_text_evidence(
+                    db,
+                    evidence_version_id=data["evidence_version_id"],
+                    data_root=self.root,
+                    start=start,
+                    end=end,
+                    actor="WEB_CLIENT",
+                    reason=reason,
+                )
+                content = db.execute(
+                    "SELECT content FROM evidence_versions WHERE evidence_version_id=?",
+                    (corrected.new_version_id,),
+                ).fetchone()[0]
+                return {
+                    "evidence_version_id": corrected.new_version_id,
+                    "content": content,
+                    "review_state": "PENDING",
+                }
+            version = create_text_evidence(
+                db,
+                file_id=file_id,
+                data_root=self.root,
+                start=start,
+                end=end,
+                actor="WEB_CLIENT",
+            )
+        return {
+            "evidence_version_id": version.evidence_version_id,
+            "content": version.content,
+            "review_state": "PENDING",
+        }
+
+    def source_use(self, data: dict[str, Any]) -> dict[str, Any]:
+        project_id, file_id = data.get("project_id", ""), data.get("file_id", "")
+        self._project_original(project_id, file_id)
+        # Separate source-use permission from Evidence ACCEPT/publication Approval.
+        if data.get("explicit_source_use_choice") is not True:
+            raise WebInputError("Xác nhận lựa chọn phần nguồn trước khi lưu.")
+        versions = data.get("evidence_version_ids")
+        if not isinstance(versions, list):
+            raise WebInputError("Chọn danh sách phiên bản nguồn hợp lệ.")
+        with closing(_connect_write(self.path)) as db:
+            return select_source_use(
+                db,
+                data_root=self.root,
+                project_id=project_id,
+                file_id=file_id,
+                state=data.get("state", ""),
+                evidence_version_ids=versions,
+                expected_parent=data.get("expected_parent"),
+                actor="WEB_CLIENT",
+                reason=data.get("reason", ""),
+            )
+
     def state(self, project_id: str | None = None) -> dict[str, Any]:
         with closing(_connect_write(self.path)) as db:
             projects = [asdict(p) for p in self.pipeline.projects()]
@@ -134,6 +269,30 @@ class WebDomain:
                 )
                 library.append(item)
             materials = [m for m in library if project_id in m["project_ids"]]
+            for material in materials:
+                use = (
+                    current_source_use(db, project_id, material["file_id"])
+                    if material["file_id"] and project_id
+                    else None
+                )
+                material["source_use"] = use
+                material["usable_for_draft"] = False
+                material["source_use_message"] = "Mở nguồn và xác nhận phần được dùng."
+                if use and use["state"] == "SELECTED" and project_id:
+                    try:
+                        permitted_source_versions(
+                            db,
+                            data_root=self.root,
+                            project_id=project_id,
+                            file_id=material["file_id"],
+                        )
+                    except ValueError as exc:
+                        material["source_use_message"] = str(exc)
+                    else:
+                        material["usable_for_draft"] = True
+                        material["source_use_message"] = (
+                            "Phần nguồn đã chọn còn hiệu lực."
+                        )
             files = {m["file_id"] for m in materials}
             return {
                 "projects": projects,
@@ -328,10 +487,31 @@ class WebDomain:
                 raise WebInputError(
                     "Tư liệu chưa liên kết với Project đang chọn; thêm từ thư viện trước khi tạo AI."
                 )
-            materials = [
-                self.pipeline._verify(db, available[mid])
-                for mid in request.material_ids
-            ]
+            materials = []
+            for mid in request.material_ids:
+                material = available[mid]
+                if not material.file_id:
+                    raise WebInputError(
+                        "Tư liệu chưa có bản gốc để đối chiếu; nhập/tải nguồn trước."
+                    )
+                try:
+                    chosen = permitted_source_versions(
+                        db,
+                        data_root=self.root,
+                        project_id=request.project_id,
+                        file_id=material.file_id,
+                    )
+                except ValueError:
+                    raise WebInputError(
+                        "Mở nguồn và chọn/xác nhận các đoạn hiện tại được dùng cho Draft; nguồn chưa chọn, đã bỏ hoặc phiên bản đã đổi."
+                    ) from None
+                material = replace(
+                    material,
+                    text="\n".join(text for _, text in chosen),
+                    evidence_version_ids=tuple(vid for vid, _ in chosen),
+                    scope="USER_SELECTED_SOURCE_VERSIONS",
+                )
+                materials.append(self.pipeline._verify(db, material))
         if (
             any(not m.text.strip() for m in materials)
             or sum(len(m.text) for m in materials) > 10000

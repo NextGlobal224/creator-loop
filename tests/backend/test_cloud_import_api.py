@@ -16,11 +16,18 @@ import zlib
 from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import uuid4
 
 from creator_loop.backend.creator.web_domain import WebDomain, WebInputError
+from creator_loop.backend.runtime import database
 from creator_loop.backend.runtime.cloud_import import B_TABLES
-from creator_loop.backend.runtime.database import _connect_write, initialize, validate
+from creator_loop.backend.runtime.database import (
+    _connect_write,
+    _migrate_locked,
+    initialize,
+    validate,
+)
 
 from tests.backend import test_web_domain
 
@@ -110,6 +117,7 @@ class CloudImportAPITests(unittest.TestCase):
             "WebInputError": WebInputError,
             "_connect_write": _connect_write,
             "validate": validate,
+            "_migrate_locked": _migrate_locked,
             "Path": lambda value: self.root if value == "/tmp" else Path(value),
             "digest": digest,
             "reply": lambda value, status=200, **_: SimpleNamespace(
@@ -330,6 +338,162 @@ class CloudImportAPITests(unittest.TestCase):
                 self.api.object_bytes(hashlib.sha256(raw).hexdigest()), raw
             )
         self.assertEqual(len(self.api.rows("SELECT * FROM objects")), 2)
+
+    def test_schema10_restore_requires_explicit_upgrade_and_preserves_rollback(self):
+        legacy = self.root / "legacy.sqlite3"
+        with (
+            patch.object(database, "MIGRATIONS", database.MIGRATIONS[:10]),
+            patch.object(database, "SCHEMA_VERSION", 10),
+            patch.object(
+                database,
+                "validate",
+                side_effect=lambda db: validate(db, expected_version=10),
+            ),
+        ):
+            initialize(legacy)
+            legacy_root = legacy.parent / "legacy-data"
+            legacy_root.mkdir()
+            legacy.replace(legacy_root / "creator_loop.sqlite3")
+            project = WebDomain(legacy_root).project("Nguồn trước nâng schema")[
+                "project_id"
+            ]
+        with closing(_connect_write(legacy_root / "creator_loop.sqlite3")) as db:
+            raw = db.serialize()
+        backup = {
+            "format": "CREATOR_WEB_BACKUP_V1",
+            "version": self.call(path="/api/backup").value["version"],
+            "checkpoint": [
+                {
+                    "payload": base64.b64encode(zlib.compress(raw)).decode(),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                }
+            ],
+            "objects": [],
+        }
+        data = {
+            "backup": backup,
+            "expected_revision": 5,
+            "confirm_data_after_backup_may_be_lost": True,
+        }
+        before = self.api.rows("SELECT * FROM checkpoint")
+        with self.assertRaisesRegex(WebInputError, "schema10"):
+            self.call(data, path="/api/restore")
+        self.assertEqual(self.api.rows("SELECT * FROM checkpoint"), before)
+        self.assertEqual(self.api.rows("SELECT * FROM control"), [])
+        data["confirm_schema10_additive_upgrade"] = True
+        result = self.call(data, path="/api/restore")
+        self.assertTrue(result.value["restored"])
+        root, revision = self.api.load()
+        self.assertEqual(revision, 6)
+        with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+            validate(db)
+            self.assertEqual(
+                db.execute("SELECT project_id FROM projects").fetchone()[0], project
+            )
+            self.assertEqual(
+                db.execute(
+                    "SELECT COUNT(*) FROM project_material_use_versions"
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                db.execute("SELECT COUNT(*) FROM review_events").fetchone()[0], 0
+            )
+        self.assertEqual(
+            json.loads(self.api.rows("SELECT record FROM control")[0]["record"]), before
+        )
+
+    def test_migration_preimage_is_recoverable_without_deleting_full_backup_slots(self):
+        legacy = self.root / "legacy-pin.sqlite3"
+        with (
+            patch.object(database, "MIGRATIONS", database.MIGRATIONS[:10]),
+            patch.object(database, "SCHEMA_VERSION", 10),
+            patch.object(
+                database,
+                "validate",
+                side_effect=lambda db: validate(db, expected_version=10),
+            ),
+        ):
+            initialize(legacy)
+        with closing(_connect_write(legacy)) as db:
+            raw = db.serialize()
+        with self.coord:
+            self.coord.execute(
+                "UPDATE checkpoint SET payload=?,sha256=?",
+                (
+                    base64.b64encode(zlib.compress(raw)).decode(),
+                    hashlib.sha256(raw).hexdigest(),
+                ),
+            )
+            for key in ("c" * 32, "d" * 32):
+                self.coord.execute("INSERT INTO backups VALUES(?,?)", (key, "{}"))
+            self.api.put_object(hashlib.sha256(b"media").hexdigest(), b"media")
+        before = self.call(path="/api/backup").value
+        old_slots = self.api.rows("SELECT * FROM backups")
+        data = {
+            "expected_revision": 5,
+            "expected_checkpoint_sha256": before["checkpoint"][0]["sha256"],
+            "backup_mode": "PIN_CURRENT_PREIMAGE",
+            "target_schema": 11,
+            "confirm_additive_source_use_migration": True,
+        }
+        self.assertEqual(
+            self.call(data, path="/api/schema-migrate", operator=False).status, 403
+        )
+        with patch.dict(
+            self.api.authorized.__globals__,
+            {
+                "_migrate_locked": lambda *args: (_ for _ in ()).throw(
+                    RuntimeError("failure after pin")
+                )
+            },
+        ):
+            with self.assertRaises(RuntimeError):
+                self.call(data, path="/api/schema-migrate")
+        self.assertEqual(self.api.rows("SELECT * FROM control"), [])
+        self.assertEqual(self.call(path="/api/backup").value, before)
+        result = self.call(data, path="/api/schema-migrate").value
+        self.assertEqual(self.call(data, path="/api/schema-migrate").value, result)
+        self.assertEqual(self.api.rows("SELECT * FROM backups"), old_slots)
+        self.assertEqual(len(self.api.rows("SELECT * FROM control")), 1)
+        pin_path = result["preimage_backup_path"]
+        self.assertEqual(self.call(path=pin_path, operator=False).status, 403)
+        pinned = self.call(path=pin_path).value
+        self.assertEqual(pinned, before)
+        restore = {
+            "backup": pinned,
+            "expected_revision": 6,
+            "confirm_data_after_backup_may_be_lost": True,
+            "confirm_schema10_additive_upgrade": True,
+        }
+        self.assertTrue(
+            self.call(restore, key="2" * 32, path="/api/restore").value["restored"]
+        )
+        after = self.call(path="/api/backup").value
+        self.assertEqual(after["objects"], before["objects"])
+        self.assertEqual(self.api.rows("SELECT * FROM backups"), old_slots)
+
+    def test_shared_source_active_in_other_project_blocks_correction_and_choice(self):
+        with self.coord:
+            self.coord.execute(
+                "INSERT INTO jobs VALUES(?,?,?)",
+                (
+                    "job",
+                    "RUNNING",
+                    json.dumps(
+                        {
+                            "request": {"project_id": "other"},
+                            "sources": [{"file_id": "shared"}],
+                        }
+                    ),
+                ),
+            )
+        before = self.api.rows("SELECT * FROM checkpoint")
+        for path in ("/api/source-ranges", "/api/source-use"):
+            with self.assertRaisesRegex(WebInputError, "nguồn dùng chung"):
+                self.call({"project_id": "new", "file_id": "shared"}, path=path)
+        self.assertEqual(self.api.rows("SELECT * FROM checkpoint"), before)
+        self.assertEqual(self.api.rows("SELECT * FROM receipts"), [])
 
     def test_object_count_limit_keeps_existing_bytes(self):
         with self.coord:

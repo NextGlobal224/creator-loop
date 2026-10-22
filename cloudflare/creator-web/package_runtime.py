@@ -38,6 +38,7 @@ for source in [
             "pending.mjs",
             "operator-grant.mjs",
             "intake.mjs",
+            "source-review.mjs",
             "_headers",
         )
     ),

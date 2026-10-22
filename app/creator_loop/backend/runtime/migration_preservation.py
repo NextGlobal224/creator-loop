@@ -302,8 +302,8 @@ def create_preservation_archive(root: Path, *, timeout_seconds: float = 180) -> 
         db.execute("BEGIN IMMEDIATE")
         held.callback(db.rollback)
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (9, 10):
-            raise ValueError("Preservation supports current B schema9/10 only")
+        if version not in (9, 10, 11):
+            raise ValueError("Preservation supports current B schema9/10/11 only")
         validate(db, expected_version=version)
         if db.execute(
             "SELECT 1 FROM processing_runs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
