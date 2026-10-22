@@ -1,6 +1,6 @@
 """Bounded cloud audio protocol; no inference, approval or budget settlement.
 
-Initial decoder-independent intake is PCM WAV. Other codecs need a verified
+Decoder-independent intake is integer PCM or IEEE float32 WAV. Other codecs need a verified
 cloud duration/decoder path; a file extension is never a duration bound.
 """
 
@@ -12,6 +12,7 @@ import io
 import json
 import math
 import sqlite3
+import struct
 import unicodedata
 import wave
 from dataclasses import asdict, dataclass
@@ -128,7 +129,7 @@ def prepare_cloud_transcription(
 
 
 def probe_pcm_wav(raw: bytes) -> CloudAudioProbe:
-    """Validate actual PCM bytes before reserving/submitting a bounded ASR job."""
+    """Validate uncompressed WAV bytes before reserving a bounded ASR job."""
     if not isinstance(raw, bytes) or not 44 <= len(raw) <= MAX_AUDIO_BYTES:
         raise ValueError("PCM WAV cần từ 44 byte đến 8 MiB; chưa gửi AI.")
     if raw[:4] != b"RIFF" or raw[8:12] != b"WAVE":
@@ -137,20 +138,35 @@ def probe_pcm_wav(raw: bytes) -> CloudAudioProbe:
         raise ValueError("Kích thước RIFF không khớp bản gốc; chưa gửi AI.")
     # Native decoders may choose different duplicate chunks; refuse ambiguity.
     offset, chunks, data_length, block_align = 12, [], 0, 0
+    codec, data_start, fact_frames = 0, 0, None
     while offset < len(raw):
         if offset + 8 > len(raw):
             raise ValueError("RIFF chunk thiếu header; chưa gửi AI.")
         kind = raw[offset : offset + 4]
         length = int.from_bytes(raw[offset + 4 : offset + 8], "little")
         stop = offset + 8 + length
-        if stop > len(raw) or kind not in (b"fmt ", b"data", b"JUNK", b"LIST", b"bext"):
-            raise ValueError("RIFF chunk chưa hỗ trợ hoặc thiếu byte; chưa gửi AI.")
-        if kind == b"fmt " and (
-            length != 16 or raw[offset + 8 : offset + 10] != b"\x01\x00"
+        if stop > len(raw) or kind not in (
+            b"fmt ",
+            b"data",
+            b"fact",
+            b"JUNK",
+            b"LIST",
+            b"bext",
         ):
-            raise ValueError("WAV cần định dạng PCM đơn nghĩa; chưa gửi AI.")
+            raise ValueError("RIFF chunk chưa hỗ trợ hoặc thiếu byte; chưa gửi AI.")
         if kind == b"fmt ":
             fmt = raw[offset + 8 : stop]
+            codec = int.from_bytes(fmt[:2], "little")
+            if not (
+                (codec == 1 and length == 16)
+                or (
+                    codec == 3
+                    and (length == 16 or (length == 18 and fmt[16:] == b"\0\0"))
+                )
+            ):
+                raise ValueError(
+                    "WAV cần PCM hoặc IEEE float32 đơn nghĩa; chưa gửi AI."
+                )
             channels = int.from_bytes(fmt[2:4], "little")
             rate = int.from_bytes(fmt[4:8], "little")
             byte_rate = int.from_bytes(fmt[8:12], "little")
@@ -158,6 +174,7 @@ def probe_pcm_wav(raw: bytes) -> CloudAudioProbe:
             bits = int.from_bytes(fmt[14:16], "little")
             if (
                 bits not in (8, 16, 24, 32)
+                or (codec == 3 and bits != 32)
                 or channels not in (1, 2)
                 or not 8000 <= rate <= 48000
                 or block_align != channels * (bits // 8)
@@ -166,6 +183,11 @@ def probe_pcm_wav(raw: bytes) -> CloudAudioProbe:
                 raise ValueError("PCM header mâu thuẫn; chưa gửi AI.")
         if kind == b"data":
             data_length = length
+            data_start = offset + 8
+        if kind == b"fact":
+            if length != 4:
+                raise ValueError("WAV fact không hợp lệ; chưa gửi AI.")
+            fact_frames = int.from_bytes(raw[offset + 8 : stop], "little")
         chunks.append(kind)
         if len(chunks) > 256:
             raise ValueError("WAV vượt giới hạn 256 chunk; chưa gửi AI.")
@@ -179,6 +201,33 @@ def probe_pcm_wav(raw: bytes) -> CloudAudioProbe:
         raise ValueError("WAV cần đúng một fmt/data theo thứ tự; chưa gửi AI.")
     if not block_align or data_length % block_align:
         raise ValueError("PCM data không đủ frame; chưa gửi AI.")
+    if codec == 3:
+        frames, width = data_length // block_align, 4
+        if (
+            chunks.count(b"fact") != 1
+            or not chunks.index(b"fmt ") < chunks.index(b"fact") < chunks.index(b"data")
+            or fact_frames != frames
+            or frames <= 0
+            or frames * 1000 > MAX_AUDIO_MS * rate
+        ):
+            raise ValueError("WAV float32 fact/thời lượng không khớp; chưa gửi AI.")
+        if any(
+            not math.isfinite(value) or abs(value) > 1
+            for (value,) in struct.iter_unpack(
+                "<f", raw[data_start : data_start + data_length]
+            )
+        ):
+            raise ValueError("WAV float32 có mẫu không hợp lệ; chưa gửi AI.")
+        return CloudAudioProbe(
+            hashlib.sha256(raw).hexdigest(),
+            len(raw),
+            math.ceil(frames * 1000 / rate),
+            rate,
+            channels,
+            width,
+        )
+    if b"fact" in chunks:
+        raise ValueError("WAV PCM có fact chưa hỗ trợ; chưa gửi AI.")
     try:
         with wave.open(io.BytesIO(raw), "rb") as reader:
             channels, width, rate, frames = (

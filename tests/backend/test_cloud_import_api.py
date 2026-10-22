@@ -215,8 +215,18 @@ class CloudImportAPITests(unittest.TestCase):
             "objects": list(objects.values()),
         }
 
-    def call(self, data=None, *, key="1" * 32, path="/api/import", operator=True):
+    def call(
+        self,
+        data=None,
+        *,
+        key="1" * 32,
+        path="/api/import",
+        operator=True,
+        range_header=None,
+    ):
         headers = {"Idempotency-Key": key}
+        if range_header is not None:
+            headers["Range"] = range_header
         if operator:
             headers["X-Operator-Key"] = "fixture"
         return asyncio.run(
@@ -237,8 +247,8 @@ class CloudImportAPITests(unittest.TestCase):
         self.api.discard_projection = lambda root: None
         namespace = self.api.authorized.__func__.__globals__
         namespace["HEADERS"] = {}
-        namespace["Response"] = lambda raw, headers: SimpleNamespace(
-            raw=raw, headers=headers
+        namespace["Response"] = lambda raw, headers, status=200: SimpleNamespace(
+            raw=raw, headers=headers, status=status
         )
         for raw, expected in (
             (wav(), "audio/wav"),
@@ -259,6 +269,39 @@ class CloudImportAPITests(unittest.TestCase):
                 result.headers["Content-Disposition"],
                 "inline" if expected == "audio/wav" else "attachment",
             )
+            if expected == "audio/wav":
+                self.assertEqual(result.headers["Accept-Ranges"], "bytes")
+                for header, expected_raw in (
+                    ("bytes=10-19", raw[10:20]),
+                    ("bytes=10-", raw[10:]),
+                    ("bytes=-10", raw[-10:]),
+                    ("bytes=0-999999", raw),
+                ):
+                    partial = self.call(
+                        path="/media/" + file["file_id"], range_header=header
+                    )
+                    self.assertEqual(partial.status, 206)
+                    self.assertEqual(partial.raw, expected_raw)
+                    self.assertEqual(
+                        partial.headers["Content-Length"], str(len(expected_raw))
+                    )
+                for header in (
+                    "bytes=999999-",
+                    "bytes=-0",
+                    "bytes=20-10",
+                    "bytes=-",
+                    "bytes=0-1,4-5",
+                    "items=0-1",
+                    "bytes=" + "9" * 129 + "-",
+                ):
+                    rejected = self.call(
+                        path="/media/" + file["file_id"], range_header=header
+                    )
+                    self.assertEqual(rejected.status, 416)
+                    self.assertEqual(rejected.raw, b"")
+                    self.assertEqual(
+                        rejected.headers["Content-Range"], "bytes */" + str(len(raw))
+                    )
         with _connect_write(domain.path) as db:
             db.execute(
                 "UPDATE assets SET media_type='VIDEO' WHERE asset_id=?",
