@@ -58,10 +58,10 @@ def sha(raw: bytes) -> str:
 
 
 def read_included_usage(account: str, headers: dict, start: str, end: str) -> dict:
-    """Read full-window sums and bounded SQL-storage partitions without retries.
+    """Read full-window sums and namespace maxima without redundant partitions.
 
-    A complete native batch passed with bounded SQL pages after the limiter
-    refused a larger page. Keep the full window and financial limits. Use the
+    Native settings allow the complete31day window; one bounded max query
+    preserves every namespace peak without five repeated storage reads. Use the
     documented account-based policy consistently; never switch modes on error.
     """
     first, last = datetime.fromisoformat(start), datetime.fromisoformat(end)
@@ -183,49 +183,22 @@ def read_included_usage(account: str, headers: dict, start: str, end: str) -> di
             + "}}}"
         )
         if node.endswith("SqlStorageGroups"):
-            peaks = {}
-            stop = last
-            while stop > first:
-                window_start = max(first, stop - timedelta(days=7))
-                data = observe(
-                    node,
-                    query,
-                    {
-                        "a": account,
-                        "s": window_start.isoformat(),
-                        "e": stop.isoformat(),
-                    },
-                )
-                rows = data.get(node)
-                if not isinstance(rows, list) or len(rows) >= 10:
-                    raise ValueError(
-                        "Included-resource observation absent or truncated"
-                    )
-                seen = set()
-                for row in rows:
-                    namespace = row["dimensions"]["namespaceId"]
-                    value = row["max"]["storedBytes"]
-                    if (
-                        not isinstance(namespace, str)
-                        or not namespace
-                        or namespace in seen
-                    ):
-                        raise ValueError("Invalid storage namespace observation")
-                    if (
-                        type(value) not in (int, float)
-                        or not math.isfinite(value)
-                        or value < 0
-                    ):
-                        raise ValueError("Invalid included-resource usage")
-                    seen.add(namespace)
-                    peaks[namespace] = max(peaks.get(namespace, value), value)
-                stop = window_start
-            if not peaks or len(peaks) >= 100:
+            rows = observe(node, query, {"a": account, "s": start, "e": end}).get(node)
+            if not isinstance(rows, list) or not 0 < len(rows) < 10:
                 raise ValueError("Included-resource observation absent or truncated")
-            rows = [
-                {"dimensions": {"namespaceId": n}, "max": {"storedBytes": v}}
-                for n, v in sorted(peaks.items())
-            ]
+            seen = set()
+            for row in rows:
+                namespace = row["dimensions"]["namespaceId"]
+                value = row["max"]["storedBytes"]
+                if not isinstance(namespace, str) or not namespace or namespace in seen:
+                    raise ValueError("Invalid storage namespace observation")
+                if (
+                    type(value) not in (int, float)
+                    or not math.isfinite(value)
+                    or value < 0
+                ):
+                    raise ValueError("Invalid included-resource usage")
+                seen.add(namespace)
         else:
             rows = observe(node, query, {"a": account, "s": start, "e": end}).get(node)
             if not isinstance(rows, list) or len(rows) != 1:

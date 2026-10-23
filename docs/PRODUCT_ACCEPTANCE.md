@@ -800,3 +800,9 @@ not proof of the historical editing abort's cause or a successful AI output.
 The latest explicit task scope retains guarded local cleanup after B and A;
 the earlier cancellation sentence above is historical and superseded. Mandatory
 real source/Draft quality, manual review and release gates remain pending.
+
+SQL resource-guard follow-up: settings must permit the entire accounting window;
+one full-window bounded namespace max query replaces five repeated partitions.
+Keep 31-day compute sums, namespace truncation/empty rejection, freshness, fixed
+account policy/pacing and all financial reserves. A native SQL diagnostic alone
+is not a complete resource guard or deployment/AI qualification.
