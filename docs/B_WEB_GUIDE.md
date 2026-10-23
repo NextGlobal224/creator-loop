@@ -21,11 +21,26 @@ phiên hợp lệ. Không chia sẻ cookie, operator key hoặc credential Cloud
    Khi chọn tệp, xem tên, dung lượng và loại; tên tư liệu được điền nếu còn trống.
    Text dùng UTF-8/NFC; ảnh chỉ PNG/JPEG/WebP. Bấm lưu và chờ xác nhận; có thể
    mở/tải byte gốc từ danh sách. Tệp backup dùng mục Khôi phục, không nhập tư liệu.
+   Mở **Đối chiếu và chọn phần nguồn** của đúng tư liệu để đọc bản gốc. Text:
+   bôi chọn đoạn rồi lưu; ghi âm: trích lời nói trên cloud, nghe theo khoảng
+   thời gian, đọc cảnh báo và sửa transcript nếu cần; ảnh: đọc ảnh trên cloud,
+   đối chiếu mô tả/chữ nhận dạng và chọn vùng ảnh. Sửa tạo version mới, giữ bản
+   máy và bản gốc. Chọn đoạn, ghi lý do, đánh dấu xác nhận rồi chủ động lưu
+   lựa chọn dùng/bỏ nguồn. Sửa tiếp phải xác nhận lại version mới. Lựa chọn
+   nguồn không thay Evidence ACCEPT hoặc duyệt đăng.
+   Trước nút trích lời nói/đọc ảnh, operator phải kiểm quota và cấp quyền đúng
+   mục đích trong mục Operator bên dưới; chưa đủ quyền thì chưa gửi tác vụ.
+   Bộ đọc ghi âm trong source hiện hỗ trợ WAV PCM/float32, tối đa 8 MiB và
+   120 giây. Tệp khác có thể lưu được nhưng chưa có nghĩa đã đọc nội dung.
+   Các bộ đọc mới này chưa được nghiệm thu trên production; xem version và
+   giới hạn của deployment được bàn giao. Đọc lời nói/hình ảnh của video còn
+   phải được kiểm chứng riêng, không phụ thuộc C hoặc pipeline xuất MP4.
 3. Bước 3 mặc định **Thủ công**; nhập mục đích, người đọc, phong cách và hướng
    nội dung bạn chọn. Beta ưu tiên TEXT hoặc IMAGE_CAPTION. Với caption, chọn
    tệp ảnh đã tải ở **Ảnh của bản nháp**, xem ảnh rồi ghi nguồn/quyền sử dụng;
    lựa chọn này độc lập với ảnh của bản đang sửa ở Bước 5. Tự động còn trong
-   backlog; VIDEO chờ C nghiệm thu và tích hợp được kiểm chứng.
+   backlog; VIDEO Draft hiện có chỉ giữ script/asset/timing/lịch sử. C đã hủy;
+   không tạo MP4 hoặc dùng C làm điều kiện chặn beta B.
 4. Bấm **Sang Bước 4 · kiểm điều kiện** sau khi nhập Bước 3. Đây chưa phải lời gọi
    AI. Đọc trạng thái quyền; nếu chưa có quyền còn hiệu lực, operator
    mở mục **Operator · kiểm quota và cho phép một lượt** ngay trên
@@ -35,7 +50,9 @@ phiên hợp lệ. Không chia sẻ cookie, operator key hoặc credential Cloud
    lại, trừ cả usage đã gửi mà dashboard chưa cộng. Nhập số còn lại (ít nhất
    5.000), mã operator riêng của ứng dụng và xác nhận vừa kiểm trong 2 phút.
    Bấm **Cho phép một lượt**: quyền dành tối đa 4 call, hết hạn sau 4 phút;
-   chưa tạo job AI. Mã operator được xóa khỏi form sau thao tác, không lưu vào
+   chọn mục đích trích lời nói hoặc đọc ảnh khi xử lý nguồn, mỗi quyền này chỉ
+   dành một call và không tạo Draft. Luôn kiểm quota/dự phòng trước cấp quyền.
+   Cấp quyền chưa tạo job AI. Mã operator được xóa khỏi form sau thao tác, không lưu vào
    browser storage. Không nhập API token Cloudflare vào form này, không đưa mã
    vào URL, ảnh chụp hoặc báo cáo. Quyền mới không xóa request/usage lịch sử.
    Sau đó chủ động bấm **Tạo bản nháp AI**. Thiếu tư liệu, mục đích, hướng hoặc
@@ -65,8 +82,11 @@ Phạm vi20/10: phát hành B thủ công TEXT/IMAGE_CAPTION trước rồi chuy
 Tự động giữ backlog; VIDEO đã có chỉ giữ script/asset/timing, không chờ C, không
 phát triển hoặc dựng/xuất MP4. Source/lịch sử/dữ liệu dùng chung vẫn được giữ.
 
-Domain SQLite schema10 và media nằm bền vững trên cloud. Giới hạn beta: mỗi tệp
-tối đa8MiB, tổng media8MiB, domainDB16MiB và compressed checkpoint1.8MB. Hết giới
+Domain SQLite và media nằm bền vững trên cloud. Source hiện dùng schema11;
+production chưa được nâng theo các sửa đọc nguồn nếu chưa có receipt triển khai
+đạt. Giới hạn source: mỗi tệp tối đa8MiB, tổng media10MiB, domainDB16MiB và
+compressed checkpoint1.8MB. Đây là cap ứng dụng, không phải allocation dịch vụ.
+Hết giới
 hạn báo lỗi; không tự nâng gói. Tải backup DB+media định kỳ vào nơi riêng an toàn.
 Backup chứa dữ liệu riêng, không đưa vào Git/GitHub hay gửi công khai.
 
@@ -122,6 +142,10 @@ IMAGE_CAPTION**. Đăng nhập URL HTTPS, chọn Project, nhập/tải tư liệ
 và nguồn, tự chọn hướng rồi tạo và sửa Draft. Ảnh phải xem/tải được và có nguồn,
 quyền dùng; sau tải lại hoặc đăng nhập lại phải giữ nguồn, ảnh, version và review.
 Chưa có đủ hai đầu ra đạt chất lượng và release gắn deployment thì chưa nghiệm thu.
+Ngoài hai Draft, cổng bắt buộc còn yêu cầu đọc đúng nguồn ghi âm/video/text/ảnh,
+locator/timestamp và phần chưa chắc; đối chiếu/sửa/chọn/duyệt nguồn, lưu version
+và mở lại đúng Project sau đăng nhập mới. Upload/player/CI không thay các bằng
+chứng này. Thiếu bất kỳ luồng đầu vào bắt buộc nào thì chưa ghi B_RELEASED.
 
 Tự động vẫn giữ trong backlog/tính năng hiện có. Theo sửa đổi 20/10, C đã hủy;
 chỉ bảo toàn script/asset/timing VIDEO hiện có, không phát triển hay chạy VIDEO.
