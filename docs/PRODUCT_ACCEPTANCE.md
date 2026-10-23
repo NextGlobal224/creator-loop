@@ -2,6 +2,30 @@
 
 ### Cập nhật 23/10/2026 — nguồn ảnh và trạng thái triển khai
 
+QA129 từ main `f8345ed` vẫn dừng ở SQL trước upload/kích hoạt. Một batch
+chẩn đoán chỉ đọc theo chế độ account-based đã giữ được lỗi native đầy đủ:
+request thứ bảy, khoảng SQL thứ ba, HTTP 200 với `errors.message` là
+`Rate limiter budget depleted`, code `budget`, path null và yêu cầu đợi 5 phút.
+Đây là rate limiter, không phải hết tiền/Neurons; không dùng response này để
+gán full message cho QA128/QA129 vốn chỉ lưu code. Chế độ account-based riêng
+lẻ không giải quyết được lỗi đó.
+
+Sau cooldown native, một batch thay giới hạn page SQL từ 100 xuống 10, giữ
+truncation check tương ứng, đã qua cả chín reads HTTP 200/errors null trên
+cùng toàn kỳ 31 ngày. Hai namespace đã có mẫu; không mặc định rằng page nhỏ
+luôn đủ: trả đủ 10 dòng thì vẫn từ chối. Guard giữ ba tổng compute toàn kỳ,
+tối đa năm khoảng SQL <=7 ngày/max theo namespace, union dưới 100 namespace,
+deadline120s/pacing2s và mọi cap/dự phòng. Dùng cố định chế độ
+[account-based chính thức](https://developers.cloudflare.com/analytics/graphql-api/account-based-rate-limiting/)
+trên cùng endpoint/credential/account, cùng default300requests/5phút; không
+đổi token, mua quota, luân phiên mode hoặc retry khi bị từ chối. Dữ liệu thiếu
+không thành 0. Error artifact chỉ giữ category, thứ tự và khoảng truy vấn an
+toàn, không ghi full provider message/account/token công khai.
+
+Kết quả chẩn đoán là bằng chứng acquisition, chưa phải guard/deployment đạt
+cho source mới hoặc usage AI hiện tại. Source đọc nguồn, chất lượng Draft và
+B_RELEASED vẫn cần nghiệm thu thật. Các mốc acquisition dưới đây giữ lịch sử.
+
 QA128 tại main `3878899` đã qua settings và ba dataset compute, rồi dừng
 trước upload/kích hoạt vì SQL storage trả `budget`. Artifact cũ chỉ giữ
 code/dataset; không có full message để khẳng định nguyên nhân cụ thể của

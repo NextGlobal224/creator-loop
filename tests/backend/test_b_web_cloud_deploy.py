@@ -81,6 +81,12 @@ class CloudDeploymentTests(unittest.TestCase):
         self.assertEqual(sleep.call_count, 8)
         self.assertTrue(all(c.args == (2.0,) for c in sleep.call_args_list))
         self.assertEqual(read.call_args_list[0].args[2]["variables"], {"a": "fixture"})
+        self.assertTrue(
+            all(
+                c.args[1]["X-Rate-Limit-Type"] == "account-based"
+                for c in read.call_args_list
+            )
+        )
         seen = []
         for c in read.call_args_list[1:4]:
             data = c.args[2]
@@ -94,6 +100,7 @@ class CloudDeploymentTests(unittest.TestCase):
         for c in read.call_args_list[4:]:
             data = c.args[2]
             self.assertIn(self.NODES[-1] + "(", data["query"])
+            self.assertIn("limit:10,", data["query"])
             variables = data["variables"]
             self.assertEqual(variables["a"], "fixture")
             begin = datetime.fromisoformat(variables["s"])
@@ -196,6 +203,64 @@ class CloudDeploymentTests(unittest.TestCase):
                 )
         self.assertEqual(parts, 2)
         self.assertEqual(query.call_count, 6)
+
+    def test_account_policy_does_not_mutate_caller_rest_headers(self):
+        headers = {"Authorization": "Bearer fixture-only"}
+        with (
+            patch(
+                "scripts.b_web_cloud_deploy.read_json", side_effect=self.fixture_read
+            ),
+            patch("scripts.b_web_cloud_deploy.time.sleep"),
+        ):
+            read_included_usage(
+                "fixture",
+                headers,
+                "2026-10-22T01:15:00+00:00",
+                "2026-10-23T01:15:00+00:00",
+            )
+        self.assertEqual(headers, {"Authorization": "Bearer fixture-only"})
+
+    def test_error_categories_keep_window_order_without_provider_private_text(self):
+        for message, kind in (
+            (
+                "Rate limiter budget depleted: Bearer private-token account-private",
+                "rate_limit",
+            ),
+            ("query consumed excessive resources: private-token", "query_resources"),
+            (
+                "in combination, too many nodes, zones and accounts: private-token",
+                "scope_combination",
+            ),
+            ({"token": "private-token"}, "unknown"),
+        ):
+            with (
+                self.subTest(kind=kind),
+                patch(
+                    "scripts.b_web_cloud_deploy.read_json",
+                    return_value=(
+                        {
+                            "errors": [
+                                {"message": message, "extensions": {"code": "budget"}}
+                            ]
+                        },
+                        {},
+                    ),
+                ),
+                patch("scripts.b_web_cloud_deploy.Path.write_text") as write,
+            ):
+                with self.assertRaises(ValueError):
+                    read_included_usage(
+                        "account-private",
+                        {},
+                        "2026-10-22T01:15:00+00:00",
+                        "2026-10-23T01:15:00+00:00",
+                    )
+            packet = json.loads(write.call_args.args[0])
+            self.assertEqual(packet["kinds"], [kind])
+            self.assertEqual(packet["attempt"], 1)
+            self.assertEqual(packet["window"], {})
+            self.assertNotIn("private-token", write.call_args.args[0])
+            self.assertNotIn("account-private", write.call_args.args[0])
 
     def test_dataset_disabled_missing_or_range_unavailable_stops_before_usage(self):
         first = datetime.now(timezone.utc) - timedelta(days=31)
@@ -327,13 +392,21 @@ class CloudDeploymentTests(unittest.TestCase):
         sleep.assert_not_called()
         self.assertEqual(
             json.loads(write.call_args.args[0]),
-            {"node": "settings", "codes": ["budget"], "model_calls": 0},
+            {
+                "node": "settings",
+                "codes": ["budget"],
+                "kinds": ["rate_limit"],
+                "attempt": 1,
+                "mode": "account-based",
+                "window": {},
+                "model_calls": 0,
+            },
         )
 
     def test_duplicate_or_truncated_storage_is_closed(self):
         for rows in (
             [{"dimensions": {"namespaceId": "A"}, "max": {"storedBytes": 1}}] * 2,
-            [{"max": {"storedBytes": 1}}] * 100,
+            [{"max": {"storedBytes": 1}}] * 10,
         ):
 
             def read(url, headers, data):

@@ -60,9 +60,9 @@ def sha(raw: bytes) -> str:
 def read_included_usage(account: str, headers: dict, start: str, end: str) -> dict:
     """Read full-window sums and bounded SQL-storage partitions without retries.
 
-    Native SQL reads over <=7 days succeeded after the full-window refusal.
-    Cover the same entire window, merging namespace maxima, never treating an
-    empty partition as a zero value. The entire storage observation must exist.
+    A complete native batch passed with bounded SQL pages after the limiter
+    refused a larger page. Keep the full window and financial limits. Use the
+    documented account-based policy consistently; never switch modes on error.
     """
     first, last = datetime.fromisoformat(start), datetime.fromisoformat(end)
     if (
@@ -75,7 +75,7 @@ def read_included_usage(account: str, headers: dict, start: str, end: str) -> di
         "workersInvocationsAdaptive": "(limit:1){sum{requests cpuTimeUs}}",
         "durableObjectsInvocationsAdaptiveGroups": "(limit:1){sum{requests}}",
         "durableObjectsPeriodicGroups": "(limit:1){sum{duration rowsRead rowsWritten}}",
-        "durableObjectsSqlStorageGroups": "(limit:100){dimensions{namespaceId} max{storedBytes}}",
+        "durableObjectsSqlStorageGroups": "(limit:10){dimensions{namespaceId} max{storedBytes}}",
     }
     sum_fields = {
         "workersInvocationsAdaptive": {"requests", "cpuTimeUs"},
@@ -84,9 +84,12 @@ def read_included_usage(account: str, headers: dict, start: str, end: str) -> di
     }
     started = time.monotonic()
     previous = None
+    completed_reads = 0
+    # Apply this official read policy only to GraphQL, not caller REST headers.
+    headers = {**headers, "X-Rate-Limit-Type": "account-based"}
 
     def observe(node, query, variables):
-        nonlocal previous
+        nonlocal previous, completed_reads
         current = time.monotonic()
         delay = 0 if previous is None else max(0, 2.0 - (current - previous))
         if current - started + delay > 120:
@@ -101,6 +104,7 @@ def read_included_usage(account: str, headers: dict, start: str, end: str) -> di
         )
         if value.get("errors"):
             codes = []
+            kinds = []
             for error in value["errors"][:8]:
                 code = error.get("extensions", {}).get("code")
                 codes.append(
@@ -109,13 +113,39 @@ def read_included_usage(account: str, headers: dict, start: str, end: str) -> di
                     and code in {"budget", "rate_limit", "limits", "bad_query"}
                     else "unknown"
                 )
+                message = error.get("message")
+                message = message.casefold() if isinstance(message, str) else ""
+                # Public artifacts retain only categories, never provider text
+                # that can reflect account IDs, auth headers or private data.
+                kinds.append(
+                    "rate_limit"
+                    if "rate limit" in message or "rate limiter" in message
+                    else "query_resources"
+                    if "excessive resources" in message
+                    else "scope_combination"
+                    if "too many nodes, zones and accounts" in message
+                    else "unknown"
+                )
             Path("included-resource-error.json").write_text(
-                json.dumps({"node": node, "codes": codes, "model_calls": 0})
+                json.dumps(
+                    {
+                        "node": node,
+                        "codes": codes,
+                        "kinds": kinds,
+                        "attempt": completed_reads + 1,
+                        "mode": "account-based",
+                        "window": {
+                            k: variables[k] for k in ("s", "e") if k in variables
+                        },
+                        "model_calls": 0,
+                    }
+                )
             )
             raise ValueError("Cannot verify included resources: " + node)
         accounts = value["data"]["viewer"]["accounts"]
         if not isinstance(accounts, list) or len(accounts) != 1:
             raise ValueError("Included-resource account observation missing")
+        completed_reads += 1
         return accounts[0]
 
     settings = observe(
@@ -167,7 +197,7 @@ def read_included_usage(account: str, headers: dict, start: str, end: str) -> di
                     },
                 )
                 rows = data.get(node)
-                if not isinstance(rows, list) or len(rows) >= 100:
+                if not isinstance(rows, list) or len(rows) >= 10:
                     raise ValueError(
                         "Included-resource observation absent or truncated"
                     )
