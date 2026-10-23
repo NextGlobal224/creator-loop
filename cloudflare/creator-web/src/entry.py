@@ -865,6 +865,112 @@ class Database(DurableObject):
             )
 
     async def authorized(self, request, path, method, data):
+        if path == "/api/diagnostics/editing":
+            # This narrowly scoped operator trace is never a production API or
+            # a Draft/review operation. Login/Origin checks happen in fetch().
+            if (
+                urlsplit(request.url).hostname
+                != "creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev"
+            ):
+                return reply({"error": "QA19 diagnostics only"}, 404)
+            secret = getattr(self.env, "OPERATOR_KEY", "")
+            if not secret or not hmac.compare_digest(
+                request.headers.get("X-Operator-Key") or "", secret
+            ):
+                return reply({"error": "Operator verification required"}, 403)
+            if method != "POST":
+                return reply({"error": "Method refused"}, 405)
+            key = request.headers.get("Idempotency-Key") or ""
+            if not re.fullmatch("[a-f0-9]{32}", key):
+                raise WebInputError("Explicit diagnostic request ID required")
+            if set(data) != {"packet_json", "input_sha256"} or not isinstance(
+                data["packet_json"], str
+            ):
+                raise WebInputError("Explicit editing packet and digest required")
+            raw = data["packet_json"].encode()
+            if not 0 < len(raw) <= 64 * 1024 or digest(raw) != data["input_sha256"]:
+                raise WebInputError("Diagnostic packet bound/digest mismatch")
+            packet = json.loads(data["packet_json"])
+            if (
+                not isinstance(packet, dict)
+                or set(packet)
+                != {
+                    "format",
+                    "mode",
+                    "prompt",
+                    "writing_prompt",
+                    "schema",
+                    "stage",
+                    "previous",
+                }
+                or packet["format"] != "TEXT"
+                or packet["mode"] not in ("MANUAL", "AUTOMATIC")
+                or packet["stage"] != "editing"
+                or not isinstance(packet["previous"], list)
+                or len(packet["previous"]) != 2
+                or any(
+                    not isinstance(item, dict)
+                    or item.get("stage") != stage
+                    or not isinstance(item.get("value"), dict)
+                    for item, stage in zip(packet["previous"], ("analysis", "writing"))
+                )
+            ):
+                raise WebInputError("Only an explicit single editing stage is allowed")
+            fingerprint = digest((path + "\n" + data["input_sha256"]).encode())
+            prior = self.rows("SELECT * FROM receipts WHERE id=?", key)
+            if prior:
+                if prior[0]["fingerprint"] != fingerprint:
+                    raise WebInputError("Request ID belongs to different input", 409)
+                result = json.loads(prior[0]["response"])
+                if result.get("restored_away"):
+                    raise WebInputError("Diagnostic belongs to pre-restore state", 409)
+                await self.recover_wakeup()
+                return reply(result)
+            await self.ctx.storage.setAlarm(int(time.time() * 1000) + 1000)
+
+            def queue():
+                if self.rows(
+                    "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
+                ):
+                    raise WebInputError(
+                        "Wait for the existing job; no duplicate inference", 409
+                    )
+                found = self.rows("SELECT record FROM control WHERE id='grant'")
+                grant = json.loads(found[0]["record"]) if found else {}
+                if (
+                    not valid_included_grant(grant, self.env.CREATOR_MODEL, time.time())
+                    or grant["remaining_calls"] != 1
+                ):
+                    raise WebInputError(
+                        "One fresh included-only operator reservation required", 409
+                    )
+                grant.update(remaining_calls=0, reserved_pipeline=key)
+                self.sql.exec(
+                    "UPDATE control SET record=? WHERE id='grant'", json.dumps(grant)
+                )
+                result = {
+                    "id": key,
+                    "kind": "QA_EDITING_DIAGNOSTIC",
+                    "status": "QUEUED",
+                    "stage": 0,
+                    "request": data,
+                    "sources": [],
+                    "created_at": time.time(),
+                    "calls": [],
+                    "grant": grant,
+                    "deployment": str(self.env.CREATOR_VERSION.id),
+                    "not_draft_or_quality_acceptance": True,
+                }
+                self.save_job(result)
+                self.sql.exec(
+                    "INSERT INTO receipts VALUES(?,?,?)",
+                    key,
+                    fingerprint,
+                    json.dumps(result),
+                )
+                return result
+
+            return reply(self.ctx.storage.transactionSync(queue))
         if path.startswith("/api/restore-receipts/"):
             secret = getattr(self.env, "OPERATOR_KEY", "")
             if not secret or not hmac.compare_digest(
@@ -1024,11 +1130,20 @@ class Database(DurableObject):
             found = self.rows(
                 "SELECT record FROM jobs WHERE id=?", path.rsplit("/", 1)[1]
             )
-            return (
-                reply(json.loads(found[0]["record"]))
-                if found
-                else reply({"error": "Job not found"}, 404)
-            )
+            if found:
+                record = json.loads(found[0]["record"])
+                if record.get("kind") == "QA_EDITING_DIAGNOSTIC" and (
+                    urlsplit(request.url).hostname
+                    != "creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev"
+                    or not getattr(self.env, "OPERATOR_KEY", "")
+                    or not hmac.compare_digest(
+                        request.headers.get("X-Operator-Key") or "",
+                        self.env.OPERATOR_KEY,
+                    )
+                ):
+                    return reply({"error": "QA19 operator required"}, 403)
+                return reply(record)
+            return reply({"error": "Job not found"}, 404)
         if path == "/api/cancel" and method == "POST":
             found = self.rows(
                 "SELECT record,status FROM jobs WHERE id=?", data.get("job_id", "")
@@ -1036,6 +1151,15 @@ class Database(DurableObject):
             if not found:
                 raise ValueError("Job not found")
             record = json.loads(found[0]["record"])
+            if record.get("kind") == "QA_EDITING_DIAGNOSTIC" and (
+                urlsplit(request.url).hostname
+                != "creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev"
+                or not getattr(self.env, "OPERATOR_KEY", "")
+                or not hmac.compare_digest(
+                    request.headers.get("X-Operator-Key") or "", self.env.OPERATOR_KEY
+                )
+            ):
+                return reply({"error": "QA19 operator required"}, 403)
             if found[0]["status"] in ("QUEUED", "RUNNING"):
                 record.update(
                     status="CANCELLED",
@@ -1302,7 +1426,7 @@ class Database(DurableObject):
                             "jobs": [
                                 json.loads(r["record"])
                                 for r in self.rows(
-                                    "SELECT record FROM jobs ORDER BY rowid DESC LIMIT 30"
+                                    "SELECT record FROM jobs WHERE COALESCE(json_extract(record,'$.kind'),'') != 'QA_EDITING_DIAGNOSTIC' ORDER BY rowid DESC LIMIT 30"
                                 )
                             ],
                         }
@@ -1943,6 +2067,11 @@ class Database(DurableObject):
         )
 
     def sync_run(self, record):
+        if record.get("kind") == "QA_EDITING_DIAGNOSTIC":
+            # Control-plane diagnostic only: lifecycle/cancel/recovery must not
+            # touch canonical DB, processing_runs, checkpoint or approvals.
+            self.save_job(record)
+            return
         root, revision = self.load()
         try:
 
@@ -1974,6 +2103,138 @@ class Database(DurableObject):
         finally:
             self.discard_projection(root)
 
+    async def probe_editing(self, job):
+        # alarm() awaits wake-up persistence. Cancel may interleave there, so
+        # re-read the durable identity/state before the one dispatch boundary.
+        current = json.loads(
+            self.rows("SELECT record FROM jobs WHERE id=?", job["id"])[0]["record"]
+        )
+        if current["status"] == "CANCELLED":
+            return
+        if (
+            current["status"] != "RUNNING"
+            or current.get("calls")
+            or current.get("lease_until") != job.get("lease_until")
+            or current.get("request") != job.get("request")
+            or current.get("deployment") != job.get("deployment")
+        ):
+            raise WebInputError("Diagnostic identity/state changed; no inference")
+        grant = job.get("grant", {})
+        live = self.rows("SELECT record FROM control WHERE id='grant'")
+        if not live or json.loads(live[0]["record"]) != grant:
+            raise WebInputError("Diagnostic reservation changed; no inference")
+        if (
+            not valid_included_grant(grant, self.env.CREATOR_MODEL, time.time())
+            or grant.get("remaining_calls") != 0
+            or grant.get("reserved_pipeline") != job["id"]
+            or job.get("deployment") != str(self.env.CREATOR_VERSION.id)
+        ):
+            raise WebInputError("Diagnostic grant/source expired; no inference")
+        encoded = job["request"]["packet_json"]
+        if digest(encoded.encode()) != job["request"]["input_sha256"]:
+            raise WebInputError("Diagnostic input changed; no inference")
+        call = {
+            "stage": "editing",
+            "request_id": job["id"],
+            "packet_sha256": digest(encoded.encode()),
+            "reserved_at": time.time(),
+            "outcome": "UNKNOWN",
+            "model_calls": None,
+            "reserved_model_calls": 1,
+            "measured_usage": None,
+        }
+        job["calls"] = [call]
+        job["stage"] = 1
+        self.save_job(job)  # Persist unknown outcome BEFORE crossing the binding.
+        sdk = import_from_javascript("creator_ai.mjs")
+        encoded_result = str(
+            await sdk.stage(
+                python_to_rpc(self.env.AI),
+                self.env.CREATOR_MODEL,
+                encoded,
+                str(self.env.CREATOR_VERSION.id),
+            )
+        )
+        if len(encoded_result.encode()) > 256 * 1024:
+            # Keep a bounded failure/unknown usage rather than persisting an
+            # unbounded raw provider payload or pretending it was uncharged.
+            result = {
+                "ok": False,
+                "error": "DIAGNOSTIC_RESULT_TOO_LARGE",
+                "native_usage": None,
+                "output_sha256": digest(encoded_result.encode()),
+            }
+        else:
+            result = json.loads(encoded_result)
+        if not isinstance(result, dict):
+            raise WebInputError("Invalid diagnostic envelope; native usage unknown")
+        count = result.get("model_calls")
+        identity_valid = (
+            type(count) is int
+            and count in (0, 1)
+            and result.get("model", self.env.CREATOR_MODEL) == self.env.CREATOR_MODEL
+            and result.get("worker_version", str(self.env.CREATOR_VERSION.id))
+            == str(self.env.CREATOR_VERSION.id)
+            and (
+                result.get("ok") is not True
+                or (
+                    count == 1
+                    and result.get("model") == self.env.CREATOR_MODEL
+                    and result.get("worker_version") == str(self.env.CREATOR_VERSION.id)
+                    and isinstance(result.get("stage_result"), dict)
+                    and result["stage_result"].get("stage") == "editing"
+                )
+            )
+        )
+        call.update(
+            outcome="RECEIVED",
+            finished_at=time.time(),
+            output_sha256=digest(json.dumps(result, ensure_ascii=False).encode()),
+            model_calls=count if type(count) is int and count in (0, 1) else None,
+            measured_usage=result.get("native_usage") if identity_valid else None,
+            envelope_identity_valid=identity_valid,
+        )
+        if not identity_valid:
+            result = {
+                "ok": False,
+                "error": "DIAGNOSTIC_RESULT_TOO_LARGE"
+                if result.get("error") == "DIAGNOSTIC_RESULT_TOO_LARGE"
+                else "DIAGNOSTIC_ENVELOPE_UNVERIFIED",
+                "raw_output_sha256": call["output_sha256"],
+                "native_usage": None,
+            }
+        current = json.loads(
+            self.rows("SELECT record FROM jobs WHERE id=?", job["id"])[0]["record"]
+        )
+        attempts = current.get("calls", [])
+        if (
+            len(attempts) != 1
+            or attempts[0].get("request_id") != call["request_id"]
+            or attempts[0].get("reserved_at") != call["reserved_at"]
+            or current.get("request") != job.get("request")
+            or current.get("deployment") != job.get("deployment")
+            or current.get("lease_until") != job.get("lease_until")
+        ):
+            self.sql.exec(
+                "INSERT INTO control VALUES(?,?) ON CONFLICT(id) DO NOTHING",
+                "late-editing-" + job["id"],
+                json.dumps(
+                    {
+                        "calls": [call],
+                        "result": result,
+                        "deployment": job["deployment"],
+                        "reason": "ATTEMPT_IDENTITY_CHANGED",
+                    }
+                ),
+            )
+            return
+        current.update(calls=[call], stage_outputs=[result], finished_at=time.time())
+        if current["status"] == "RUNNING":
+            current["status"] = (
+                "SUCCEEDED_DIAGNOSTIC" if result.get("ok") is True else "FAILED"
+            )
+        self.save_job(current)
+
     async def alarm(self):
         pending = self.rows(
             "SELECT record FROM jobs WHERE status IN ('QUEUED','RUNNING') ORDER BY rowid LIMIT 1"
@@ -1996,6 +2257,9 @@ class Database(DurableObject):
         self.sync_run(job)
         await self.ctx.storage.setAlarm(int(job["lease_until"] * 1000) + 1)
         try:
+            if job.get("kind") == "QA_EDITING_DIAGNOSTIC":
+                await self.probe_editing(job)
+                return
             if job.get("kind") in ("SOURCE_TRANSCRIPTION", "SOURCE_IMAGE_ANALYSIS"):
                 await self.extract_source(job)
                 return

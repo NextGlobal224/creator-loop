@@ -806,3 +806,10 @@ one full-window bounded namespace max query replaces five repeated partitions.
 Keep 31-day compute sums, namespace truncation/empty rejection, freshness, fixed
 account policy/pacing and all financial reserves. A native SQL diagnostic alone
 is not a complete resource guard or deployment/AI qualification.
+
+QA19 editing trace only: a login+operator-only one-stage diagnostic may use the
+existing durable queue/alarm and one fresh included-only reservation. It must not
+run on production, retry an unknown request, alter the domain checkpoint, create
+a Draft/Approval, or count as AI quality acceptance. Preserve cancelled/unknown
+results and native NULL usage; actual binding execution remains unverified until
+a funded guarded QA trace runs. No ASR or full pipeline is implied.
