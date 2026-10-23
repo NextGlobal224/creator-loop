@@ -2,6 +2,28 @@
 
 ### Cập nhật 23/10/2026 — nguồn ảnh và trạng thái triển khai
 
+QA128 tại main `3878899` đã qua settings và ba dataset compute, rồi dừng
+trước upload/kích hoạt vì SQL storage trả `budget`. Artifact cũ chỉ giữ
+code/dataset; không có full message để khẳng định nguyên nhân cụ thể của
+response đó. Một phép đọc SQL 5 phút trả rỗng không phải storage bằng 0.
+Phép đọc lịch sử 14 giờ 15 phút sau đó trả 28 mẫu theo giờ của hai namespace;
+peak theo namespace cộng là 68.907.008 byte. Không suy cadence hay độ trễ
+cam kết của provider chỉ từ các mẫu này.
+
+Phép đọc native riêng SQL đủ 31 ngày bằng năm khoảng tối đa 7 ngày đã trả
+HTTP 200/errors null ở cả năm khoảng, cùng peak 68.907.008 byte. Guard nay
+giữ ba phép đọc tổng compute toàn kỳ, chia riêng SQL thành tối đa năm khoảng
+đủ kỳ và lấy max từng namespace qua tất cả khoảng, rồi mới cộng namespace.
+Khoảng không có mẫu không được đổi thành giá trị 0; toàn kỳ không có mẫu,
+thiếu/sai kiểu, lỗi bất kỳ khoảng, trùng namespace trong một response,
+truncated hoặc hết deadline vẫn từ chối. Giữ account, toàn kỳ 31 ngày,
+cap/dự phòng, deadline 120 giây và không retry; đầu request cách ít nhất
+2 giây. Tối đa chín reads gồm settings. Đây chưa phải guard/deploy của
+source mới, chưa phải usage AI hiện tại hoặc nghiệm thu chất lượng B.
+
+Đoạn acquisition năm reads dưới đây là lịch sử PR128, được thay riêng phần
+chia khoảng SQL như trên; các giới hạn khác giữ nguyên.
+
 Đối soát Analytics sau PR127: phép đọc metadata thực trả HTTP 200 nhưng
 `data: null`, message `Rate limiter budget depleted`, code `budget` và yêu cầu
 đợi 5 phút. Một lần metadata retry sau đúng cooldown đạt; cả bốn dataset của

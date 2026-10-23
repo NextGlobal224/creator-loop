@@ -64,7 +64,7 @@ class CloudDeploymentTests(unittest.TestCase):
         )
         return self.observed(n, rows)
 
-    def test_native_settings_then_one_paced_full_window_read_per_dataset(self):
+    def test_native_settings_full_sums_and_complete_bounded_storage_window(self):
         first = datetime.now(timezone.utc) - timedelta(days=31)
         last = first + timedelta(days=31)
         with (
@@ -77,25 +77,125 @@ class CloudDeploymentTests(unittest.TestCase):
             result = read_included_usage(
                 "fixture", {}, first.isoformat(), last.isoformat()
             )
-        self.assertEqual(read.call_count, 5)
-        self.assertEqual(sleep.call_count, 4)
-        self.assertTrue(all(c.args == (1.1,) for c in sleep.call_args_list))
+        self.assertEqual(read.call_count, 9)
+        self.assertEqual(sleep.call_count, 8)
+        self.assertTrue(all(c.args == (2.0,) for c in sleep.call_args_list))
         self.assertEqual(read.call_args_list[0].args[2]["variables"], {"a": "fixture"})
         seen = []
-        for c in read.call_args_list[1:]:
+        for c in read.call_args_list[1:4]:
             data = c.args[2]
             self.assertEqual(
                 data["variables"],
                 {"a": "fixture", "s": first.isoformat(), "e": last.isoformat()},
             )
             seen.append(next(n for n in self.NODES if n + "(" in data["query"]))
-        self.assertEqual(seen, list(self.NODES))
+        self.assertEqual(seen, list(self.NODES[:-1]))
+        stop = last
+        for c in read.call_args_list[4:]:
+            data = c.args[2]
+            self.assertIn(self.NODES[-1] + "(", data["query"])
+            variables = data["variables"]
+            self.assertEqual(variables["a"], "fixture")
+            begin = datetime.fromisoformat(variables["s"])
+            self.assertEqual(datetime.fromisoformat(variables["e"]), stop)
+            self.assertLessEqual(stop - begin, timedelta(days=7))
+            self.assertGreater(stop, begin)
+            stop = begin
+        self.assertEqual(stop, first)
         self.assertEqual(
             result[self.NODES[0]][0]["sum"], {"requests": 7, "cpuTimeUs": 15000}
         )
         self.assertEqual(
             sum(r["max"]["storedBytes"] for r in result[self.NODES[-1]]), 130
         )
+
+    def test_partition_maxima_preserve_historical_namespace_and_empty_samples(self):
+        storage = self.NODES[-1]
+        partitions = iter(
+            [
+                [{"dimensions": {"namespaceId": "A"}, "max": {"storedBytes": 10}}],
+                [],
+                [
+                    {"dimensions": {"namespaceId": "A"}, "max": {"storedBytes": 90}},
+                    {"dimensions": {"namespaceId": "B"}, "max": {"storedBytes": 20}},
+                ],
+                [],
+                [{"dimensions": {"namespaceId": "C"}, "max": {"storedBytes": 0}}],
+            ]
+        )
+
+        def read(url, headers, data):
+            return (
+                self.observed(storage, next(partitions))
+                if storage + "(" in data["query"]
+                else self.fixture_read(url, headers, data)
+            )
+
+        with (
+            patch("scripts.b_web_cloud_deploy.read_json", side_effect=read),
+            patch("scripts.b_web_cloud_deploy.time.sleep"),
+        ):
+            result = read_included_usage(
+                "fixture", {}, "2026-09-22T01:15:00+00:00", "2026-10-23T01:15:00+00:00"
+            )
+        self.assertEqual(
+            {
+                r["dimensions"]["namespaceId"]: r["max"]["storedBytes"]
+                for r in result[storage]
+            },
+            {"A": 90, "B": 20, "C": 0},
+        )
+
+    def test_all_storage_partitions_empty_or_missing_never_authorizes_zero(self):
+        storage = self.NODES[-1]
+        for rows in ([], None):
+
+            def read(url, headers, data):
+                return (
+                    self.observed(storage, rows)
+                    if storage + "(" in data["query"]
+                    else self.fixture_read(url, headers, data)
+                )
+
+            with (
+                self.subTest(rows=rows),
+                patch("scripts.b_web_cloud_deploy.read_json", side_effect=read),
+                patch("scripts.b_web_cloud_deploy.time.sleep"),
+            ):
+                with self.assertRaisesRegex(ValueError, "absent or truncated"):
+                    read_included_usage(
+                        "fixture",
+                        {},
+                        "2026-09-22T01:15:00+00:00",
+                        "2026-10-23T01:15:00+00:00",
+                    )
+
+    def test_middle_storage_partition_refusal_does_not_return_partial_or_retry(self):
+        storage = self.NODES[-1]
+        parts = 0
+
+        def read(url, headers, data):
+            nonlocal parts
+            if storage + "(" in data["query"]:
+                parts += 1
+                if parts == 2:
+                    return {"errors": [{"extensions": {"code": "budget"}}]}, {}
+            return self.fixture_read(url, headers, data)
+
+        with (
+            patch("scripts.b_web_cloud_deploy.read_json", side_effect=read) as query,
+            patch("scripts.b_web_cloud_deploy.time.sleep"),
+            patch("scripts.b_web_cloud_deploy.Path.write_text"),
+        ):
+            with self.assertRaisesRegex(ValueError, "Cannot verify included"):
+                read_included_usage(
+                    "fixture",
+                    {},
+                    "2026-09-22T01:15:00+00:00",
+                    "2026-10-23T01:15:00+00:00",
+                )
+        self.assertEqual(parts, 2)
+        self.assertEqual(query.call_count, 6)
 
     def test_dataset_disabled_missing_or_range_unavailable_stops_before_usage(self):
         first = datetime.now(timezone.utc) - timedelta(days=31)
