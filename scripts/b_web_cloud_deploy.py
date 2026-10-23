@@ -58,10 +58,11 @@ def sha(raw: bytes) -> str:
 
 
 def read_included_usage(account: str, headers: dict, start: str, end: str) -> dict:
-    """Read each dataset once, with native range checks and paced requests.
+    """Read full-window sums and bounded SQL-storage partitions without retries.
 
-    The observed failure was a GraphQL rate limiter, not a smaller dataset
-    window requirement. Keep the entire accounting window and do not retry.
+    Native SQL reads over <=7 days succeeded after the full-window refusal.
+    Cover the same entire window, merging namespace maxima, never treating an
+    empty partition as a zero value. The entire storage observation must exist.
     """
     first, last = datetime.fromisoformat(start), datetime.fromisoformat(end)
     if (
@@ -87,7 +88,7 @@ def read_included_usage(account: str, headers: dict, start: str, end: str) -> di
     def observe(node, query, variables):
         nonlocal previous
         current = time.monotonic()
-        delay = 0 if previous is None else max(0, 1.1 - (current - previous))
+        delay = 0 if previous is None else max(0, 2.0 - (current - previous))
         if current - started + delay > 120:
             raise ValueError("Included-resource observation deadline exceeded")
         if delay:
@@ -145,36 +146,60 @@ def read_included_usage(account: str, headers: dict, start: str, end: str) -> di
         selection = selection.replace(
             "){", ",filter:{datetime_geq:$s,datetime_leq:$e}){", 1
         )
-        data = observe(
-            node,
+        query = (
             "query($a:string,$s:string,$e:string){viewer{accounts(filter:{accountTag:$a}){"
             + node
             + selection
-            + "}}}",
-            {"a": account, "s": start, "e": end},
+            + "}}}"
         )
-        rows = data.get(node)
-        if (
-            not isinstance(rows, list)
-            or not rows
-            or len(rows) >= (100 if node.endswith("SqlStorageGroups") else 2)
-        ):
-            raise ValueError("Included-resource observation absent or truncated")
         if node.endswith("SqlStorageGroups"):
-            seen = set()
-            for row in rows:
-                namespace = row["dimensions"]["namespaceId"]
-                value = row["max"]["storedBytes"]
-                if not isinstance(namespace, str) or not namespace or namespace in seen:
-                    raise ValueError("Invalid storage namespace observation")
-                if (
-                    type(value) not in (int, float)
-                    or not math.isfinite(value)
-                    or value < 0
-                ):
-                    raise ValueError("Invalid included-resource usage")
-                seen.add(namespace)
+            peaks = {}
+            stop = last
+            while stop > first:
+                window_start = max(first, stop - timedelta(days=7))
+                data = observe(
+                    node,
+                    query,
+                    {
+                        "a": account,
+                        "s": window_start.isoformat(),
+                        "e": stop.isoformat(),
+                    },
+                )
+                rows = data.get(node)
+                if not isinstance(rows, list) or len(rows) >= 100:
+                    raise ValueError(
+                        "Included-resource observation absent or truncated"
+                    )
+                seen = set()
+                for row in rows:
+                    namespace = row["dimensions"]["namespaceId"]
+                    value = row["max"]["storedBytes"]
+                    if (
+                        not isinstance(namespace, str)
+                        or not namespace
+                        or namespace in seen
+                    ):
+                        raise ValueError("Invalid storage namespace observation")
+                    if (
+                        type(value) not in (int, float)
+                        or not math.isfinite(value)
+                        or value < 0
+                    ):
+                        raise ValueError("Invalid included-resource usage")
+                    seen.add(namespace)
+                    peaks[namespace] = max(peaks.get(namespace, value), value)
+                stop = window_start
+            if not peaks or len(peaks) >= 100:
+                raise ValueError("Included-resource observation absent or truncated")
+            rows = [
+                {"dimensions": {"namespaceId": n}, "max": {"storedBytes": v}}
+                for n, v in sorted(peaks.items())
+            ]
         else:
+            rows = observe(node, query, {"a": account, "s": start, "e": end}).get(node)
+            if not isinstance(rows, list) or len(rows) != 1:
+                raise ValueError("Included-resource observation absent or truncated")
             for row in rows:
                 if set(row["sum"]) != sum_fields[node]:
                     raise ValueError("Included-resource metric missing")
