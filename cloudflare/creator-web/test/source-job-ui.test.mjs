@@ -14,6 +14,11 @@ test('unavailable source grant never submits or loses user state',async()=>{
  await assert.rejects(context.startSourceJob('project','file'),/Quota\/operator/);
  assert.deepEqual(calls,['/api/source-grant-status']);assert.equal(map.size,0);assert.equal(context.submitting,false);
 });
+test('image source uses its explicit grant while keeping uncertain request identity',async()=>{
+ const calls=[],{context,map}=setup(async(path,data,key)=>{calls.push(path);if(path==='/api/source-grant-status?media_type=IMAGE')return {available:true};assert.equal(key,'a'.repeat(32));throw Error('lost image acknowledgment');});
+ await assert.rejects(context.startSourceJob('project','image',()=>true,'IMAGE'),/lost image/);
+ const saved=JSON.parse(map.get('pending'));assert.equal(saved.data.operation,'SOURCE_IMAGE_ANALYSIS');assert.equal(saved.data.file_id,'image');assert.deepEqual(calls,['/api/source-grant-status?media_type=IMAGE','/api/source-jobs']);
+});
 test('concurrent click and changed source during grant read cannot submit old input',async()=>{
  let resolve;const calls=[],{context,map}=setup(async path=>{calls.push(path);return new Promise(r=>resolve=r);});
  let current=true;const first=context.startSourceJob('project','file',()=>current);

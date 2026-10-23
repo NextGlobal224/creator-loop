@@ -32,6 +32,11 @@ from creator_loop.backend.knowledge.cloud_audio import (
     probe_pcm_wav,
     store_cloud_transcript,
 )
+from creator_loop.backend.knowledge.cloud_image import (
+    IMAGE_MODEL,
+    probe_image,
+    store_cloud_image,
+)
 from creator_loop.backend.runtime.database import (
     MIGRATIONS,
     _connect_write,
@@ -92,6 +97,7 @@ def valid_included_grant(data, model, now):
             )
         )
         and 0 <= now - data["observed_at"] <= 120
+        and int(now // 86400) == int(data["observed_at"] // 86400)
         and now < data["expires_at"] <= now + 300
         and type(data.get("remaining_calls")) is int
         and 0 <= data["remaining_calls"] <= 4
@@ -913,19 +919,25 @@ class Database(DurableObject):
                 return reply({"error": "Operator verification required"}, 403)
             return self.preservation_api(path, method, data)
         if path == "/api/source-grant-status" and method == "GET":
+            media_type = parse_qs(urlsplit(request.url).query).get(
+                "media_type", ["AUDIO"]
+            )[0]
+            if media_type not in ("AUDIO", "IMAGE"):
+                raise WebInputError("Chọn nguồn ghi âm hoặc ảnh trước khi kiểm quyền.")
+            model = IMAGE_MODEL if media_type == "IMAGE" else WHISPER_MODEL
             found = self.rows("SELECT record FROM control WHERE id='grant'")
             grant = json.loads(found[0]["record"]) if found else {}
             available = (
-                valid_included_grant(grant, WHISPER_MODEL, time.time())
+                valid_included_grant(grant, model, time.time())
                 and grant["remaining_calls"] == 1
             )
             return reply(
                 {
                     "available": available,
-                    "model": WHISPER_MODEL,
-                    "message": "Quyền ASR operator còn hiệu lực; không phải phép đo quota trực tiếp."
+                    "model": model,
+                    "message": "Quyền đọc nguồn operator còn hiệu lực; không phải phép đo quota trực tiếp."
                     if available
-                    else "Chưa có quyền ASR operator còn hiệu lực. Cần kiểm quota trong gói và dự phòng trước khi cấp đúng model; chưa gửi AI.",
+                    else "Chưa có quyền đọc nguồn operator còn hiệu lực. Cần kiểm quota trong gói và dự phòng trước khi cấp đúng model ghi âm/ảnh; chưa gửi AI.",
                 }
             )
         if path == "/api/grant-status" and method == "GET":
@@ -987,8 +999,12 @@ class Database(DurableObject):
                 }
                 or data["grant"] != "B-finish-20261017-free"
                 or data["account_plan"] not in ("Free", "Paid")
-                or data["model"] not in (self.env.CREATOR_MODEL, WHISPER_MODEL)
-                or (data["model"] == WHISPER_MODEL and data["remaining_calls"] != 1)
+                or data["model"]
+                not in (self.env.CREATOR_MODEL, WHISPER_MODEL, IMAGE_MODEL)
+                or (
+                    data["model"] in (WHISPER_MODEL, IMAGE_MODEL)
+                    and data["remaining_calls"] != 1
+                )
             ):
                 raise WebInputError(
                     "Cần bằng chứng đúng account/Workers plan và phần bao gồm; chưa tạo quyền AI."
@@ -1089,9 +1105,7 @@ class Database(DurableObject):
                             headers["Content-Length"] = "0"
                             return Response(b"", status=416, headers=headers)
                         body = raw[start : end + 1]
-                        headers["Content-Range"] = (
-                            f"bytes {start}-{end}/{len(raw)}"
-                        )
+                        headers["Content-Range"] = f"bytes {start}-{end}/{len(raw)}"
                         headers["Content-Length"] = str(len(body))
                         return Response(body, status=206, headers=headers)
                 return Response(raw, headers=headers)
@@ -1247,7 +1261,18 @@ class Database(DurableObject):
                             )
                         content = json.loads(raw)
                         if (
-                            content.get("format") != "CREATOR_CLOUD_TRANSCRIPT_V1"
+                            content.get("format")
+                            != (
+                                "CREATOR_CLOUD_IMAGE_V1"
+                                if review["media_type"] == "IMAGE"
+                                else "CREATOR_CLOUD_TRANSCRIPT_V1"
+                            )
+                            or content.get("model")
+                            != (
+                                IMAGE_MODEL
+                                if review["media_type"] == "IMAGE"
+                                else WHISPER_MODEL
+                            )
                             or content.get("run_id") != artifact["run_id"]
                             or content.get("input_file_id") != review["file_id"]
                             or content.get("input_sha256") != artifact["input_sha256"]
@@ -1425,7 +1450,7 @@ class Database(DurableObject):
                     self.put_object(result["sha256"], raw)
                 elif path == "/api/source-jobs":
                     if set(data) != {"project_id", "file_id"}:
-                        raise WebInputError("Chọn đúng Project và nguồn ghi âm.")
+                        raise WebInputError("Chọn đúng Project và nguồn ghi âm/ảnh.")
                     if self.rows(
                         "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
                     ):
@@ -1434,14 +1459,26 @@ class Database(DurableObject):
                         )
                     grants = self.rows("SELECT record FROM control WHERE id='grant'")
                     grant = json.loads(grants[0]["record"]) if grants else {}
+                    media_type = domain._project_original(
+                        data["project_id"], data["file_id"]
+                    )["media_type"]
+                    if media_type not in ("AUDIO", "IMAGE"):
+                        raise WebInputError(
+                            "Đọc nguồn hiện hỗ trợ ghi âm và ảnh; nguồn khác cần bộ đọc phù hợp, chưa gửi AI."
+                        )
+                    model = IMAGE_MODEL if media_type == "IMAGE" else WHISPER_MODEL
                     if (
-                        not valid_included_grant(grant, WHISPER_MODEL, time.time())
+                        not valid_included_grant(grant, model, time.time())
                         or grant["remaining_calls"] != 1
                     ):
                         raise WebInputError(
-                            "Chưa có quyền operator ASR còn hiệu lực với quota/dự phòng trong gói. Chưa gửi AI."
+                            "Chưa có quyền operator đọc nguồn đúng model còn hiệu lực với quota/dự phòng trong gói. Chưa gửi AI."
                         )
-                    source = domain.begin_source_transcription(data, key, VERSION)
+                    source = (
+                        domain.begin_source_image(data, key, VERSION)
+                        if media_type == "IMAGE"
+                        else domain.begin_source_transcription(data, key, VERSION)
+                    )
                     grant["remaining_calls"] = 0
                     grant["reserved_pipeline"] = key
                     self.sql.exec(
@@ -1450,7 +1487,9 @@ class Database(DurableObject):
                     )
                     result = {
                         "id": key,
-                        "kind": "SOURCE_TRANSCRIPTION",
+                        "kind": "SOURCE_IMAGE_ANALYSIS"
+                        if media_type == "IMAGE"
+                        else "SOURCE_TRANSCRIPTION",
                         "status": "QUEUED",
                         "stage": 0,
                         "request": data,
@@ -1468,6 +1507,7 @@ class Database(DurableObject):
                 elif path in (
                     "/api/source-ranges",
                     "/api/source-audio-ranges",
+                    "/api/source-image-regions",
                     "/api/source-use",
                 ):
                     if self.rows(
@@ -1486,6 +1526,8 @@ class Database(DurableObject):
                         result = domain.source_text_range(data)
                     elif path == "/api/source-audio-ranges":
                         result = domain.source_audio_range(data)
+                    elif path == "/api/source-image-regions":
+                        result = domain.source_image_region(data)
                     else:
                         result = domain.source_use(data)
                 elif path == "/api/restore":
@@ -1527,7 +1569,9 @@ class Database(DurableObject):
                             "pre-schema11-" + migration_id,
                         )
                         if not pinned:
-                            raise WebInputError("Không tìm thấy preimage migration.", 404)
+                            raise WebInputError(
+                                "Không tìm thấy preimage migration.", 404
+                            )
                         incoming = json.loads(pinned[0]["record"])
                         if not isinstance(incoming, dict) or not isinstance(
                             incoming.get("objects"), list
@@ -1538,14 +1582,17 @@ class Database(DurableObject):
                             if len(raw) != obj["size"] or digest(raw) != obj["sha256"]:
                                 raise WebInputError("Media preimage không khớp.")
                             obj["content_base64"] = base64.b64encode(raw).decode()
-                        if digest(
-                            json.dumps(
-                                incoming,
-                                ensure_ascii=False,
-                                sort_keys=True,
-                                separators=(",", ":"),
-                            ).encode()
-                        ) != expected_hash:
+                        if (
+                            digest(
+                                json.dumps(
+                                    incoming,
+                                    ensure_ascii=False,
+                                    sort_keys=True,
+                                    separators=(",", ":"),
+                                ).encode()
+                            )
+                            != expected_hash
+                        ):
                             raise WebInputError("Checksum gói preimage không khớp.")
                     if (
                         not isinstance(incoming, dict)
@@ -1771,12 +1818,16 @@ class Database(DurableObject):
         finally:
             self.discard_projection(root)
 
-    async def transcribe_source(self, job):
+    async def extract_source(self, job):
+        image = job.get("kind") == "SOURCE_IMAGE_ANALYSIS"
+        model = IMAGE_MODEL if image else WHISPER_MODEL
         root, _ = self.load()
         try:
-            WebDomain(root)._project_original(
+            material = WebDomain(root)._project_original(
                 job["request"]["project_id"], job["request"]["file_id"]
             )
+            if material["media_type"] != ("IMAGE" if image else "AUDIO"):
+                raise ValueError("Source media type changed")
             with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
                 row = db.execute(
                     "SELECT storage_key,sha256 FROM asset_files WHERE file_id=? AND role='ORIGINAL'",
@@ -1785,30 +1836,31 @@ class Database(DurableObject):
             if row is None or row[0] != "storage/originals/" + row[1]:
                 raise ValueError("Source original changed")
             raw = (root / row[0]).read_bytes()
-            probe = probe_pcm_wav(raw)
+            probe = probe_image(raw) if image else probe_pcm_wav(raw)
             source = job["sources"][0]
-            if (
-                probe.sha256 != source["input_sha256"]
-                or probe.duration_ms != source["duration_ms"]
+            if probe.sha256 != source["input_sha256"] or (
+                probe.mime_type != source["mime_type"]
+                if image
+                else probe.duration_ms != source["duration_ms"]
             ):
                 raise ValueError("Source identity changed after reservation")
             packet = {
                 **{k: v for k, v in source.items() if k != "file_id"},
-                "audio": base64.b64encode(raw).decode(),
+                ("image" if image else "audio"): base64.b64encode(raw).decode(),
             }
         finally:
             self.discard_projection(root)
         grant = job.get("grant", {})
         if (
-            not valid_included_grant(grant, WHISPER_MODEL, time.time())
+            not valid_included_grant(grant, model, time.time())
             or grant.get("remaining_calls") != 0
             or grant.get("reserved_pipeline") != job["id"]
         ):
             raise WebInputError(
-                "Quyền ASR/quota đã hết hạn trước khi gửi. Chưa gọi AI; giữ reservation, không tự thử lại."
+                "Quyền đọc nguồn/quota đã hết hạn trước khi gửi. Chưa gọi AI; giữ reservation, không tự thử lại."
             )
         call = {
-            "stage": "transcription",
+            "stage": "image_analysis" if image else "transcription",
             "request_id": job["id"],
             "reserved_at": time.time(),
             "outcome": "UNKNOWN",
@@ -1818,7 +1870,8 @@ class Database(DurableObject):
         job["stage"] = 1
         self.save_job(job)
         sdk = import_from_javascript("creator_ai.mjs")
-        encoded = await sdk.transcribeSource(
+        reader = sdk.analyzeSourceImage if image else sdk.transcribeSource
+        encoded = await reader(
             python_to_rpc(self.env.AI),
             json.dumps(packet),
             str(self.env.CREATOR_VERSION.id),
@@ -1845,7 +1898,7 @@ class Database(DurableObject):
         self.save_job(job)
         if (
             not response.get("ok")
-            or response.get("model") != WHISPER_MODEL
+            or response.get("model") != model
             or response.get("worker_version") != str(self.env.CREATOR_VERSION.id)
             or response.get("request_id") != job["id"]
             or response.get("input_sha256") != source["input_sha256"]
@@ -1857,7 +1910,8 @@ class Database(DurableObject):
 
             def finish():
                 with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
-                    result = store_cloud_transcript(
+                    store = store_cloud_image if image else store_cloud_transcript
+                    result = store(
                         db,
                         data_root=root,
                         file_id=job["request"]["file_id"],
@@ -1870,7 +1924,7 @@ class Database(DurableObject):
                     status="SUCCEEDED",
                     finished_at=time.time(),
                     evidence_version_ids=result["evidence_version_ids"],
-                    message="Đã trích xuất; cần nghe đối chiếu và xác nhận nguồn, chưa duyệt factual/đăng.",
+                    message="Đã trích xuất; cần đối chiếu bản gốc và xác nhận phần nguồn được dùng, chưa duyệt factual/đăng.",
                 )
                 self.save_job(job)
 
@@ -1940,8 +1994,8 @@ class Database(DurableObject):
         self.sync_run(job)
         await self.ctx.storage.setAlarm(int(job["lease_until"] * 1000) + 1)
         try:
-            if job.get("kind") == "SOURCE_TRANSCRIPTION":
-                await self.transcribe_source(job)
+            if job.get("kind") in ("SOURCE_TRANSCRIPTION", "SOURCE_IMAGE_ANALYSIS"):
+                await self.extract_source(job)
                 return
             creator = request_from_json(
                 {k: v for k, v in job["request"].items() if k != "actor"}

@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {boundedGrant,submitGrant} from '../public/operator-grant.mjs';
+test('image extraction has a distinct one-call model and cannot reuse previous UTC day quota',()=>{
+ const data={remaining:6000,observedAt:100000,confirmed:true,purpose:'SOURCE_IMAGE_ANALYSIS',accountPlan:'Paid',includedOnlyConfirmed:true},p=boundedGrant(data,110000);
+ assert.equal(p.model,'@cf/google/gemma-4-26b-a4b-it');assert.equal(p.remaining_calls,1);assert.equal(p.estimated_chain_neurons,5000);
+ assert.throws(()=>boundedGrant({...data,observedAt:86399000},86401000),/UTC/);
+});
 test('explicit same-account confirmation is fresh, bounded and separate from inference',()=>{
  const input={remaining:6000,observedAt:100000,confirmed:true},payload=boundedGrant(input,110000);
  assert.equal(payload.remaining_calls,4);assert.equal(payload.expires_at,350);assert.equal(payload.observed_at,100);assert.equal(payload.estimated_chain_neurons,5000);

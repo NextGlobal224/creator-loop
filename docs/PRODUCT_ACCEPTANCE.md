@@ -1,5 +1,40 @@
 ## B_RELEASED — cổng đầu vào bắt buộc bổ sung 22/10/2026
 
+### Cập nhật 23/10/2026 — nguồn ảnh và trạng thái triển khai
+
+PR123/124 đã tích hợp ASR WAV PCM/float32 và HTTP Range/tua audio;
+PR126 sửa truy vấn kế toán theo khoảng nhỏ, main CI ba checks PASS tại
+`d9fe4b9b5d2798d45eb4a3afa26269f76e405534`. QA126 dừng trước upload/kích hoạt:
+Analytics trả `budget` tại `workersInvocationsAdaptive`. Đây không phải chứng
+minh hết Neurons. Không suy dữ liệu thiếu thành 0 hoặc gửi lại để chờ reset.
+Production và QA chưa nhận các sửa ASR này; các đoạn WIP phía dưới giữ lịch sử.
+
+Luồng ảnh bổ sung dùng đúng bản gốc PNG/JPEG/WebP tĩnh, tối đa 8 MiB/80 triệu
+pixel theo probe header; probe không chứng minh decode hoặc đọc đúng nội dung.
+Cùng AI binding và Durable Object gọi một lần model
+`@cf/google/gemma-4-26b-a4b-it`, không retry/fallback hoặc model trên Windows.
+Giữ native response, hash/model/run, mô tả và OCR riêng, điểm chưa chắc/chưa đọc;
+`IMAGE_REGION` ban đầu toàn ảnh, MODEL/PENDING. Web cho đối chiếu ảnh gốc,
+kéo/nhập vùng, sửa thành phiên bản HUMAN/PENDING; chọn dùng nguồn là xác nhận
+riêng, không tạo factual ACCEPT hoặc duyệt đăng. Giữ bản cũ và chặn phiên bản
+nguồn cũ dùng tiếp sau sửa. Chuyển Project loại phản hồi chậm của Project cũ.
+
+Nguồn model: [Cloudflare model card](https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/),
+[giá Workers AI](https://developers.cloudflare.com/workers-ai/platform/pricing/),
+[giấy phép Apache 2.0 do Google dẫn chiếu](https://ai.google.dev/gemma/apache_2),
+đối chiếu 23/10/2026. Card công bố Vision/context 256.000 token; giá
+9.091 Neurons/M input và 27.273/M output. Với giới hạn completion 1.200,
+ước lượng bảo thủ dùng cả context cộng output là 2.360,0236 Neurons, không
+thay usage native hoặc quota hiện tại. Grant vẫn giữ dự phòng 5.000, một call
+đúng model, cùng UTC day và độ mới; không mở job trước xác minh phần bao gồm.
+Không thêm dịch vụ, mua credit hoặc đổi model sinh Draft.
+
+Kiểm core/handler/provider giả và trình duyệt cô lập chỉ xác minh giao thức,
+phiên bản/locator/quyền dùng nguồn. Luồng ảnh chưa chạy native model, chưa
+deploy hoặc nghiệm thu chất lượng. Ghi âm/video/text/ảnh thật và hai Draft
+MANUAL TEXT/IMAGE_CAPTION, mở lại sau đăng nhập, review/CI/deployment/release
+đúng source vẫn là cổng bắt buộc; chưa B_RELEASED. Video đọc nguồn không chờ C.
+
 ASR ghi âm — WIP nối job cloud sau PR122: cùng Durable Object/alarm/receipt,
 một lời gọi Whisper Turbo cho PCM WAV đã kiểm hash/thời lượng; grant operator
 riêng đúng model nhưng giữ sổ/dự phòng 5.000 và trần phí ngoài gói USD0.

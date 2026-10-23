@@ -6,6 +6,7 @@ input[type="checkbox"]{width:auto;vertical-align:middle;margin-right:6px}
 #message:not(:empty){position:sticky;top:0;z-index:10;background:#fff4d5;border:1px solid #ba9e4d;padding:12px;border-radius:8px}
 .materials span{white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}
 button:disabled{cursor:not-allowed}
+.source-image-view{position:relative;display:inline-block;max-width:100%;touch-action:none}.source-image-view img{display:block;max-width:100%;height:auto}.source-image-view svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.source-image-view rect{fill:transparent;stroke:#c43b2d;stroke-width:3}#source-image-warnings{white-space:pre-wrap;overflow-wrap:anywhere}
 
 /* Follow the five steps in the same visible and document order. */
 .grid{display:block;max-width:980px;margin:auto}#file-status,#create-summary{white-space:pre-wrap;overflow-wrap:anywhere}#material-file,#restore-file{max-width:100%}
