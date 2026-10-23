@@ -2,6 +2,25 @@
 
 ### Cập nhật 23/10/2026 — nguồn ảnh và trạng thái triển khai
 
+Đối soát Analytics sau PR127: phép đọc metadata thực trả HTTP 200 nhưng
+`data: null`, message `Rate limiter budget depleted`, code `budget` và yêu cầu
+đợi 5 phút. Một lần metadata retry sau đúng cooldown đạt; cả bốn dataset của
+guard hiện cho phép khoảng 32 ngày/đọc lại 90 ngày. Đây là bằng chứng rate
+limiter GraphQL và quyền/khoảng dữ liệu, không phải số tiền hoặc Neurons còn
+lại. QA126 cũ chỉ lưu code/dataset, không có full message/HTTP/variables gốc;
+không gán metadata mới thành response lịch sử chưa lưu.
+
+Acquisition kế toán vì vậy dùng một metadata read kiểm enabled/range và
+một read cho mỗi dataset, giữ nguyên toàn kỳ 31 ngày, account/caps/dự phòng.
+Giảm từ 124 data reads xuống 4 (cộng 1 settings), cách đầu request tối thiểu
+1,1 giây. Không đổi token/rate mode, tự retry/chờ reset, bỏ dữ liệu thiếu thành
+0 hoặc dựa trên một diagnostic ngắn để cho phép inference. Giữ deadline độ
+mới 120 giây, storage peak theo namespace và từ chối dữ liệu thiếu/truncated.
+Nguồn: [Settings node](https://developers.cloudflare.com/analytics/graphql-api/features/discovery/settings/)
+và [GraphQL limits](https://developers.cloudflare.com/analytics/graphql-api/limits/).
+Chưa có live guard/deploy cho thay đổi acquisition này; CI/fixture không thay
+điều kiện included resources USD0 hoặc nghiệm thu nội dung B.
+
 PR123/124 đã tích hợp ASR WAV PCM/float32 và HTTP Range/tua audio;
 PR126 sửa truy vấn kế toán theo khoảng nhỏ, main CI ba checks PASS tại
 `d9fe4b9b5d2798d45eb4a3afa26269f76e405534`. QA126 dừng trước upload/kích hoạt:
