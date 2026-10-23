@@ -53,7 +53,9 @@ from workers import (
 )
 
 MAX_BODY = 16 * 1024 * 1024
-MAX_MEDIA_TOTAL = 10 * 1024 * 1024
+# Bounded operational media, distinct from the unchanged service/budget guard.
+# Base64 + max checkpoint + 512 object records still fit MAX_BODY on restore.
+MAX_MEDIA_TOTAL = 10 * 1024 * 1024 + 512 * 1024
 MAX_MEDIA_OBJECTS = 512
 PRESERVATION_CHUNK = 512 * 1024
 PRESERVATION_MAX = 64 * 1024 * 1024
@@ -344,7 +346,7 @@ class Database(DurableObject):
             )
         if total + len(raw) > MAX_MEDIA_TOTAL:
             raise WebInputError(
-                "Kho media beta đã đạt giới hạn tổng 10 MiB. Xuất backup; không tự xóa dữ liệu hoặc nâng gói."
+                "Kho media beta đã đạt giới hạn tổng 10,5 MiB. Xuất backup; không tự xóa dữ liệu hoặc nâng gói."
             )
         self.sql.exec("INSERT INTO objects VALUES(?,?)", expected, len(raw))
         for position, offset in enumerate(range(0, len(raw), 48000)):

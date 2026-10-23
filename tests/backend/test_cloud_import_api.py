@@ -433,14 +433,25 @@ class CloudImportAPITests(unittest.TestCase):
                 self.api.rows("SELECT revision FROM checkpoint")[0]["revision"], 5
             )
 
-    def test_ten_mib_backup_fits_body_and_restores_without_capacity_bypass(self):
-        chunks = [b"a" * (8 * 1024 * 1024), b"b" * (2 * 1024 * 1024)]
+    def test_media_cap_backup_fits_body_and_restores_without_capacity_bypass(self):
+        chunks = [b"a" * (8 * 1024 * 1024), b"b" * (2 * 1024 * 1024 + 512 * 1024)]
         with self.coord:
             for raw in chunks:
                 self.api.put_object(hashlib.sha256(raw).hexdigest(), raw)
-        with self.assertRaises(WebInputError):
+        before = {
+            name: self.api.rows("SELECT * FROM " + name)
+            for name in ("objects", "object_chunks", "checkpoint", "receipts")
+        }
+        # Existing immutable objects do not consume capacity again at the cap.
+        with self.coord:
+            self.api.put_object(hashlib.sha256(chunks[0]).hexdigest(), chunks[0])
+        with self.assertRaisesRegex(WebInputError, "10,5 MiB"):
             with self.coord:
                 self.api.put_object(hashlib.sha256(b"extra").hexdigest(), b"extra")
+        self.assertEqual(
+            before,
+            {name: self.api.rows("SELECT * FROM " + name) for name in before},
+        )
         backup = self.call(path="/api/backup").value
         restore = {
             "confirm_data_after_backup_may_be_lost": True,
@@ -455,6 +466,18 @@ class CloudImportAPITests(unittest.TestCase):
                 self.api.object_bytes(hashlib.sha256(raw).hexdigest()), raw
             )
         self.assertEqual(len(self.api.rows("SELECT * FROM objects")), 2)
+        root, _ = self.api.load()
+        with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+            validate(db)
+            self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
+
+    def test_media_backup_worst_case_envelope_keeps_existing_body_bound(self):
+        # Account for per-object base64 padding and generous JSON metadata,
+        # even with the largest checkpoint admitted by commit().
+        media_cap = 10 * 1024 * 1024 + 512 * 1024
+        base64_bound = 4 * ((media_cap + 2) // 3) + 4 * 512
+        metadata_bound = 512 * 256 + 4096
+        self.assertLess(base64_bound + 1800000 + metadata_bound, 16 * 1024 * 1024)
 
     def test_schema10_restore_requires_explicit_upgrade_and_preserves_rollback(self):
         legacy = self.root / "legacy.sqlite3"

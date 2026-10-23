@@ -11,6 +11,16 @@ export function stageDeadline(env){
   return value;
 }
 
+// Keep the original bounded signals; retain only fixed provenance for failures.
+// This identifies the local cancellation source, not the provider's root cause.
+const signalOrigins=new WeakMap();
+export function stageSignal(env, requestSignal){
+  const deadlineMs=stageDeadline(env),deadline=AbortSignal.timeout(deadlineMs);
+  const signal=requestSignal?AbortSignal.any([requestSignal,deadline]):deadline;
+  signalOrigins.set(signal,{deadline,requestSignal,deadlineMs});
+  return signal;
+}
+
 // The native binding may ignore the SDK's abort signal. Bound our wait too;
 // this does not promise cancellation of already submitted remote inference.
 async function abortableBinding(invoke, signal) {
@@ -76,6 +86,7 @@ function nativeDecodingSchema(schema) {
 export async function generateStage(env, {instructions, input, schema, budget, temperature, signal, reasoningEffort="low"}, observe) {
   if(!["low","medium","high"].includes(reasoningEffort)) throw new Error("Invalid reasoning effort");
   let calls=0,received=false,nativeFailure=null;
+  const started=performance.now();
   const binding={run:async(model, inputs, options)=>{
     if(++calls!==1 || model!==env.CREATOR_MODEL || inputs.stream===true) throw new Error("Unexpected SDK model call");
     let result;
@@ -122,7 +133,15 @@ export async function generateStage(env, {instructions, input, schema, budget, t
   } catch(error) {
     // Fixed operational fields only; never include prompts, exception text or reasoning.
     const failure=error instanceof Error?error:new Error("SDK stage failed");
-    failure.stage_diagnostic={native_failure:nativeFailure,phase:calls===0?"SDK_BEFORE_BINDING":received?"SDK_AFTER_BINDING":"NATIVE_BINDING",binding_calls:calls,...(signal?.aborted?{signal_aborted:true}:{})};
+    const origin=signalOrigins.get(signal);
+    const abortSource=origin?.deadline.aborted&&signal.reason===origin.deadline.reason?"STAGE_DEADLINE":
+      origin?.requestSignal?.aborted&&signal.reason===origin.requestSignal.reason?"REQUEST_SIGNAL":"CALLER_SIGNAL";
+    failure.stage_diagnostic={native_failure:nativeFailure,phase:calls===0?"SDK_BEFORE_BINDING":received?"SDK_AFTER_BINDING":"NATIVE_BINDING",binding_calls:calls,...(signal?.aborted?{
+      signal_aborted:true,abort_source:abortSource,
+      abort_reason:["TimeoutError","AbortError"].includes(signal.reason?.name)?signal.reason.name:"OTHER",
+      stage_elapsed_ms:Math.min(600000,Math.max(0,Math.round(performance.now()-started))),
+      ...(origin?{deadline_ms:origin.deadlineMs}:{})
+    }:{})};
     throw failure;
   }
 }
