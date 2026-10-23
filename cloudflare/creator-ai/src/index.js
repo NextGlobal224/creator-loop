@@ -3,7 +3,7 @@ import {auditSchema, bindAudit, compileSourcedArticle, quoteCatalog, hasHypothet
 import {evidenceInput, sourceFirstInstructions, revisionIssues, operationSchema, operationInstructions, applyEditOperations, sourcedSegmentSchema, checkedWriting, generatedPremiseInstructions, articleRequirements, editorialRoles, plannedWritingSchema, plannedWriting} from "./grounding.js";
 import {projectPolicy,generalDevelopmentInstructions,generalTaskInstructions,projectOperationInstructions,projectStageInstructions} from "./project-policy.js";
 const MAX_BYTES = 64 * 1024;
-import {generateStage,stageDeadline} from "./sdk-stage.js";
+import {generateStage,stageSignal} from "./sdk-stage.js";
 const analysisBoundaryInstructions=" Separate an inquiry question from an established result: questions about an author, evidence and other sources do not establish that the author can be identified, that authenticity is verified, or that a prescribed sequence works. In observations, describe only what the note says the resource contains, not its inferred efficacy. In direction, propose voluntary actions and the information gaps in the fictional scene, not a source-endorsed three-step procedure. Never promote an editorial note into institutional instructions.";
 const developmentInstructions=" Plan the four paragraphs by their different contributions before writing. A foreign-language list of questions and its Vietnamese paraphrase are the SAME contribution, even if the second paragraph is called application. Use the questions once in natural Vietnamese. Do not add author identities, researcher/expert roles or authority labels absent from the exact supporting excerpt; an institutional source label does not establish the occupation or identity of the people who wrote its questions. Develop the fictional scene's specific missing information and the limits of the provided notes; give voluntary conditional actions without implying they identify truth or produce a result. The final paragraph must include the actual sender message. Do not fill a paragraph by repeating the questions, describing a source again, or referring to steps above. An example may say to ask whether an author is named; it must not claim applying questions lets the reader identify the author or assess reliability unless the selected evidence supports that claim.";
 export default {
@@ -53,7 +53,7 @@ export default {
       if(staged && index<requested){usage.push({stage,usage:packet.previous[index].usage});return packet.previous[index].value;}
       const generated=await generateStage(env,{instructions:projectStageInstructions(stage,instructions,policy),input,schema,budget,temperature:stage==="writing"?0.3:0,
         reasoningEffort:stage==="analysis"?"low":"medium",
-        signal:AbortSignal.any([request.signal,AbortSignal.timeout(stageDeadline(env))])},result=>{lastResult=result;usage.push({stage,usage:result.usage});});
+        signal:stageSignal(env,request.signal)},result=>{lastResult=result;usage.push({stage,usage:result.usage});});
       lastText=generated.text;
       return generated.value;
     };

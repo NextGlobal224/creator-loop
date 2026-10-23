@@ -1,5 +1,5 @@
 // Non-article layouts reuse TEXT's source/premise/edit/immutable-audit guards.
-import {generateStage,stageDeadline} from "../../creator-ai/src/sdk-stage.js";
+import {generateStage,stageSignal} from "../../creator-ai/src/sdk-stage.js";
 import {quoteCatalog,publicArticleIssues,publicCopyRevisions,uncitedAssertionIssues,auditSchema,bindAudit,validAudit} from "../../creator-ai/src/quality.js";
 import {sourcedSegmentSchema,checkedSegment,checkPremises,sourceFirstInstructions,generatedPremiseInstructions,operationSchema,revisionIssues} from "../../creator-ai/src/grounding.js";
 
@@ -62,7 +62,7 @@ export async function formatStage(env,packet){
   if(data.format!==packet.format||!Array.isArray(data.materials)||!data.materials.length)throw Error("Format/source identity mismatch");
   const catalog=quoteCatalog(data.materials);
   if(!catalog.length)throw Error("No exact source passages");
-  const jsonStage=async(instructions,input,schema,budget=4000)=>generateStage(env,{instructions,input,schema,budget,temperature:packet.stage==="writing"?0.3:0,reasoningEffort:packet.stage==="analysis"?"low":"medium",signal:AbortSignal.timeout(stageDeadline(env))},()=>{});
+  const jsonStage=async(instructions,input,schema,budget=4000)=>generateStage(env,{instructions,input,schema,budget,temperature:packet.stage==="writing"?0.3:0,reasoningEffort:packet.stage==="analysis"?"low":"medium",signal:stageSignal(env)},()=>{});
   if(requested===0){
     const schema={type:"object",properties:Object.fromEntries(["observations","inferences","direction"].map(k=>[k,packet.schema.properties[k]])),required:["observations","inferences","direction"],additionalProperties:false};
     const generated=await jsonStage("Phân tích nguồn tiếng Việt, chưa viết Draft. Quote phải nguyên văn trong đúng material. Observation chỉ mô tả điều đoạn nguồn nói. Inferences bắt đầu Giả thuyết chưa xác nhận. Hướng biên tập theo Project/mode và hướng người dùng, không tự đổi mục tiêu. Không coi đề xuất của ghi chú là khuyến nghị tổ chức. "+sourceFirstInstructions,JSON.stringify(data),schema,2600);

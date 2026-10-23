@@ -788,3 +788,15 @@ brief-specific article prose. Offline replay/checks do not qualify new prose or
 live output. TEXT quality and then IMAGE_CAPTION acceptance remain pending.
 The explicit21October user amendment cancels local-cleanup completion conditions;
 B release then A cloud, safe migration/restore, data guards and $0 overage remain.
+
+23 October scoped blocker follow-up (not B_RELEASED): operational media now has
+a finite 10.5 MiB application cap, with 8 MiB/file, 512 objects, 16 MiB restore
+body and the existing DB/checkpoint/financial bounds unchanged. Direct checks
+must cover unique-hash capacity, rejection rollback, media hashes and DB/FK
+backup/restore; local checks do not qualify a changed cloud deployment or memory.
+SDK abort diagnostics distinguish the configured stage deadline from a request
+signal without logging raw reasons or adding retry. This is instrumentation,
+not proof of the historical editing abort's cause or a successful AI output.
+The latest explicit task scope retains guarded local cleanup after B and A;
+the earlier cancellation sentence above is historical and superseded. Mandatory
+real source/Draft quality, manual review and release gates remain pending.

@@ -11,7 +11,13 @@ export function safeFailure(error, result) {
   const stage=error?.stage_diagnostic;
   const stageDiagnostic=stage && ["SDK_BEFORE_BINDING","NATIVE_BINDING","SDK_AFTER_BINDING"].includes(stage.phase) &&
     Number.isInteger(stage.binding_calls) && stage.binding_calls>=0 && stage.binding_calls<=2?
-    {phase:stage.phase,binding_calls:stage.binding_calls,...(stage.signal_aborted===true?{signal_aborted:true}:{}),native_failure:stage.native_failure &&
+    {phase:stage.phase,binding_calls:stage.binding_calls,...(stage.signal_aborted===true?{
+      signal_aborted:true,
+      ...(["STAGE_DEADLINE","REQUEST_SIGNAL","CALLER_SIGNAL"].includes(stage.abort_source)?{abort_source:stage.abort_source}:{}),
+      ...(["TimeoutError","AbortError","OTHER"].includes(stage.abort_reason)?{abort_reason:stage.abort_reason}:{}),
+      ...(Number.isInteger(stage.stage_elapsed_ms)&&stage.stage_elapsed_ms>=0&&stage.stage_elapsed_ms<=600000?{stage_elapsed_ms:stage.stage_elapsed_ms}:{}),
+      ...([85000,120000].includes(stage.deadline_ms)?{deadline_ms:stage.deadline_ms}:{})
+    }:{}),native_failure:stage.native_failure &&
       (stage.native_failure.code===null || Number.isInteger(stage.native_failure.code) && stage.native_failure.code>=1000 && stage.native_failure.code<=99999) &&
       Array.isArray(stage.native_failure.flags) && stage.native_failure.flags.every(flag=>["SCHEMA","UNIQUE_ITEMS","MIN_ITEMS","MAX_ITEMS","CONSTRAINT","UNSUPPORTED","VALIDATION","JSON","ARRAY","INTEGER","TIMEOUT","QUOTA","RATE_LIMIT","CAPACITY","AUTH","MEMORY","MAX_TOKENS","INFERENCE","UPSTREAM","INTERNAL"].includes(flag))?
       {code:stage.native_failure.code,flags:stage.native_failure.flags}:null}:null;

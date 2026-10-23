@@ -84,7 +84,7 @@ phát triển hoặc dựng/xuất MP4. Source/lịch sử/dữ liệu dùng chu
 
 Domain SQLite và media nằm bền vững trên cloud. Source hiện dùng schema11;
 production chưa được nâng theo các sửa đọc nguồn nếu chưa có receipt triển khai
-đạt. Giới hạn source: mỗi tệp tối đa8MiB, tổng media10MiB, domainDB16MiB và
+đạt. Giới hạn source: mỗi tệp tối đa8MiB, tổng media10,5MiB, domainDB16MiB và
 compressed checkpoint1.8MB. Đây là cap ứng dụng, không phải allocation dịch vụ.
 Hết giới
 hạn báo lỗi; không tự nâng gói. Tải backup DB+media định kỳ vào nơi riêng an toàn.

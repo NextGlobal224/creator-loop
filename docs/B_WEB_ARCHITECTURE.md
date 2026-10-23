@@ -297,13 +297,14 @@ requires independent comparison with the actual verified cloud archive and exact
 source/row/media mappings. Only Original locators relocate to content-addressed
 cloud keys; IDs, digests, bytes and version/review history remain intact.
 
-Operational storage is bounded to 10 MiB across at most 512 immutable objects;
+Operational storage is bounded to 10.5 MiB across at most 512 immutable objects;
 per-file intake remains 8 MiB. This covers the measured B/current-production union
-of 9,944,182 bytes without enabling another service or exceeding purchased included
-resources. The object/count bounds keep media base64, the existing checkpoint
+of 9,944,182 bytes plus the retained short audio/text and selected image
+(10,752,946 unique bytes), without enabling another service or changing financial
+guards. The 512 KiB increase is an application cap, not a service-plan change. The object/count bounds keep media base64, the existing checkpoint
 limit of 1,800,000 encoded bytes and fixed metadata below the existing 16 MiB
 restore-body limit. Overflow refuses without deleting data. The native/fixture
-10 MiB backup-restore test is a storage check, not a Workers memory or live
+10.5 MiB backup-restore test is a storage check, not a Workers memory or live
 migration result: actual cloud import, reopen, backup/restore and memory-compatible
 execution remain required before production use. Existing QA operator secrets
 are preserved by cloud deployment verification; this does not copy secrets across
