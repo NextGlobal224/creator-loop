@@ -309,3 +309,11 @@ migration result: actual cloud import, reopen, backup/restore and memory-compati
 execution remain required before production use. Existing QA operator secrets
 are preserved by cloud deployment verification; this does not copy secrets across
 targets or create an AI grant.
+
+The QA19-only POST /api/diagnostics/editing is an operator diagnostic for exactly
+one TEXT editing packet with two frozen previous outputs and an exact input
+digest. It reuses the existing jobs/alarm/one-call grant with no retry. Its
+lifecycle uses only coordination storage, never domain sync/checkpoint/Draft or
+review mutation. Operator GET/cancel are required; ordinary UI state excludes
+diagnostics. Production rejects the route. A successful trace is not source or
+article-quality acceptance and cannot settle a historical missing usage receipt.
