@@ -1,5 +1,18 @@
 ## B_RELEASED — cổng đầu vào bắt buộc bổ sung 22/10/2026
 
+### Cập nhật 27/10/2026 — lượt TEXT sau sửa grammar vẫn FAIL chất lượng
+
+- Main `5374cc8`, CI `40520253370` và QA19 verify-only `40524509920`
+  PASS; deployment `5e13b546-12f7-46a9-8294-93b070ed60d3` khớp artifact.
+- Job `17113a71d0f24a3d82a1fb05aabf87d2` nhận đủ bốn native response,
+  JSON hoàn chỉnh; writing không còn lỗi JSON dở trong lượt này. Audit vẫn
+  từ chối vì lặp ý/kết bài. Không có Draft đạt, không sửa bản AI gốc thành PASS.
+- Review tìm thêm coverage đoạn kết chỉ xét một câu, có thể bỏ sót phần còn
+  lại. Bản sửa buộc schema/binder xét đủ đoạn; prompt yêu cầu phân bổ ý, bỏ
+  filler và kiểm toàn bộ nghĩa câu. Đây là sửa protocol/instructions cần QA
+  output thật; kiểm trực tiếp không thay nghiệm thu. Giữ FAIL cũ và reservation
+  editing lịch sử; IMAGE_CAPTION và video thật vẫn pending. Chưa B_RELEASED.
+
 ### Cập nhật 27/10/2026 — chưa B_RELEASED
 
 - QA19 hiện có đã kiểm upload tệp tiếng Việt, hai Project riêng, byte gốc,

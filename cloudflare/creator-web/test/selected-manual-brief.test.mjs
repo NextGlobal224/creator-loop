@@ -32,6 +32,8 @@ test('actual SDK manual writing receives the selected brief without inherited pr
     assert.doesNotMatch(system,/analysis direction is only a creative proposal, never selected instructions/);
     assert.doesNotMatch(system,/generated analysis direction is NOT evidence or a mandatory procedure/);
     assert.match(system,/never source evidence|never treat it as factual evidence/);
+    if(format==='TEXT')assert.match(system,/Không buộc dùng mọi câu nguồn/);
+    else assert.doesNotMatch(system,/Không buộc dùng mọi câu nguồn/);
    }else{
     assert.equal(selected.length,0);assert.match(system,/generated analysis direction is NOT evidence or a mandatory procedure/);
    }
@@ -51,6 +53,7 @@ test('actual editing still rejects copied original plus extra advice; KEEP remai
    calls++;const system=native.messages.find(m=>m.role==='system').content;
    assert.match(system,/copying a supported sentence and then appending advice/);
    assert.match(system,/SUGGESTION, not INSUFFICIENT solely for lacking a source/);
+   assert.match(system,/Đọc và biên tập toàn bài cùng lúc/);
    return {response:operations,usage:{}};
   }},'@cf/openai/gpt-oss-120b',JSON.stringify(packet),'fixture'));
   assert.equal(calls,1);assert.equal(result.ok,!copied,JSON.stringify(result));
@@ -70,5 +73,6 @@ test('manual audit receives the same selected deliverable and conditional-contex
  assert.equal(bindSelectedManualBrief(n,{mode:'MANUAL',format:'TEXT',stage:'source_audit'},source),true);
  assert.match(n.messages[0].content,/not an actual sender message/);
  assert.match(n.messages[0].content,/first\/required step or an earliest occurrence still needs exact source support/);
+ assert.match(n.messages[0].content,/EVERY segment of the final paragraph/);
  assert.equal(JSON.parse(n.messages[1].content.split('\n')[1]).direction,source.direction);
 });

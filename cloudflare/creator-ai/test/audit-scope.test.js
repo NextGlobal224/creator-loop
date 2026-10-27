@@ -15,7 +15,7 @@ test('actual incomplete global audit remains rejected; native schema declares ev
   assert.equal(captured.length,1,'Only audit is replayed through the real SDK; no cloud request');
   const schema=captured[0].response_format.json_schema;
   const branches=schema.properties.finding_checks.items.oneOf;
-  const globals=branches.filter(b=>b.properties.segment_indexes.const);
+  const globals=branches.filter(b=>b.properties.segment_indexes.const?.length===schema.properties.segments.minItems);
   assert.equal(globals.length,4,'Two verdicts for each of the two global requirements');
   for(const branch of globals){
     assert.deepEqual(branch.properties.segment_indexes.const,[0,1,2,3,4]);
