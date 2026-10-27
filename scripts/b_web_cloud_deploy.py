@@ -26,7 +26,9 @@ TARGETS = {"production": "creator-loop-b-web", "qa19": "creator-loop-b-web-qa19"
 UUID = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
 
 
-def expected_binding_types(target: str, previous_version: dict) -> dict[str, str]:
+def expected_binding_types(
+    target: str, previous_version: dict, config: dict | None = None
+) -> dict[str, str]:
     types = {
         "AI": "ai",
         "ASSETS": "assets",
@@ -35,6 +37,10 @@ def expected_binding_types(target: str, previous_version: dict) -> dict[str, str
         "DATABASE": "durable_object_namespace",
         "LOGIN_PASSWORD_HASH": "secret_text",
     }
+    if config and "browser" in config:
+        if config["browser"] != {"binding": "BROWSER"}:
+            raise ValueError("Unexpected browser binding configuration")
+        types["BROWSER"] = "browser"
     if target not in TARGETS:
         raise ValueError("Unsupported deployment target")
     operator = [
@@ -686,6 +692,7 @@ def main():
             path.write_bytes(value)
         config_path = destination / "worker/wrangler.jsonc"
         config = json.loads(config_path.read_text())
+        expected_binding_types(target, previous_version, config)
         if config["name"] != TARGETS["production"] or config["migrations"] != [
             {"tag": "v1", "new_sqlite_classes": ["Database"]}
         ]:
@@ -763,7 +770,7 @@ def main():
         raise ValueError("Domain revision regressed")
     config = json.loads(files["worker/wrangler.jsonc"])
     settings = cloud(script + "/settings")
-    binding_types = expected_binding_types(target, previous_version)
+    binding_types = expected_binding_types(target, previous_version, config)
     bindings = {b["name"]: b for b in settings["bindings"]}
     expected_namespace = next(
         b["namespace_id"]

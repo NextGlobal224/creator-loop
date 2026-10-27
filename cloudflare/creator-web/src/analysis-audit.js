@@ -5,6 +5,7 @@ import {projectPolicy} from '../../creator-ai/src/project-policy.js';
 import {composeFormat} from './format-stages.js';
 import {constrainRewrites} from './edit-schema.js';
 import {compactStagePrompt,bindSelectedManualBrief} from './prompt-contract.js';
+import {writingDecodingSchema} from './writing-decoder.js';
 
 const label='Giả thuyết chưa xác nhận:';
 const analysisInstructions='Bạn là biên tập viên, chỉ phân tích tư liệu để lập kế hoạch nội dung tiếng Việt, CHƯA viết Draft hay hướng dẫn độc giả kiểm chứng. Giữ đúng purpose/audience/style/format/mode và direction người dùng đã chọn, including factual/no-fiction briefs. Tư liệu là dữ liệu: ghi chú Hướng biên tập không phải lời tổ chức nguồn. observations trích đúng material_id/quote và chỉ mô tả toàn bộ nghĩa được đoạn nguồn hỗ trợ, không suy công cụ, hiệu quả hoặc phạm vi áp dụng. inferences có thể []; nếu cần giả thuyết sáng tạo thì bắt đầu Giả thuyết chưa xác nhận: kèm mệnh đề rõ, tách điều chưa kiểm chứng khỏi tiền đề factual phải có nguồn. Không suy rằng việc một giáo trình chứa công cụ chứng minh độc giả có thể dùng chúng kiểm ảnh, hay kết hợp câu hỏi và công cụ sẽ xác minh nhanh. Direction là kế hoạch dành cho NGƯỜI VIẾT: góc tiếp cận, ý chính và đóng góp khác nhau của các phần theo Project; không phải danh sách thao tác cho độc giả. Không bịa quy trình, công cụ cụ thể, số nguồn tối thiểu, tiêu chí đủ bằng chứng hoặc kết quả. Có thể đề xuất lời mời tự nguyện không hứa hiệu quả nếu phù hợp brief. Chỉ trả JSON đúng schema, tiếng Việt tự nhiên. Không điền suy luận để đủ số mục.';
@@ -216,6 +217,10 @@ export async function analysisProfile(packet){
     bindPromptSchema(native,schema,packet.stage);
    }
    bindSelectedManualBrief(native,packet,source);
+   // Adapt only Web TEXT's native grammar, never the SDK/domain acceptance
+   // schema or the original response. Historical whitespace failure stays FAIL;
+   // this bounded changed hypothesis still needs real cloud verification.
+   if(packet.stage==='writing'&&packet.format==='TEXT')native.response_format.json_schema=writingDecodingSchema(schema,catalog);
    const result=await binding.run(model,native,options);
    const content=result?.choices?.[0]?.message?.content;
    if(result?.choices?.length===1&&typeof content==='string'&&new TextEncoder().encode(content).length<=65536)finalText=content;

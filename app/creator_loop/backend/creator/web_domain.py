@@ -23,6 +23,10 @@ from creator_loop.backend.knowledge.cloud_image import (
     correct_cloud_image,
     prepare_cloud_image,
 )
+from creator_loop.backend.knowledge.cloud_video import (
+    correct_cloud_video_range,
+    prepare_cloud_video,
+)
 from creator_loop.backend.knowledge.evidence_correction import correct_text_evidence
 from creator_loop.backend.knowledge.evidence_review import current_evidence_review
 from creator_loop.backend.knowledge.source_use import (
@@ -259,8 +263,8 @@ class WebDomain:
         ):
             raise WebInputError("Nhập transcript và khoảng thời gian mili giây nguyên.")
         material = self._project_original(project_id, file_id)
-        if material["media_type"] != "AUDIO":
-            raise WebInputError("Sửa transcript hiện hỗ trợ nguồn ghi âm PCM WAV.")
+        if material["media_type"] not in ("AUDIO", "VIDEO"):
+            raise WebInputError("Chọn nguồn ghi âm/video để sửa khoảng thời gian.")
         with closing(_connect_write(self.path)) as db:
             row = db.execute(
                 "SELECT anchor_file_id FROM evidence_versions WHERE evidence_version_id=?",
@@ -268,7 +272,12 @@ class WebDomain:
             ).fetchone()
             if row is None or row[0] != file_id:
                 raise WebInputError("Đoạn đang sửa không thuộc nguồn này.")
-            version = correct_cloud_audio_range(
+            correct = (
+                correct_cloud_video_range
+                if material["media_type"] == "VIDEO"
+                else correct_cloud_audio_range
+            )
+            version = correct(
                 db,
                 data_root=self.root,
                 evidence_version_id=data.get("evidence_version_id", ""),
@@ -318,6 +327,20 @@ class WebDomain:
             except ValueError as error:
                 raise WebInputError(str(error)) from None
         return {k: v for k, v in packet.items() if k != "image"}
+
+    def begin_source_video(self, data, run_id, version):
+        self._project_original(data.get("project_id", ""), data.get("file_id", ""))
+        with closing(_connect_write(self.path)) as db:
+            try:
+                return prepare_cloud_video(
+                    db,
+                    data_root=self.root,
+                    file_id=data["file_id"],
+                    run_id=run_id,
+                    version=version,
+                )
+            except ValueError as error:
+                raise WebInputError(str(error)) from None
 
     def source_image_region(self, data: dict[str, Any]) -> dict[str, Any]:
         project, file = data.get("project_id", ""), data.get("file_id", "")

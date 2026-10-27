@@ -9,6 +9,7 @@
   "durable_objects": {"bindings": [{"name": "DATABASE", "class_name": "Database"}]},
   "migrations": [{"tag": "v1", "new_sqlite_classes": ["Database"]}],
   "assets": {"directory": "public", "binding": "ASSETS", "run_worker_first": true},
+  "browser": {"binding": "BROWSER"},
   "ai": {"binding": "AI"},
   "version_metadata": {"binding": "CREATOR_VERSION"},
   "vars": {"CREATOR_MODEL": "@cf/openai/gpt-oss-120b"}

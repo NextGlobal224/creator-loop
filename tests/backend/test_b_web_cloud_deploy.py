@@ -425,6 +425,19 @@ class CloudDeploymentTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unexpected existing QA"):
                 expected_binding_types("qa19", {"resources": {"bindings": bindings}})
 
+    def test_browser_binding_is_exactly_declared_not_inferred_from_old_version(self):
+        empty = {"resources": {"bindings": []}}
+        self.assertNotIn("BROWSER", expected_binding_types("qa19", empty, {}))
+        self.assertEqual(
+            expected_binding_types("qa19", empty, {"browser": {"binding": "BROWSER"}})[
+                "BROWSER"
+            ],
+            "browser",
+        )
+        for value in ({"binding": "OTHER"}, {"binding": "BROWSER", "remote": True}):
+            with self.assertRaisesRegex(ValueError, "Unexpected browser"):
+                expected_binding_types("qa19", empty, {"browser": value})
+
     def test_existing_version_verification_reads_trusted_old_main_without_activation(
         self,
     ):

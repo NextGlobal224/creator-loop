@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fromJSONSchema} from '../../creator-ai/node_modules/zod/index.js';
 import {analysisFields,analysisHash,validateAnalysis,validateCoverage,analysisProfile,coverageSchema} from '../src/analysis-audit.js';
+import {plannedWritingSchema} from '../../creator-ai/src/grounding.js';
 const materials=[{material_id:'m',text:'COR giới thiệu ba câu hỏi để xem xét nội dung trực tuyến.'}];
 const catalog=[{material_id:'m',source_quote:materials[0].text}];
 const analysis={observations:[{material_id:'m',quote:materials[0].text,observation:materials[0].text}],inferences:['Giả thuyết chưa xác nhận: Bạn có thể cân nhắc hỏi lại người gửi.'],direction:'Đề xuất tự viết: hỏi đường dẫn gốc, không dự đoán kết quả.'};
@@ -89,7 +90,7 @@ test('TEXT writing has room for complete final JSON without changing effort or50
  const packet={format:'TEXT',stage:'writing',previous:[{value:analysis}],writing_prompt:'fixture\n'+JSON.stringify({materials})},profile=await analysisProfile(packet);
  const partial='{"editorial_paragraphs":',raw={headers:{authorization:'PRIVATE_HEADER_FIXTURE'},choices:[{finish_reason:'length',message:{reasoning_content:'PRIVATE_REASONING_FIXTURE',content:partial}}]};
  let captured,calls=0;
- const result=await profile.run({run:async(_,input)=>{captured=input;calls++;return raw;}},'@cf/openai/gpt-oss-120b',{max_tokens:3000,reasoning_effort:'medium',messages:[{role:'system',content:'Write'}],response_format:{type:'json_schema',json_schema:{properties:{}}}});
+ const result=await profile.run({run:async(_,input)=>{captured=input;calls++;return raw;}},'@cf/openai/gpt-oss-120b',{max_tokens:3000,reasoning_effort:'medium',messages:[{role:'system',content:'Write'}],response_format:{type:'json_schema',json_schema:plannedWritingSchema(catalog,{fictionalOpening:false})}});
  assert.equal(calls,1);assert.equal(captured.max_tokens,4500);assert.equal(captured.reasoning_effort,'medium');assert.equal(result,raw);
  assert.equal(profile.diagnostic().finish_reason,'length');assert.equal(profile.diagnostic().final_json_status,'INVALID');
  assert.equal(profile.rejectedFinalText(),partial);assert.doesNotMatch(profile.rejectedFinalText(),/PRIVATE_/);assert.equal(profile.rejectedJSON(),null);
@@ -103,7 +104,7 @@ test('failed final text evidence is bounded and never includes extra choices or 
  for(const mode of ['oversize','multiple','valid']){
   const profile=await analysisProfile({format:'TEXT',stage:'writing',previous:[{value:analysis}],writing_prompt:'fixture\n'+JSON.stringify({materials})});
   const choice={finish_reason:mode==='valid'?'stop':'length',message:{reasoning_content:'PRIVATE_REASONING_FIXTURE',content:mode==='oversize'?'x'.repeat(65537):'{}'}};
-  await profile.run({run:async()=>({choices:mode==='multiple'?[choice,choice]:[choice]})},'model',{messages:[{role:'system',content:'Write'}],response_format:{type:'json_schema',json_schema:{properties:{}}}});
+  await profile.run({run:async()=>({choices:mode==='multiple'?[choice,choice]:[choice]})},'model',{messages:[{role:'system',content:'Write'}],response_format:{type:'json_schema',json_schema:plannedWritingSchema(catalog,{fictionalOpening:false})}});
   assert.equal(profile.rejectedFinalText(),null);
  }
 });
