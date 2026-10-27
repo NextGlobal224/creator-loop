@@ -1,5 +1,23 @@
 ## B_RELEASED — cổng đầu vào bắt buộc bổ sung 22/10/2026
 
+### Cập nhật 27/10/2026 — chưa B_RELEASED
+
+- QA19 hiện có đã kiểm upload tệp tiếng Việt, hai Project riêng, byte gốc,
+  transcript sửa v2/bản MODEL v1 và mở lại sau đăng nhập mới. Không tạo ACCEPT
+  hay duyệt đăng. ASR gốc vẫn sai hai từ so với reference, chưa đạt chất lượng.
+- Đọc ảnh NASA thật đã có mô tả khớp ảnh, nguồn/hash/version và mở lại. Đây là
+  nghiệm thu đọc ảnh có giới hạn, không thay IMAGE_CAPTION Draft.
+- Lượt MANUAL TEXT NASA mới nhận hai native response rồi FAIL ở writing:
+  `finish_reason=length`, JSON chưa hoàn tất và phần cuối lặp whitespace.
+  Editing/audit chưa chạy; không có Draft mới. Giữ raw output/usage/reservation,
+  không lấy lỗi này làm bằng chứng quota AI cạn hoặc lỗi editing lịch sử.
+- Nhánh đọc video đang bổ sung decoder cloud, hai model, locator audio/video,
+  version/review và guard Browser Run trong gói. Local protocol PASS không
+  thay triển khai QA, đọc video thật hoặc nghiệm thu chất lượng.
+- Cổng beta vẫn yêu cầu đầy đủ nguồn ghi âm/video/text/ảnh và MANUAL
+  TEXT/IMAGE_CAPTION đạt; native Goal giữ paused theo yêu cầu, triển khai chỉ
+  tiếp tục từ prompt chat. A/dọn local, C và AUTOMATIC mới ngoài lượt này.
+
 ### Cập nhật 23/10/2026 — nguồn ảnh và trạng thái triển khai
 
 QA129 từ main `f8345ed` vẫn dừng ở SQL trước upload/kích hoạt. Một batch

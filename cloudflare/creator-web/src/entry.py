@@ -37,6 +37,11 @@ from creator_loop.backend.knowledge.cloud_image import (
     probe_image,
     store_cloud_image,
 )
+from creator_loop.backend.knowledge.cloud_video import (
+    VIDEO_MODEL,
+    original_video,
+    store_cloud_video,
+)
 from creator_loop.backend.runtime.database import (
     MIGRATIONS,
     _connect_write,
@@ -107,6 +112,22 @@ def valid_included_grant(data, model, now):
         <= data["estimated_chain_neurons"]
         <= data["remaining_neurons"]
         <= 10000
+    )
+
+
+def valid_video_grant(data, now):
+    return (
+        valid_included_grant(data, WHISPER_MODEL, now)
+        and data.get("account_plan") == "Paid"
+        and data.get("source_kind") == "VIDEO"
+        and data.get("vision_model") == IMAGE_MODEL
+        and data.get("browser_included_only") is True
+        and type(data.get("browser_observed_at")) in (int, float)
+        and 0 <= now - data["browser_observed_at"] <= 120
+        and int(now // 86400) == int(data["browser_observed_at"] // 86400)
+        and type(data.get("browser_remaining_seconds")) in (int, float)
+        and 600 <= data["browser_remaining_seconds"] <= 36000
+        and data.get("browser_forecast_seconds") == 600
     )
 
 
@@ -1030,14 +1051,15 @@ class Database(DurableObject):
             media_type = parse_qs(urlsplit(request.url).query).get(
                 "media_type", ["AUDIO"]
             )[0]
-            if media_type not in ("AUDIO", "IMAGE"):
+            if media_type not in ("AUDIO", "IMAGE", "VIDEO"):
                 raise WebInputError("Chọn nguồn ghi âm hoặc ảnh trước khi kiểm quyền.")
             model = IMAGE_MODEL if media_type == "IMAGE" else WHISPER_MODEL
             found = self.rows("SELECT record FROM control WHERE id='grant'")
             grant = json.loads(found[0]["record"]) if found else {}
             available = (
                 valid_included_grant(grant, model, time.time())
-                and grant["remaining_calls"] == 1
+                and grant["remaining_calls"] == (2 if media_type == "VIDEO" else 1)
+                and (media_type != "VIDEO" or valid_video_grant(grant, time.time()))
             )
             return reply(
                 {
@@ -1094,7 +1116,17 @@ class Database(DurableObject):
             ):
                 return reply({"error": "Operator verification required"}, 403)
             if (
-                set(data) - {"included_only", "max_extra_charge_usd"}
+                set(data)
+                - {
+                    "included_only",
+                    "max_extra_charge_usd",
+                    "source_kind",
+                    "vision_model",
+                    "browser_included_only",
+                    "browser_observed_at",
+                    "browser_remaining_seconds",
+                    "browser_forecast_seconds",
+                }
                 != {
                     "grant",
                     "observed_at",
@@ -1111,13 +1143,34 @@ class Database(DurableObject):
                 not in (self.env.CREATOR_MODEL, WHISPER_MODEL, IMAGE_MODEL)
                 or (
                     data["model"] in (WHISPER_MODEL, IMAGE_MODEL)
-                    and data["remaining_calls"] != 1
+                    and data["remaining_calls"]
+                    != (2 if data.get("source_kind") == "VIDEO" else 1)
                 )
             ):
                 raise WebInputError(
                     "Cần bằng chứng đúng account/Workers plan và phần bao gồm; chưa tạo quyền AI."
                 )
-            if not valid_included_grant(data, data["model"], time.time()):
+            if (
+                not valid_included_grant(data, data["model"], time.time())
+                or (
+                    data.get("source_kind") == "VIDEO"
+                    and not valid_video_grant(data, time.time())
+                )
+                or (
+                    data.get("source_kind") != "VIDEO"
+                    and any(
+                        k in data
+                        for k in (
+                            "source_kind",
+                            "vision_model",
+                            "browser_included_only",
+                            "browser_observed_at",
+                            "browser_remaining_seconds",
+                            "browser_forecast_seconds",
+                        )
+                    )
+                )
+            ):
                 raise WebInputError(
                     "Chưa đủ phần bao gồm, dự phòng 5.000 hoặc bằng chứng đã hết hạn. Paid phải xác nhận phí ngoài gói $0; chưa tạo quyền AI."
                 )
@@ -1184,7 +1237,7 @@ class Database(DurableObject):
                 if digest(raw) != row[1]:
                     raise ValueError("Media changed")
                 mime = row[2]
-                verified_pcm = False
+                verified_media = False
                 if row[3] == "AUDIO":
                     mime = "application/octet-stream"
                     from creator_loop.backend.knowledge.cloud_audio import probe_pcm_wav
@@ -1195,15 +1248,20 @@ class Database(DurableObject):
                         pass  # Opaque/unsupported audio remains a download.
                     else:
                         mime = "audio/wav"
-                        verified_pcm = True
+                        verified_media = True
+                if row[3] == "VIDEO" and len(raw) >= 16:
+                    if raw[4:8] == b"ftyp":
+                        mime, verified_media = "video/mp4", True
+                    elif raw[:4] == b"\x1a\x45\xdf\xa3":
+                        mime, verified_media = "video/webm", True
                 headers = {
                     **HEADERS,
                     "Content-Type": mime,
                     "Content-Disposition": "inline"
-                    if mime.startswith("image/") or verified_pcm
+                    if mime.startswith("image/") or verified_media
                     else "attachment",
                 }
-                if verified_pcm:
+                if verified_media:
                     headers["Accept-Ranges"] = "bytes"
                     headers["Content-Length"] = str(len(raw))
                     value = request.headers.get("Range")
@@ -1389,13 +1447,17 @@ class Database(DurableObject):
                         if (
                             content.get("format")
                             != (
-                                "CREATOR_CLOUD_IMAGE_V1"
+                                "CREATOR_CLOUD_VIDEO_V1"
+                                if review["media_type"] == "VIDEO"
+                                else "CREATOR_CLOUD_IMAGE_V1"
                                 if review["media_type"] == "IMAGE"
                                 else "CREATOR_CLOUD_TRANSCRIPT_V1"
                             )
                             or content.get("model")
                             != (
-                                IMAGE_MODEL
+                                VIDEO_MODEL
+                                if review["media_type"] == "VIDEO"
+                                else IMAGE_MODEL
                                 if review["media_type"] == "IMAGE"
                                 else WHISPER_MODEL
                             )
@@ -1588,20 +1650,30 @@ class Database(DurableObject):
                     media_type = domain._project_original(
                         data["project_id"], data["file_id"]
                     )["media_type"]
-                    if media_type not in ("AUDIO", "IMAGE"):
+                    if media_type not in ("AUDIO", "IMAGE", "VIDEO"):
                         raise WebInputError(
                             "Đọc nguồn hiện hỗ trợ ghi âm và ảnh; nguồn khác cần bộ đọc phù hợp, chưa gửi AI."
                         )
                     model = IMAGE_MODEL if media_type == "IMAGE" else WHISPER_MODEL
                     if (
                         not valid_included_grant(grant, model, time.time())
-                        or grant["remaining_calls"] != 1
+                        or grant["remaining_calls"]
+                        != (2 if media_type == "VIDEO" else 1)
+                        or (
+                            media_type == "VIDEO"
+                            and (
+                                not valid_video_grant(grant, time.time())
+                                or not getattr(self.env, "BROWSER", None)
+                            )
+                        )
                     ):
                         raise WebInputError(
                             "Chưa có quyền operator đọc nguồn đúng model còn hiệu lực với quota/dự phòng trong gói. Chưa gửi AI."
                         )
                     source = (
-                        domain.begin_source_image(data, key, VERSION)
+                        domain.begin_source_video(data, key, VERSION)
+                        if media_type == "VIDEO"
+                        else domain.begin_source_image(data, key, VERSION)
                         if media_type == "IMAGE"
                         else domain.begin_source_transcription(data, key, VERSION)
                     )
@@ -1613,7 +1685,9 @@ class Database(DurableObject):
                     )
                     result = {
                         "id": key,
-                        "kind": "SOURCE_IMAGE_ANALYSIS"
+                        "kind": "SOURCE_VIDEO_ANALYSIS"
+                        if media_type == "VIDEO"
+                        else "SOURCE_IMAGE_ANALYSIS"
                         if media_type == "IMAGE"
                         else "SOURCE_TRANSCRIPTION",
                         "status": "QUEUED",
@@ -1944,6 +2018,230 @@ class Database(DurableObject):
         finally:
             self.discard_projection(root)
 
+    async def extract_video(self, job):
+        def current_job():
+            return json.loads(
+                self.rows("SELECT record FROM jobs WHERE id=?", job["id"])[0]["record"]
+            )
+
+        def allowed():
+            current = current_job()
+            live = self.rows("SELECT record FROM control WHERE id='grant'")
+            return (
+                current["status"] == "RUNNING"
+                and current.get("lease_until") == job.get("lease_until")
+                and current.get("request") == job["request"]
+                and live
+                and json.loads(live[0]["record"]) == job["grant"]
+                and valid_video_grant(job["grant"], time.time())
+                and job["grant"].get("remaining_calls") == 0
+                and job["grant"].get("reserved_pipeline") == job["id"]
+            )
+
+        if not allowed():
+            if current_job()["status"] == "CANCELLED":
+                return
+            raise WebInputError(
+                "Quyền video/quota đã hết hạn hoặc đổi trước xử lý; chưa gọi AI, giữ reservation."
+            )
+        root, _ = self.load()
+        try:
+            WebDomain(root)._project_original(
+                job["request"]["project_id"], job["request"]["file_id"]
+            )
+            with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+                _, raw, sha = original_video(db, root, job["request"]["file_id"])
+            if sha != job["sources"][0]["input_sha256"]:
+                raise ValueError("Video original changed after reservation")
+            packet = {
+                "video": base64.b64encode(raw).decode(),
+                "input_sha256": sha,
+                "browser_reserved_seconds": 60,
+            }
+        finally:
+            self.discard_projection(root)
+        job["browser"] = {
+            "outcome": "UNKNOWN",
+            "reserved_seconds": 600,
+            "wait_budget_seconds": 60,
+            "started_at": time.time(),
+        }
+        self.save_job(job)
+        sdk = import_from_javascript("creator_ai.mjs")
+        decoded = json.loads(
+            await sdk.decodeSourceVideo(
+                python_to_rpc(self.env.BROWSER), json.dumps(packet)
+            )
+        )
+        # Retain the native lifecycle receipt even when launch/close timed out.
+        # Caller deadlines do not prove the remote browser stopped billing.
+        decoder_confirmed = (
+            decoded.get("ok") is True
+            and decoded.get("browser_lifecycle", {}).get("close_status") == "CLOSED"
+        )
+        job["browser"].update(
+            lifecycle=decoded.get("browser_lifecycle"),
+            finished_at=time.time(),
+            outcome="RECEIVED" if decoder_confirmed else "UNKNOWN",
+        )
+        current = current_job()
+        current.update(browser=job["browser"])
+        self.save_job(current)
+        if current["status"] != "RUNNING":
+            return
+        if not decoder_confirmed:
+            raise WebInputError(
+                "Chưa xác nhận giải mã hoặc đóng phiên video cloud; không gọi AI, giữ reservation."
+            )
+        if (
+            decoded.get("input_sha256") != sha
+            or not 1 <= decoded.get("duration_ms", 0) <= 30000
+        ):
+            raise ValueError("Cloud decoder identity/duration rejected")
+        audio = base64.b64decode(decoded["audio"], validate=True)
+        probe = probe_pcm_wav(audio)
+        if abs(probe.duration_ms - decoded["duration_ms"]) > 250:
+            raise ValueError("Cloud audio/video timing mismatch")
+        frame_meta = []
+        for frame in decoded["frames"]:
+            b = base64.b64decode(frame["image"], validate=True)
+            ip = probe_image(b)
+            frame_meta.append(
+                {
+                    "at_ms": frame["at_ms"],
+                    "end_ms": frame["end_ms"],
+                    "sha256": ip.sha256,
+                }
+            )
+        metadata = {k: v for k, v in decoded.items() if k not in ("audio", "frames")}
+        metadata.update(
+            frames=frame_meta,
+            audio_sha256=probe.sha256,
+            audio_duration_ms=probe.duration_ms,
+        )
+        job["browser"].update(
+            outcome="RECEIVED",
+            finished_at=time.time(),
+            session_id=decoded["browser_session_id"],
+            decoder=metadata,
+        )
+        # Raw derived bytes stay transient; only originals/native results and
+        # decoder hashes/locators persist. Do not fill storage with base64 copies.
+        current = current_job()
+        if current["status"] != "RUNNING":
+            current.update(browser=job["browser"])
+            self.save_job(current)
+            return
+        self.save_job(job)
+        results = {}
+        for stage, model, reader, data, expected_sha in (
+            (
+                "transcription",
+                WHISPER_MODEL,
+                sdk.transcribeSource,
+                {
+                    "audio": decoded["audio"],
+                    "duration_ms": probe.duration_ms,
+                    "model": WHISPER_MODEL,
+                    "input_sha256": probe.sha256,
+                },
+                probe.sha256,
+            ),
+            (
+                "video_vision",
+                IMAGE_MODEL,
+                sdk.analyzeVideoFrames,
+                {
+                    "frames": decoded["frames"],
+                    "duration_ms": decoded["duration_ms"],
+                    "input_sha256": sha,
+                },
+                sha,
+            ),
+        ):
+            if not allowed():
+                if current_job()["status"] == "CANCELLED":
+                    return
+                raise WebInputError(
+                    "Bằng chứng hạn mức video hết hạn trước bước tiếp; không gọi model còn lại, giữ reservation."
+                )
+            request_id = digest((job["id"] + stage).encode())[:32]
+            call = {
+                "stage": stage,
+                "model": model,
+                "request_id": request_id,
+                "reserved_at": time.time(),
+                "outcome": "UNKNOWN",
+                "input_sha256": expected_sha,
+                "original_video_sha256": sha,
+            }
+            job["calls"].append(call)
+            job["stage"] = len(job["calls"])
+            self.save_job(job)
+            encoded = await reader(
+                python_to_rpc(self.env.AI),
+                json.dumps({**data, "request_id": request_id}),
+                str(self.env.CREATOR_VERSION.id),
+            )
+            if len(encoded.encode()) > 512 * 1024:
+                raise ValueError("Video native response exceeds bound")
+            response = json.loads(encoded)
+            call.update(
+                outcome="UNKNOWN" if response.get("unknown_outcome") else "RECEIVED",
+                finished_at=time.time(),
+                model_calls=response.get("model_calls"),
+                measured_usage=response.get("native_usage"),
+            )
+            job["stage_outputs"].append(response)
+            if response.get("unknown_outcome"):
+                job["unknown_outcome"] = True
+            current = current_job()
+            if current["status"] != "RUNNING":
+                current.update(
+                    calls=job["calls"],
+                    stage_outputs=job["stage_outputs"],
+                    browser=job["browser"],
+                )
+                self.save_job(current)
+                return
+            self.save_job(job)
+            if (
+                not response.get("ok")
+                or response.get("model") != model
+                or response.get("worker_version") != str(self.env.CREATOR_VERSION.id)
+                or response.get("request_id") != request_id
+                or response.get("input_sha256") != expected_sha
+                or response.get("model_calls") != 1
+            ):
+                raise ValueError("Video source binding rejected; no retry")
+            results["audio" if stage == "transcription" else "vision"] = response
+        result = {"input_sha256": sha, "decoder": metadata, **results}
+        root, revision = self.load()
+        try:
+
+            def finish():
+                with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+                    stored = store_cloud_video(
+                        db,
+                        data_root=root,
+                        file_id=job["request"]["file_id"],
+                        run_id=job["id"],
+                        result=result,
+                    )
+                self.put_object(stored["sha256"], stored["content"])
+                self.commit(root, revision)
+                job.update(
+                    status="SUCCEEDED",
+                    finished_at=time.time(),
+                    evidence_version_ids=stored["evidence_version_ids"],
+                    message="Đã trích lời nói và hình ảnh lấy mẫu; mở video đúng mốc để đối chiếu. Chưa duyệt nguồn/factual/đăng.",
+                )
+                self.save_job(job)
+
+            self.ctx.storage.transactionSync(finish)
+        finally:
+            self.discard_projection(root)
+
     async def extract_source(self, job):
         image = job.get("kind") == "SOURCE_IMAGE_ANALYSIS"
         model = IMAGE_MODEL if image else WHISPER_MODEL
@@ -2259,6 +2557,9 @@ class Database(DurableObject):
         try:
             if job.get("kind") == "QA_EDITING_DIAGNOSTIC":
                 await self.probe_editing(job)
+                return
+            if job.get("kind") == "SOURCE_VIDEO_ANALYSIS":
+                await self.extract_video(job)
                 return
             if job.get("kind") in ("SOURCE_TRANSCRIPTION", "SOURCE_IMAGE_ANALYSIS"):
                 await self.extract_source(job)

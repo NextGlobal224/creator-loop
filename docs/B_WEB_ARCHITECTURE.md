@@ -317,3 +317,39 @@ lifecycle uses only coordination storage, never domain sync/checkpoint/Draft or
 review mutation. Operator GET/cancel are required; ordinary UI state excludes
 diagnostics. Production rejects the route. A successful trace is not source or
 article-quality acceptance and cannot settle a historical missing usage receipt.
+
+## Cloud video input reader (release gate still pending)
+
+The video source path preserves the uploaded MP4/WebM Original and reads a
+bounded clip (30 seconds, 8 MiB) through the existing durable job/alarm. A
+Cloudflare Browser Run binding decodes audio and samples video frames every
+2 seconds. No decoder or model runs in the Windows browser. Sampled visual
+observations have their exact time locators; intervening frames are explicitly
+unread. A failed decoder does not imply a silent clip or authorize inference.
+
+One declared video run reserves two fixed calls: Whisper speech recognition and
+Gemma sampled-frame analysis. The existing AI forecast remains 5,000 Neurons.
+In addition to fresh included-only Workers/DO/AI evidence, the operator must
+confirm fresh Browser Run usage on the same paid account/month, with at least
+600 included seconds remaining after pending usage/reservations. Each decoder
+session operation has a shared 55-second wait deadline from launch through
+decoding, plus at most 5 seconds waiting for owned-session cleanup. These are
+caller wait bounds, not a guaranteed provider lifetime: keepAlive is only a
+10-second inactivity timeout. Late launch results receive one best-effort owned
+close; timed-out/rejected close or native `closing` stays unconfirmed, preserves
+the reservation and blocks inference. Lifecycle receipts persist even on failure
+or Stop. Recording is disabled. Configuring a binding does not establish included
+headroom, source-reading quality or permission for a model call.
+
+Original hashes, decoder/sample hashes, both native responses/usage and exact
+time anchors remain associated with the video processing run. Derived PCM and
+frame bytes are transient; the durable result artifact contains no base64 copy
+of them. The existing operational media/backup caps still apply. Corrections
+append source versions and require a new source-use choice; they do not create
+factual or publication approval. Cancellation during decoding or either model
+call retains the cancelled state and known receipts without sending the next
+model request. Unknown outcomes are not retried or refunded.
+
+Protocol doubles and local tests do not establish cloud decoder compatibility,
+real video speech/visual quality, memory headroom or B_RELEASED. These remain
+separate deployment/source-quality acceptance gates.
