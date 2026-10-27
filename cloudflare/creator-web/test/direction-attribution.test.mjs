@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {analysisFields,analysisHash,coverageSchema,validateCoverage,directionAttributions,analysisProfile} from '../src/analysis-audit.js';
 import {quoteCatalog} from '../../creator-ai/src/quality.js';
+import {plannedWritingSchema} from '../../creator-ai/src/grounding.js';
 
 const materials=[{material_id:'a',text:'Source: Source Alpha\nAlpha nêu công cụ X để tìm ảnh.'},{material_id:'b',text:'Source: BETA Research\nBETA nêu giới hạn tìm kiếm.'}];
 const catalog=quoteCatalog(materials);
@@ -65,7 +66,7 @@ test('writing and editing instructions distinguish extractive observations from 
  for(const stage of ['writing','editing']){
   const profile=await analysisProfile({format:'TEXT',stage,previous:[{value:analysis}],writing_prompt:'fixture\n'+JSON.stringify({purpose:'Giải thích giới hạn tư liệu',direction:'Nêu rõ điều chưa biết',materials})});
   let input;
-  await profile.run({run:async(_,value)=>{input=value;return {response:{}};}},'model',{reasoning_effort:'medium',max_tokens:4500,messages:[{role:'system',content:'Original source constraints'}],response_format:{type:'json_schema',json_schema:{properties:{}}}});
+  await profile.run({run:async(_,value)=>{input=value;return {response:{}};}},'model',{reasoning_effort:'medium',max_tokens:4500,messages:[{role:'system',content:'Original source constraints'}],response_format:{type:'json_schema',json_schema:stage==='writing'?plannedWritingSchema(catalog,{fictionalOpening:false}):{properties:{}}}});
   assert.equal(input.reasoning_effort,'medium');assert.equal(input.max_tokens,4500);
   assert.match(input.messages[0].content,stage==='writing'?/extractive observation rule applies ONLY/:/ORIGINAL support remains SOURCE_SUPPORTED/);
  }
