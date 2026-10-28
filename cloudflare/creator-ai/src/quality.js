@@ -28,7 +28,9 @@ export function safeFailure(error, result) {
     output_types:Array.isArray(result?.output)?result.output.map(item=>item?.type).filter(t=>["message","reasoning","function_call"].includes(t)).slice(0,10):[]};
 }
 
-export function auditSchema(articleHash, segmentCount, findingCount=0,findings=[]) {
+export function auditSchema(articleHash, segmentCount, findingCount=0,findings=[],segments=null) {
+  if(segments!==null && (!Array.isArray(segments)||segments.length!==segmentCount||segments.some((s,i)=>s.index!==i||!Number.isInteger(s.paragraph_index)||s.paragraph_index<0)))throw new Error("Audit paragraph identity mismatch");
+  const closing=segments?.filter(s=>s.paragraph_index===Math.max(...segments.map(x=>x.paragraph_index))).map(s=>s.index);
   const schema={type:"object",properties:{
     article_sha256:{type:"string",const:articleHash},
     finding_checks:{type:"array",minItems:findingCount,maxItems:findingCount,items:{
@@ -47,8 +49,9 @@ export function auditSchema(articleHash, segmentCount, findingCount=0,findings=[
     schema.properties.finding_checks.items.oneOf=findings.flatMap((finding,index)=>{
       const project=finding.startsWith("PROJECT_");
       const global=["PROJECT_NO_UNSOURCED_RULE","PROJECT_NONREPETITIVE_DEVELOPMENT"].includes(finding);
-      const minItems=global?4:1;
-      return (project?["ADDRESSED","UNRESOLVED"]:[null]).map(verdict=>({properties:{index:{const:index},...(verdict?{verdict:{const:verdict}}:{}),segment_indexes:{minItems,...(global?{const:Array.from({length:segmentCount},(_,i)=>i)}:{})}},required:["index","segment_indexes",...(verdict?["verdict"]:[])]}));
+      const indexes=global?Array.from({length:segmentCount},(_,i)=>i):finding==='PROJECT_CLOSING_MESSAGE'?closing:null;
+      const minItems=indexes?indexes.length:1;
+      return (project?["ADDRESSED","UNRESOLVED"]:[null]).map(verdict=>({properties:{index:{const:index},...(verdict?{verdict:{const:verdict}}:{}),segment_indexes:{minItems,...(indexes?{const:indexes}:{})}},required:["index","segment_indexes",...(verdict?["verdict"]:[])]}));
     });
   }
   return schema;
@@ -87,7 +90,10 @@ export function bindAudit(body,articleHash,audit,segments,editorFindings=[]) {
     if(["PROJECT_NO_UNSOURCED_RULE","PROJECT_NONREPETITIVE_DEVELOPMENT"].includes(finding) && (audit.finding_checks[i].segment_indexes.length!==segments.length || segments.some(s=>!audit.finding_checks[i].segment_indexes.includes(s.index))))return null;
     if(finding.startsWith("PROJECT_") && audit.finding_checks[i].verdict==="NOT_APPLICABLE")return null;
     if(finding==="PROJECT_NO_UNSOURCED_RULE" && paragraphs.slice(1).some((_,p)=>!audit.finding_checks[i].segment_indexes.some(j=>segments[j].paragraph_index===p+1)))return null;
-    if(finding==="PROJECT_CLOSING_MESSAGE" && !audit.finding_checks[i].segment_indexes.some(j=>segments[j].paragraph_index===paragraphs.length-1))return null;
+    // A multi-sentence ending is one paragraph. Looking only at its final
+    // sentence can miss an unsupported earlier claim or reject a valid summary.
+    // Complete coverage still says nothing about the semantic verdict.
+    if(finding==="PROJECT_CLOSING_MESSAGE" && segments.some(s=>s.paragraph_index===paragraphs.length-1&&!audit.finding_checks[i].segment_indexes.includes(s.index)))return null;
   }
   const finding_checks=audit.finding_checks.map((c,i)=>({finding:editorFindings[i],verdict:c.verdict,reason:c.reason,
     segments:c.segment_indexes.map(j=>({index:j,text:segments[j].text}))}));

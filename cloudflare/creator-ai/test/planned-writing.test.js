@@ -37,6 +37,9 @@ test('actual ccca4a6 audit cannot waive source requirements or certify disputed 
   assert.ok(revisions.some(r=>r.index===3 && r.issues.some(s=>s.includes('recording procedure'))));
   const branches=auditSchema(hash,segments.length,findings.length,findings).properties.finding_checks.items.oneOf.filter(b=>b.properties.index.const===index);
   assert.deepEqual(branches.map(b=>b.properties.verdict.const),['ADDRESSED','UNRESOLVED']);
-  assert.ok(branches.every(b=>b.properties.segment_indexes.minItems===4));
+  for(const branch of branches){
+    assert.equal(branch.properties.segment_indexes.minItems,segments.length);
+    assert.deepEqual(branch.properties.segment_indexes.const,segments.map(s=>s.index));
+  }
   assert.equal(JSON.stringify(actual),before,'Actual automatic failure and false-empty audit are never rewritten into a PASS');
 });
