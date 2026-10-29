@@ -14,6 +14,7 @@ export function currentEvidence(versions){
 export function mountSourceReview({api,getProject,afterChange,say,startSourceJob,root=document}){
  const $=s=>root.querySelector(s);let selected=null,seq=0;
  const sourceUsePending=new Set(),sourceUseKey=s=>JSON.stringify([s.project,s.file]);
+ const audioSavePending=new Set();
  const sourceUseButtons=()=>['#source-allow','#source-exclude','#source-reopen'].map($);
  const live=s=>s&&selected===s&&getProject()===s.project;
  const sameSource=s=>s&&selected&&sourceUseKey(selected)===sourceUseKey(s)&&getProject()===s.project;
@@ -52,7 +53,7 @@ export function mountSourceReview({api,getProject,afterChange,say,startSourceJob
     const loc=JSON.parse(v.locator_data);
     if(loc.track==='audio'||data.media_type==='VIDEO'&&loc.track==='video'){
      const open=document.createElement('button');open.type='button';open.className='secondary';open.textContent=(loc.track==='video'?'Xem/sửa hình tại ':'Nghe/sửa đoạn ')+loc.start_ms+'–'+loc.end_ms+' ms';
-     open.onclick=()=>{if(!live(s))return;s.audioVersion=v.evidence_version_id;$('#source-start-ms').value=loc.start_ms;$('#source-end-ms').value=loc.end_ms;$('#source-transcript').value=v.content;const player=$(data.media_type==='VIDEO'?'#source-video':'#source-audio');player.src='/media/'+encodeURIComponent(s.file)+'#t='+loc.start_ms/1000+','+loc.end_ms/1000;$('#source-audio-save').disabled=false;$('#source-timed-status').textContent='Đang sửa v'+v.version_no+'; bản cũ được giữ. Nghe đúng đoạn rồi ghi lý do sửa.';};$('#source-evidence').append(open);
+     open.onclick=()=>{if(!live(s))return;s.audioVersion=v.evidence_version_id;$('#source-start-ms').value=loc.start_ms;$('#source-end-ms').value=loc.end_ms;$('#source-transcript').value=v.content;const player=$(data.media_type==='VIDEO'?'#source-video':'#source-audio');player.src='/media/'+encodeURIComponent(s.file)+'#t='+loc.start_ms/1000+','+loc.end_ms/1000;$('#source-audio-save').disabled=audioSavePending.has(sourceUseKey(s));$('#source-timed-status').textContent='Đang sửa v'+v.version_no+'; bản cũ được giữ. Nghe đúng đoạn rồi ghi lý do sửa.';};$('#source-evidence').append(open);
     }
    }
    if(data.media_type==='IMAGE'&&v.locator_type==='IMAGE_REGION'){
@@ -101,14 +102,15 @@ export function mountSourceReview({api,getProject,afterChange,say,startSourceJob
  };
  $('#source-audio-save').onclick=async()=>{
   const s=selected;if(!live(s)||!s.audioVersion)return;
+  const key=sourceUseKey(s);if(audioSavePending.has(key))return;audioSavePending.add(key);
   const button=$('#source-audio-save');button.disabled=true;
   try{
    const start=$('#source-start-ms').value,end=$('#source-end-ms').value;
    if(!/^\d+$/.test(start)||!/^\d+$/.test(end)||!Number.isSafeInteger(Number(start))||!Number.isSafeInteger(Number(end))||Number(end)<=Number(start))throw Error('Nhập khoảng thời gian mili giây nguyên, kết thúc sau bắt đầu.');
    if(!$('#source-transcript').value.trim()||!$('#source-reason').value.trim())throw Error('Nhập transcript đã đối chiếu và lý do sửa.');
    await api('/api/source-audio-ranges',{project_id:s.project,file_id:s.file,evidence_version_id:s.audioVersion,start_ms:Number(start),end_ms:Number(end),content:$('#source-transcript').value,reason:$('#source-reason').value});
-   if(!live(s))return;const ticket=seq;await afterChange(s.project);if(live(s)||(seq===ticket+1&&selected===null&&getProject()===s.project)){await open(s.file);say('Đã lưu phiên bản transcript; cần chọn/xác nhận lại nguồn, chưa duyệt factual hoặc đăng.');}
-  }catch(e){if(live(s))say(e.message);}finally{if(live(s))button.disabled=false;}
+   if(!sameSource(s))return;const current=selected,ticket=seq;await afterChange(s.project);if(live(current)||(seq===ticket+1&&selected===null&&getProject()===s.project)){await open(s.file);say('Đã lưu phiên bản transcript; cần chọn/xác nhận lại nguồn, chưa duyệt factual hoặc đăng.');}
+  }catch(e){if(sameSource(s))say(e.message);}finally{audioSavePending.delete(key);if(sameSource(s)&&selected.audioVersion)button.disabled=false;}
  };
  for(const [selector,state] of [['#source-allow','SELECTED'],['#source-exclude','EXCLUDED'],['#source-reopen','REOPENED']])$(selector).onclick=async()=>{
   const s=selected;if(!live(s)||!s.data)return;
