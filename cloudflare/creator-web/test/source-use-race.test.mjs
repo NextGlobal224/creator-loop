@@ -33,3 +33,27 @@ test('source-use pending belongs to project and file, including reopen and failu
   assert.equal(calls.length,5);
  }finally{globalThis.document=oldDocument;globalThis.Option=oldOption}
 });
+
+for(const [mediaType,track] of [['AUDIO','audio'],['VIDEO','audio'],['VIDEO','video']])test(`reopening ${mediaType}/${track} keeps its correction pending and refreshes the result`,async()=>{
+ const oldDocument=globalThis.document,oldOption=globalThis.Option;
+ globalThis.document={createElement:()=>new Element()};globalThis.Option=class extends Element {constructor(label,value){super();this.value=value}};
+ try{
+  const elements=new Map(),root={querySelector:s=>{if(!elements.has(s))elements.set(s,new Element());return elements.get(s)}};
+  let version=1,resolveSave,rejectSave,message='',calls=0;
+  const api=async(url,body)=>{
+   if(!body)return {media_type:mediaType,text:null,source_extraction:null,evidence_versions:[{evidence_id:'e',evidence_version_id:'v'+version,version_no:version,review_state:'PENDING',locator_type:'TIME_RANGE',locator_data:JSON.stringify({track,start_ms:100,end_ms:200}),content:'source'}],source_use:null};
+   calls++;return new Promise((resolve,reject)=>{resolveSave=()=>{version=2;resolve({})};rejectSave=()=>reject(Error('Không lưu được transcript'))});
+  };
+  const ui=mountSourceReview({api,root,getProject:()=> 'A',afterChange:async()=>{},say:s=>message=s});
+  const select=()=>root.querySelector('#source-evidence').children[1].onclick();
+  await ui.open('file');select();root.querySelector('#source-transcript').value='corrected';root.querySelector('#source-reason').value='reason';
+  const save=root.querySelector('#source-audio-save').onclick();await ui.open('file');select();
+  assert.equal(root.querySelector('#source-audio-save').disabled,true);
+  resolveSave();await save;
+  assert.match(root.querySelector('#source-evidence').children[0].children[1].textContent,/v2/);
+  assert.match(message,/Đã lưu phiên bản transcript/);assert.equal(calls,1);
+  select();root.querySelector('#source-transcript').value='retry';const failed=root.querySelector('#source-audio-save').onclick();await ui.open('file');select();
+  assert.equal(root.querySelector('#source-audio-save').disabled,true);rejectSave();await failed;
+  assert.equal(message,'Không lưu được transcript');assert.equal(root.querySelector('#source-audio-save').disabled,false);assert.equal(calls,2);
+ }finally{globalThis.document=oldDocument;globalThis.Option=oldOption}
+});
