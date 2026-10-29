@@ -13,12 +13,16 @@ export function currentEvidence(versions){
 }
 export function mountSourceReview({api,getProject,afterChange,say,startSourceJob,root=document}){
  const $=s=>root.querySelector(s);let selected=null,seq=0;
+ const sourceUsePending=new Set(),sourceUseKey=s=>JSON.stringify([s.project,s.file]);
+ const sourceUseButtons=()=>['#source-allow','#source-exclude','#source-reopen'].map($);
  const live=s=>s&&selected===s&&getProject()===s.project;
+ const sameSource=s=>s&&selected&&sourceUseKey(selected)===sourceUseKey(s)&&getProject()===s.project;
  function clear(){seq++;selected=null;$('#source-video').pause();$('#source-audio').pause();$('#source-video').removeAttribute('src');$('#source-audio').removeAttribute('src');$('#source-original-image').removeAttribute('src');$('#source-review-panel').hidden=true;for(const selector of ['#source-text','#source-model-text','#source-transcript','#source-start-ms','#source-end-ms','#source-image-model','#source-image-observation'])$(selector).value='';$('#source-transcript-warnings').textContent='';$('#source-image-warnings').textContent='';$('#source-evidence').replaceChildren();$('#source-confirm').checked=false;}
  function imageRegion(){if(['x','y','width','height'].some(k=>!$('#source-region-'+k).value.trim()))throw Error('Nhập đủ bốn giá trị của vùng ảnh.');const region=Object.fromEntries(['x','y','width','height'].map(k=>[k,Number($('#source-region-'+k).value)]));if(Object.values(region).some(v=>!Number.isFinite(v))||region.x<0||region.y<0||region.width<=0||region.height<=0||region.x+region.width>1||region.y+region.height>1)throw Error('Vùng ảnh cần số 0–1, rộng/cao dương và không vượt ảnh.');return region;}
  function showRegion(region){for(const [k,v] of Object.entries(region)){$('#source-region-'+k).value=v;$('#source-region-rect').setAttribute(k,String(v*1000));}}
  function render(data){
   const s=selected;s.data=data;$('#source-review-panel').hidden=false;$('#source-confirm').checked=false;
+  for(const button of sourceUseButtons())button.disabled=sourceUsePending.has(sourceUseKey(s));
   $('#source-text').value=data.text??'';$('#source-text').hidden=data.text===null;$('#source-range').disabled=data.text===null;
   $('#source-timed').hidden=!['AUDIO','VIDEO'].includes(data.media_type);$('#source-audio').hidden=data.media_type!=='AUDIO';$('#source-video').hidden=data.media_type!=='VIDEO';$('#source-transcribe').textContent=data.media_type==='VIDEO'?'Đọc video trên cloud · lời nói và khung hình mẫu · 2 lời gọi':'Trích lời nói trên cloud';$('#source-video').pause();$('#source-audio').pause();
   $('#source-image-panel').hidden=data.media_type!=='IMAGE';$('#source-original-image').removeAttribute('src');$('#source-image-save').disabled=true;$('#source-image-observation').value='';$('#source-read-image').disabled=!startSourceJob||!!data.source_extraction;showRegion({x:0,y:0,width:1,height:1});
@@ -111,10 +115,11 @@ export function mountSourceReview({api,getProject,afterChange,say,startSourceJob
   if(!$('#source-confirm').checked){say('Đánh dấu xác nhận lựa chọn nguồn trước khi lưu; chưa gửi thao tác.');return;}
   const ids=state==='SELECTED'?[...$('#source-evidence').querySelectorAll('input:checked')].map(e=>e.value):[];
   if(state==='SELECTED'&&!ids.length){say('Tạo/chọn ít nhất một đoạn nguồn trước khi xác nhận dùng cho Draft.');return;}
-  const button=$(selector);button.disabled=true;
+  const key=sourceUseKey(s);if(sourceUsePending.has(key))return;sourceUsePending.add(key);
+  for(const button of sourceUseButtons())button.disabled=true;
   try{await api('/api/source-use',{project_id:s.project,file_id:s.file,state,evidence_version_ids:ids,expected_parent:s.data.source_use?.use_version_id??null,explicit_source_use_choice:true,reason:$('#source-reason').value});
-   if(!live(s))return;const ticket=seq;await afterChange(s.project);if(live(s)||(seq===ticket+1&&selected===null&&getProject()===s.project)){await open(s.file);say('Đã lưu lựa chọn nguồn. Không tạo Evidence ACCEPT hoặc phê duyệt đăng.');}
-  }catch(e){if(live(s))say(e.message);}finally{button.disabled=false;}
+   if(!sameSource(s))return;const current=selected,ticket=seq;await afterChange(s.project);if(live(current)||(seq===ticket+1&&selected===null&&getProject()===s.project)){await open(s.file);say('Đã lưu lựa chọn nguồn. Không tạo Evidence ACCEPT hoặc phê duyệt đăng.');}
+  }catch(e){if(sameSource(s))say(e.message);}finally{sourceUsePending.delete(key);if(sameSource(s))for(const button of sourceUseButtons())button.disabled=false;}
  };
  return {open,clear,refreshIfCurrent:async(project,file)=>{if(selected?.project===project&&selected?.file===file&&getProject()===project)await open(file);}};
 }
