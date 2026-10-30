@@ -11,10 +11,16 @@ from typing import Any
 from uuid import uuid4
 
 from creator_loop.backend.analysis.generation_contract import validate_response
+from creator_loop.backend.creator.drafts import (
+    DraftAssertion,
+    DraftChoices,
+    DraftClaimLink,
+    create_draft,
+)
 from creator_loop.backend.creator.generation_records import _persist
 from creator_loop.backend.creator.projects import add_project_reference, create_project
 from creator_loop.backend.creator.research_pipeline import ResearchPipeline
-from creator_loop.backend.knowledge.claims import _timestamp
+from creator_loop.backend.knowledge.claims import EvidenceLink, _timestamp, create_claim
 from creator_loop.backend.knowledge.cloud_audio import (
     correct_cloud_audio_range,
     prepare_cloud_transcription,
@@ -725,6 +731,145 @@ class WebDomain:
                 ),
             )
 
+    def manual_draft(self, value: dict[str, Any]) -> dict[str, Any]:
+        """Save a user-authored draft against explicitly selected source versions."""
+        if not isinstance(value, dict) or set(value) != {
+            "request",
+            "body_text",
+            "draft_choices",
+        }:
+            raise WebInputError("Dữ liệu Draft thủ công không hợp lệ.")
+        request = request_from_json(value["request"])
+        body = value["body_text"]
+        choices = value["draft_choices"]
+        if request.mode != "MANUAL" or request.output_format not in (
+            "TEXT",
+            "IMAGE_CAPTION",
+        ):
+            raise WebInputError("Chỉ hỗ trợ Draft thủ công TEXT hoặc IMAGE_CAPTION.")
+        if not isinstance(body, str) or not body.strip() or len(body) > 24000:
+            raise WebInputError("Nhập nội dung Draft từ 1 đến 24.000 ký tự.")
+        if not isinstance(choices, dict):
+            raise WebInputError("Lựa chọn ảnh không hợp lệ.")
+        image_id = None
+        image_sha = None
+        provenance = usage = ""
+        if request.output_format == "IMAGE_CAPTION":
+            if set(choices) != {
+                "image_file_id",
+                "image_provenance",
+                "image_usage_note",
+            } or any(
+                not isinstance(v, str) or not v.strip() or len(v) > 2000
+                for v in choices.values()
+            ):
+                raise WebInputError("Chọn ảnh và ghi nguồn cùng căn cứ quyền sử dụng.")
+            image_id = choices["image_file_id"]
+            provenance, usage = (
+                choices["image_provenance"].strip(),
+                choices["image_usage_note"].strip(),
+            )
+            self.require_project_image(request.project_id, image_id)
+        elif choices:
+            raise WebInputError("Ảnh chỉ áp dụng cho IMAGE_CAPTION.")
+        materials = self.prepare(request)
+        from creator_loop.backend.library.originals import verify_original_file
+
+        with closing(_connect_write(self.path)) as db, atomic_transaction(db):
+            for material in materials:
+                if self.pipeline._verify(db, material) != material:
+                    raise WebInputError("Tư liệu đã thay đổi; chọn lại nguồn.")
+                current = permitted_source_versions(
+                    db,
+                    data_root=self.root,
+                    project_id=request.project_id,
+                    file_id=material.file_id,
+                )
+                if tuple(vid for vid, _ in current) != material.evidence_version_ids:
+                    raise WebInputError(
+                        "Lựa chọn nguồn đã đổi; kiểm tra lại trước khi lưu."
+                    )
+            if image_id:
+                verify_original_file(db, image_id, self.root)
+                row = db.execute(
+                    "SELECT sha256 FROM asset_files WHERE file_id=? AND role='ORIGINAL'",
+                    (image_id,),
+                ).fetchone()
+                if row is None:
+                    raise WebInputError("Ảnh gốc không còn khả dụng.")
+                image_sha = row[0]
+            wid, now = uuid4().hex, _timestamp()
+            claim = create_claim(
+                db,
+                claim_type="EDITORIAL_HYPOTHESIS",
+                statement="Hướng do người dùng chọn: " + request.direction.strip(),
+                actor="web-owner",
+                links=[
+                    EvidenceLink(ev, "CONTEXT")
+                    for ev in dict.fromkeys(
+                        ev for m in materials for ev in m.evidence_version_ids
+                    )
+                ],
+            )
+            db.execute(
+                "INSERT INTO creator_workflows VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    wid,
+                    request.project_id,
+                    "MANUAL",
+                    request.output_format,
+                    request.purpose.strip(),
+                    request.audience.strip(),
+                    request.style.strip(),
+                    "HUMAN_AUTHOR",
+                    "1",
+                    uuid4().hex,
+                    "Draft do người dùng tự viết; chưa có phân tích AI. Đối chiếu các nguồn đã chọn và duyệt thủ công trước đăng.",
+                    request.direction.strip(),
+                    now,
+                ),
+            )
+            position = 0
+            for material in materials:
+                for ev in material.evidence_version_ids:
+                    anchor = db.execute(
+                        "SELECT v.anchor_file_id,f.sha256 FROM evidence_versions v JOIN asset_files f ON f.file_id=v.anchor_file_id WHERE v.evidence_version_id=?",
+                        (ev,),
+                    ).fetchone()
+                    if anchor is None:
+                        raise WebInputError("Đoạn nguồn không còn khả dụng.")
+                    db.execute(
+                        "INSERT INTO creator_workflow_materials VALUES(?,?,?,?,?,?)",
+                        (wid, position, material.source_id, anchor[0], anchor[1], ev),
+                    )
+                    position += 1
+            db.execute(
+                "INSERT INTO creator_workflow_claims VALUES(?,?)",
+                (wid, claim.claim_version_id),
+            )
+            saved = create_draft(
+                db,
+                project_id=request.project_id,
+                body_text=body,
+                format=request.output_format,
+                actor="web-owner",
+                claims=[DraftClaimLink(claim.claim_version_id, "INSPIRATION")],
+                assertions=[DraftAssertion(0, len(body), None, "NEEDS_SOURCE")],
+                choices=DraftChoices(
+                    request.direction.strip(), image_id, image_sha, provenance, usage
+                ),
+            )
+            db.execute(
+                "INSERT INTO creator_workflow_drafts VALUES(?,?,?)",
+                (wid, saved.draft_version_id, _timestamp()),
+            )
+            validate(db)
+        return {
+            "workflow_id": wid,
+            "draft_version_id": saved.draft_version_id,
+            "version_no": saved.version_no,
+        }
+
     def draft(self, value: dict[str, Any]) -> dict[str, Any]:
         allowed = {
             "workflow_id",
@@ -744,4 +889,52 @@ class WebDomain:
             isinstance(v, str) and len(v) > 24000 for v in value.values()
         ):
             raise ValueError("Invalid bounded Draft text")
+        workflow = self.pipeline.load(value["workflow_id"])
+        if (
+            workflow["backend_name"] == "HUMAN_AUTHOR"
+            and "body_text" in value
+            and not (value["body_text"] or "").strip()
+        ):
+            raise WebInputError("Nội dung Draft tự viết không được để trống.")
+        if workflow["output_format"] == "IMAGE_CAPTION" and value.get("image_file_id"):
+            self.require_project_image(workflow["project_id"], value["image_file_id"])
+            if (
+                not (value.get("image_provenance") or "").strip()
+                or not (value.get("image_usage_note") or "").strip()
+            ):
+                raise WebInputError("Ghi nguồn ảnh và căn cứ quyền sử dụng.")
         return asdict(self.pipeline.create_draft(**value, actor="web-owner"))
+
+    def review_draft(self, value: dict[str, Any]) -> dict[str, Any]:
+        from creator_loop.backend.creator.draft_review import record_draft_review
+
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"project_id", "draft_version_id", "explicit_review"}
+            or value["explicit_review"] is not True
+        ):
+            raise WebInputError(
+                "Xác nhận đã đọc và duyệt phiên bản Draft trước khi lưu trạng thái."
+            )
+        project_id, version_id = value["project_id"], value["draft_version_id"]
+        if not isinstance(project_id, str) or not isinstance(version_id, str):
+            raise WebInputError("Project hoặc phiên bản Draft không hợp lệ.")
+        with closing(_connect_write(self.path)) as db, atomic_transaction(db):
+            row = db.execute(
+                "SELECT d.project_id FROM draft_versions v JOIN drafts d USING(draft_id) WHERE v.draft_version_id=?",
+                (version_id,),
+            ).fetchone()
+            if row is None or row[0] != project_id:
+                raise WebInputError("Phiên bản Draft không thuộc Project đang chọn.")
+            event = record_draft_review(
+                db,
+                draft_version_id=version_id,
+                data_root=self.root,
+                action="ACCEPT",
+                actor="web-owner",
+            )
+        return {
+            "draft_version_id": version_id,
+            "review_state": "ACCEPT",
+            "review_event_id": event,
+        }

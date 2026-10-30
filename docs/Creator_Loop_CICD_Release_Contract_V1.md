@@ -1,5 +1,27 @@
 # Creator Loop — CI/CD & Release Contract V1
 
+## B Web manual beta amendment — user authority 30 October 2026
+
+For `B_WEB_MANUAL_BETA`, MANUAL TEXT and IMAGE_CAPTION are authored and edited
+by the user; AI Draft generation, its guard and its output-quality pilot are
+not release prerequisites. The user must be able to save, reopen, edit and
+explicitly review each version. IMAGE_CAPTION requires actual image bytes and
+documented provenance and usage rights. Existing AI Drafts and history remain
+available, and AI generation remains backlog. This amendment supersedes older
+AI-generation and six-flow gates for this beta only; other product scope is
+retained.
+
+The separately mandated real-source reading and comparison gates for audio,
+video input, text and image remain in force, including original retention,
+locators/timestamps, uncertainty, explicit source selection, versions and
+reopen after new login. They are not satisfied by manual Draft authoring or
+fixtures. Source processing that requires Workers AI remains subject to the
+unchanged fail-closed usage guard, pending reservations and zero overage.
+Keep authenticated independent Cloudflare operation, exact reviewed source,
+required CI, deploy/artifact binding, quality, user review before publication,
+backup/restore and release evidence. C/MP4 and new AUTOMATIC are excluded from
+this beta; retain Windows beta.2 and do not call the overall Goal complete.
+
 ## Additive B Web beta channel — user authority 18 October 2026
 
 The [B Web deployment baseline](B_WEB_ARCHITECTURE.md) is an additional target,

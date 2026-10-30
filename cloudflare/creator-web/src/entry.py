@@ -1496,13 +1496,22 @@ class Database(DurableObject):
                 if path.startswith("/api/workflows/"):
                     wid = path.rsplit("/", 1)[1]
                     workflow = domain.pipeline.load(wid)
+                    from creator_loop.backend.creator.draft_review import (
+                        current_draft_review,
+                    )
+
+                    with closing(
+                        _connect_write(root / "creator_loop.sqlite3")
+                    ) as review_db:
+                        versions = [
+                            asdict(domain.pipeline.draft(v))
+                            | {"review_state": current_draft_review(review_db, v)}
+                            for v in workflow["drafts"]
+                        ]
                     return reply(
                         {
                             **workflow,
-                            "versions": [
-                                asdict(domain.pipeline.draft(v))
-                                for v in workflow["drafts"]
-                            ],
+                            "versions": versions,
                         }
                     )
                 return reply({"error": "Not found"}, 404)
@@ -1524,7 +1533,8 @@ class Database(DurableObject):
                 if receipt.get("restored_away"):
                     return reply(
                         {
-                            "error": "Thao tác thuộc trạng thái trước restore; mở lại dữ liệu hiện hành, không tự gửi lại request cũ"
+                            "error": "Thao tác thuộc trạng thái trước restore; mở lại dữ liệu hiện hành, không tự gửi lại request cũ",
+                            "code": "RESTORED_AWAY",
                         },
                         409,
                     )
@@ -1909,6 +1919,10 @@ class Database(DurableObject):
                     }
                 elif path == "/api/drafts":
                     result = domain.draft(data)
+                elif path == "/api/manual-drafts":
+                    result = domain.manual_draft(data)
+                elif path == "/api/draft-review":
+                    result = domain.review_draft(data)
                 elif path == "/api/jobs":
                     choices = data.pop("draft_choices", {})
                     creator = request_from_json(data)
