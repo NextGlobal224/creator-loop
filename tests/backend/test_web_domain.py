@@ -156,6 +156,125 @@ class WebDomainTests(unittest.TestCase):
             ],
         }
 
+    def test_user_written_drafts_keep_sources_and_reopen_without_ai(self):
+        request = {
+            "project_id": self.project["project_id"],
+            "mode": "MANUAL",
+            "purpose": "Giới thiệu nguồn",
+            "audience": "Độc giả",
+            "style": "Rõ ràng",
+            "direction": "Giới thiệu tư liệu đã chọn",
+            "output_format": "TEXT",
+            "material_ids": [self.selected.material_id],
+        }
+        body = "Bài do người dùng tự viết từ tư liệu."
+        result = self.domain.manual_draft(
+            {"request": request, "body_text": body, "draft_choices": {}}
+        )
+        reopened = WebDomain(self.root).pipeline.load(result["workflow_id"])
+        self.assertEqual(reopened["backend_name"], "HUMAN_AUTHOR")
+        self.assertEqual(
+            reopened["materials"][0]["evidence_version_id"], self.source_version
+        )
+        self.assertEqual(
+            WebDomain(self.root).pipeline.draft(result["draft_version_id"]).body_text,
+            body,
+        )
+        self.assertNotIn("llm_proposal", reopened)
+        with self.assertRaises(ValueError):
+            self.domain.review_draft(
+                {
+                    "project_id": self.project["project_id"],
+                    "draft_version_id": result["draft_version_id"],
+                    "explicit_review": False,
+                }
+            )
+        with self.assertRaises(ValueError):
+            self.domain.review_draft(
+                {
+                    "project_id": "other",
+                    "draft_version_id": result["draft_version_id"],
+                    "explicit_review": True,
+                }
+            )
+        reviewed = self.domain.review_draft(
+            {
+                "project_id": self.project["project_id"],
+                "draft_version_id": result["draft_version_id"],
+                "explicit_review": True,
+            }
+        )
+        self.assertEqual(reviewed["review_state"], "ACCEPT")
+        edited = self.domain.draft(
+            {"workflow_id": result["workflow_id"], "body_text": body + " Đã sửa."}
+        )
+        self.assertEqual(edited["version_no"], 2)
+        self.assertEqual(
+            WebDomain(self.root).pipeline.draft(edited["draft_version_id"]).body_text,
+            body + " Đã sửa.",
+        )
+        with closing(_connect_write(self.domain.path)) as db:
+            self.assertEqual(
+                db.execute("SELECT COUNT(*) FROM processing_runs").fetchone()[0], 0
+            )
+            self.assertEqual(
+                db.execute(
+                    "SELECT COUNT(*) FROM review_events WHERE draft_version_id IS NOT NULL AND action='ACCEPT'"
+                ).fetchone()[0],
+                1,
+            )
+            self.assertEqual(
+                db.execute(
+                    "SELECT COUNT(*) FROM review_events WHERE draft_version_id=? AND action='ACCEPT'",
+                    (edited["draft_version_id"],),
+                ).fetchone()[0],
+                0,
+            )
+            validate(db)
+
+    def test_manual_image_requires_project_image_and_explicit_rights(self):
+        image = self.domain.intake(
+            {
+                "project_id": self.project["project_id"],
+                "media_type": "IMAGE",
+                "display_name": "ảnh.png",
+            },
+            b"\x89PNG\r\n\x1a\nfixture",
+        )
+        request = {
+            "project_id": self.project["project_id"],
+            "mode": "MANUAL",
+            "purpose": "Giới thiệu",
+            "audience": "",
+            "style": "",
+            "direction": "Nguồn đã chọn",
+            "output_format": "IMAGE_CAPTION",
+            "material_ids": [self.selected.material_id],
+        }
+        choices = {
+            "image_file_id": image["file_id"],
+            "image_provenance": "Tác giả",
+            "image_usage_note": "Có quyền sử dụng",
+        }
+        with self.assertRaises(ValueError):
+            self.domain.manual_draft(
+                {
+                    "request": request,
+                    "body_text": "Chú thích tự viết",
+                    "draft_choices": choices | {"image_usage_note": ""},
+                }
+            )
+        result = self.domain.manual_draft(
+            {
+                "request": request,
+                "body_text": "Chú thích tự viết",
+                "draft_choices": choices,
+            }
+        )
+        draft = WebDomain(self.root).pipeline.draft(result["draft_version_id"])
+        self.assertEqual(draft.image_file_id, image["file_id"])
+        self.assertEqual(draft.image_usage_note, "Có quyền sử dụng")
+
     def test_original_source_and_reload_are_exact(self):
         current = WebDomain(self.root).pipeline.materials()[0]
         self.assertEqual(current.source_id, self.material["source_id"])

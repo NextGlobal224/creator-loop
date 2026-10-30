@@ -1,3 +1,18 @@
+## B Web beta — phạm vi Draft tự viết do người dùng cập nhật 30/10/2026
+
+- MANUAL TEXT và IMAGE_CAPTION: người dùng tự viết, lưu, mở lại, chỉnh sửa và
+  duyệt phiên bản; không yêu cầu Workers AI tạo Draft hoặc AI guard PASS để
+  thực hiện thao tác này. Ảnh phải là asset thật có nguồn và căn cứ quyền dùng.
+- Đọc và đối chiếu nguồn audio/video/text/ảnh thật trên cloud vẫn là cổng bắt
+  buộc riêng, gồm locator/timestamp, chỗ chưa chắc, lựa chọn nguồn, version và
+  mở lại sau đăng nhập. Các nguồn phụ thuộc AI chưa được nghiệm thu nếu guard
+  đóng. Manual Draft hay fixture không thay thế bằng chứng đó.
+- Giữ duyệt thủ công trước đăng, dữ liệu/lịch sử AI, CI/review/deploy/release,
+  guard/ledger/reservation và chi phí vượt gói $0. Tự động và AI tạo Draft là
+  backlog; không làm C/MP4, A hoặc dọn local trong đợt ưu tiên hiện tại.
+- Trạng thái: **chưa B_RELEASED**. Mã WIP, test local và CI cũ không chứng minh
+  QA cloud trên source mới hoặc toàn bộ tiêu chí trên đã đạt.
+
 ## B_RELEASED — cổng đầu vào bắt buộc bổ sung 22/10/2026
 
 ### Cập nhật 27/10/2026 — lượt TEXT sau sửa grammar vẫn FAIL chất lượng
