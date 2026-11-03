@@ -17,33 +17,15 @@ from tests.backend.test_cloud_image import png, response
 class CloudImageJobTests(unittest.TestCase):
     enqueue = test_cloud_source_job.CloudSourceJobTests.enqueue
     job = test_cloud_source_job.CloudSourceJobTests.job
-    test_cancel_at_alarm_await_never_dispatches_source = (
-        test_cloud_source_job.CloudSourceJobTests.test_cancel_at_alarm_await_never_dispatches_source
-    )
-    test_changed_owner_at_alarm_await_does_not_overwrite_or_dispatch = (
-        test_cloud_source_job.CloudSourceJobTests.test_changed_owner_at_alarm_await_does_not_overwrite_or_dispatch
-    )
-    test_changed_grant_at_alarm_await_does_not_dispatch_or_refund = (
-        test_cloud_source_job.CloudSourceJobTests.test_changed_grant_at_alarm_await_does_not_dispatch_or_refund
-    )
-    test_owner_change_during_native_call_preserves_late_receipt = (
-        test_cloud_source_job.CloudSourceJobTests.test_owner_change_during_native_call_preserves_late_receipt
-    )
-    test_owner_change_and_projection_failure_does_not_overwrite_new_owner = (
-        test_cloud_source_job.CloudSourceJobTests.test_owner_change_and_projection_failure_does_not_overwrite_new_owner
-    )
-    test_changed_grant_during_native_error_preserves_current_record = (
-        test_cloud_source_job.CloudSourceJobTests.test_changed_grant_during_native_error_preserves_current_record
-    )
-    test_cancelled_unknown_response_keeps_unknown_and_reservation = (
-        test_cloud_source_job.CloudSourceJobTests.test_cancelled_unknown_response_keeps_unknown_and_reservation
-    )
-    test_metadata_change_during_native_call_keeps_new_record_and_late_receipt = (
-        test_cloud_source_job.CloudSourceJobTests.test_metadata_change_during_native_call_keeps_new_record_and_late_receipt
-    )
-    test_missing_status_during_native_call_keeps_receipt_separately = (
-        test_cloud_source_job.CloudSourceJobTests.test_missing_status_during_native_call_keeps_receipt_separately
-    )
+    test_cancel_at_alarm_await_never_dispatches_source = test_cloud_source_job.CloudSourceJobTests.test_cancel_at_alarm_await_never_dispatches_source
+    test_changed_owner_at_alarm_await_does_not_overwrite_or_dispatch = test_cloud_source_job.CloudSourceJobTests.test_changed_owner_at_alarm_await_does_not_overwrite_or_dispatch
+    test_changed_grant_at_alarm_await_does_not_dispatch_or_refund = test_cloud_source_job.CloudSourceJobTests.test_changed_grant_at_alarm_await_does_not_dispatch_or_refund
+    test_owner_change_during_native_call_preserves_late_receipt = test_cloud_source_job.CloudSourceJobTests.test_owner_change_during_native_call_preserves_late_receipt
+    test_owner_change_and_projection_failure_does_not_overwrite_new_owner = test_cloud_source_job.CloudSourceJobTests.test_owner_change_and_projection_failure_does_not_overwrite_new_owner
+    test_changed_grant_during_native_error_preserves_current_record = test_cloud_source_job.CloudSourceJobTests.test_changed_grant_during_native_error_preserves_current_record
+    test_cancelled_unknown_response_keeps_unknown_and_reservation = test_cloud_source_job.CloudSourceJobTests.test_cancelled_unknown_response_keeps_unknown_and_reservation
+    test_metadata_change_during_native_call_keeps_new_record_and_late_receipt = test_cloud_source_job.CloudSourceJobTests.test_metadata_change_during_native_call_keeps_new_record_and_late_receipt
+    test_missing_status_during_native_call_keeps_receipt_separately = test_cloud_source_job.CloudSourceJobTests.test_missing_status_during_native_call_keeps_receipt_separately
 
     def job_kind_is_image(self):
         return True

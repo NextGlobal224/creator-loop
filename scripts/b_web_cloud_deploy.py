@@ -323,7 +323,9 @@ def require_idle_jobs(state):
     # quiescence from it; older runtimes lack this exhaustive count and fail closed.
     count = state.get("active_job_count")
     if type(count) is not int or count != 0:
-        raise ValueError("Complete active job count unavailable or nonzero; no deployment")
+        raise ValueError(
+            "Complete active job count unavailable or nonzero; no deployment"
+        )
 
 
 def activate_once(final_check, create_deployment, current_id, version, record_attempt):

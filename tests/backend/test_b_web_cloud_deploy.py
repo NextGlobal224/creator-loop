@@ -19,9 +19,9 @@ from scripts.b_web_cloud_deploy import (
     expected_binding_types,
     main,
     observe_activated_runtime,
-    require_idle_jobs,
     read_included_usage,
     read_json,
+    require_idle_jobs,
     runtime_files,
     static_header_policy,
     storage_compatible,
@@ -42,11 +42,13 @@ class CloudDeploymentTests(unittest.TestCase):
             "B_VERIFY_SOURCE_COMMIT": "a" * 40,
         }
         for operation in ("deploy", "rollback", "verify"):
-            with self.subTest(operation=operation), patch.dict(
-                os.environ, {**env, "B_OPERATION": operation}
-            ), patch("scripts.b_web_cloud_deploy.read_json") as http, patch(
-                "scripts.b_web_cloud_deploy.subprocess.check_output"
-            ) as gh, patch("scripts.b_web_cloud_deploy.activate_once") as activate:
+            with (
+                self.subTest(operation=operation),
+                patch.dict(os.environ, {**env, "B_OPERATION": operation}),
+                patch("scripts.b_web_cloud_deploy.read_json") as http,
+                patch("scripts.b_web_cloud_deploy.subprocess.check_output") as gh,
+                patch("scripts.b_web_cloud_deploy.activate_once") as activate,
+            ):
                 with self.assertRaisesRegex(ValueError, "non-activating"):
                     main()
                 http.assert_not_called()
