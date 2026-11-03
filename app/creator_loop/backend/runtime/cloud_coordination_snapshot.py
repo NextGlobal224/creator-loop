@@ -764,7 +764,7 @@ def validate(snapshot: Any, limit: int = MAX_BYTES) -> None:
             or record.get("status") != job["status"]
         ):
             raise ValueError("job identity or status mismatch")
-    archives = {}
+    archives: dict[str, tuple[dict[str, Any], dict[int, bytes]]] = {}
     for item in tables["preservation_archives"]["rows"]:
         record = json.loads(item["record"])
         if (
@@ -794,12 +794,12 @@ def validate(snapshot: Any, limit: int = MAX_BYTES) -> None:
     for item in tables["preservation_chunks"]["rows"]:
         if item["sha256"] not in archives:
             raise ValueError("orphan preservation chunk")
-        record, chunks = archives[item["sha256"]]
+        record, archive_chunks = archives[item["sha256"]]
         position = item["position"]
         if (
             type(position) is not int
             or not 0 <= position < len(record["chunk_hashes"])
-            or position in chunks
+            or position in archive_chunks
         ):
             raise ValueError("invalid preservation position")
         content = base64.b64decode(item["content"], validate=True)
@@ -808,14 +808,14 @@ def validate(snapshot: Any, limit: int = MAX_BYTES) -> None:
             or hashlib.sha256(content).hexdigest() != record["chunk_hashes"][position]
         ):
             raise ValueError("preservation chunk mismatch")
-        chunks[position] = content
-    for key, (record, chunks) in archives.items():
+        archive_chunks[position] = content
+    for key, (record, archive_chunks) in archives.items():
         if record["status"] == "VERIFIED":
-            if len(chunks) != len(record["chunk_hashes"]):
+            if len(archive_chunks) != len(record["chunk_hashes"]):
                 raise ValueError("verified preservation archive incomplete")
             sha = hashlib.sha256()
-            for index in range(len(chunks)):
-                sha.update(chunks[index])
+            for index in range(len(archive_chunks)):
+                sha.update(archive_chunks[index])
             if sha.hexdigest() != key:
                 raise ValueError("preservation archive digest mismatch")
 
