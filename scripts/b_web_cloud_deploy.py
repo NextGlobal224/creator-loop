@@ -318,6 +318,14 @@ def static_header_policy(files):
     return headers
 
 
+def require_idle_jobs(state):
+    # The UI list is capped and excludes diagnostic jobs. Never infer global
+    # quiescence from it; older runtimes lack this exhaustive count and fail closed.
+    count = state.get("active_job_count")
+    if type(count) is not int or count != 0:
+        raise ValueError("Complete active job count unavailable or nonzero; no deployment")
+
+
 def activate_once(final_check, create_deployment, current_id, version, record_attempt):
     state = final_check()
     record_attempt(version)
@@ -451,6 +459,14 @@ def main():
         UUID, expected
     ):
         raise ValueError("Explicit operation and current deployment needed")
+    if target == "production":
+        # The installed production DO can rearm work upon any cold request.
+        # Its capped state response also cannot prove a queue fence. Refuse
+        # before login/state until a reviewed non-activating observation and
+        # quiescence mechanism are available; do not bypass via a flag.
+        raise ValueError(
+            "Production preflight unavailable: non-activating job observation and quiescence required"
+        )
 
     def gh(*args):
         return subprocess.check_output(["gh", *args], timeout=180)
@@ -595,8 +611,7 @@ def main():
         return read_json(origin + path, {"Cookie": cookie})[0]
 
     before = app("/api/state")
-    if any(j["status"] in ("QUEUED", "RUNNING") for j in before["jobs"]):
-        raise ValueError("Active job; no deployment")
+    require_idle_jobs(before)
 
     def final_preconditions():
         # Upload/build can take minutes. No traffic mutation occurs until these
@@ -607,8 +622,7 @@ def main():
             )
         compatible_bindings(previous_version, cloud(script + "/versions/" + expected))
         state = app("/api/state")
-        if any(j["status"] in ("QUEUED", "RUNNING") for j in state["jobs"]):
-            raise ValueError("Active job before activation; no traffic mutation")
+        require_idle_jobs(state)
         return state
 
     # The operator supplies only an already-observed included-resource proof.

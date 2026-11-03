@@ -19,6 +19,7 @@ from scripts.b_web_cloud_deploy import (
     expected_binding_types,
     main,
     observe_activated_runtime,
+    require_idle_jobs,
     read_included_usage,
     read_json,
     runtime_files,
@@ -30,6 +31,40 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_production_fails_before_any_network_or_activation(self):
+        env = {
+            "GITHUB_REPOSITORY": REPO,
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_SHA": "a" * 40,
+            "B_CI_RUN": "8",
+            "B_TARGET": "production",
+            "B_EXPECTED_DEPLOYMENT": "12345678-1234-1234-1234-123456789abc",
+            "B_VERIFY_SOURCE_COMMIT": "a" * 40,
+        }
+        for operation in ("deploy", "rollback", "verify"):
+            with self.subTest(operation=operation), patch.dict(
+                os.environ, {**env, "B_OPERATION": operation}
+            ), patch("scripts.b_web_cloud_deploy.read_json") as http, patch(
+                "scripts.b_web_cloud_deploy.subprocess.check_output"
+            ) as gh, patch("scripts.b_web_cloud_deploy.activate_once") as activate:
+                with self.assertRaisesRegex(ValueError, "non-activating"):
+                    main()
+                http.assert_not_called()
+                gh.assert_not_called()
+                activate.assert_not_called()
+
+    def test_idle_check_requires_complete_native_count(self):
+        require_idle_jobs({"jobs": [], "active_job_count": 0})
+        for count in (None, True, -1, 1, "0"):
+            with self.subTest(count=count), self.assertRaises(ValueError):
+                require_idle_jobs({"jobs": [], "active_job_count": count})
+
+    def test_old_qa_runtime_without_count_fails_closed(self):
+        # The installed QA runtime cannot yet report the exhaustive count.
+        # Do not bootstrap by interpreting its filtered UI list as complete.
+        with self.assertRaises(ValueError):
+            require_idle_jobs({"revision": 5, "jobs": []})
+
     NODES = (
         "workersInvocationsAdaptive",
         "durableObjectsInvocationsAdaptiveGroups",
@@ -533,7 +568,7 @@ class CloudDeploymentTests(unittest.TestCase):
             if url.endswith("/api/login"):
                 return {}, {"Set-Cookie": "__Host-creator=fixture; Secure"}
             if url.endswith("/api/state"):
-                return {"revision": 5, "jobs": []}, {}
+                return {"revision": 5, "jobs": [], "active_job_count": 0}, {}
             if url.endswith("/api/runtime"):
                 return {"deployment": version, "model": MODEL}, {}
             if url.endswith("/deployments"):

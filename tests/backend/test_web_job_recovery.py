@@ -4,6 +4,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import sqlite3
 import sys
 import time
 import types
@@ -112,6 +113,14 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             spec.loader.exec_module(loaded)
         self.loaded = loaded
         self.app = object.__new__(loaded.Database)
+        control = sqlite3.connect(":memory:")
+        self.addCleanup(control.close)
+        control.execute("CREATE TABLE control(id TEXT PRIMARY KEY,record TEXT)")
+        self.app.sql = types.SimpleNamespace(
+            exec=lambda statement, *args: control.execute(statement, args)
+        )
+        self.app._restore_hold = lambda: False
+        self.alarm_control = control
         self.storage = types.SimpleNamespace(
             getAlarm=AsyncMock(return_value=None), setAlarm=AsyncMock()
         )
@@ -129,6 +138,428 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(
             self.storage.setAlarm.await_args.args[0], time.time() * 1000 - 1000
         )
+
+    async def test_observation_mode_parks_queue_and_rearms_after_exit(self):
+        self.app.env = types.SimpleNamespace(B_WEB_OBSERVATION_ONLY="1")
+        pending = {
+            "status": "QUEUED",
+            "record": json.dumps({"id": "old", "status": "QUEUED"}),
+        }
+        self.app.rows = lambda *_: [pending]
+        await self.app.recover_wakeup()
+        await self.app.alarm()
+        self.storage.getAlarm.assert_not_awaited()
+        self.storage.setAlarm.assert_not_awaited()
+        self.assertEqual(json.loads(pending["record"])["status"], "QUEUED")
+        marker = self.alarm_control.execute(
+            "SELECT record FROM control WHERE id LIKE 'observation-alarm-%'"
+        ).fetchone()
+        self.assertIsNone(json.loads(marker[0])["scheduled_at"])
+        await self.app.alarm()
+        self.assertEqual(
+            self.alarm_control.execute("SELECT COUNT(*) FROM control").fetchone()[0], 2
+        )
+        self.app.env.B_WEB_OBSERVATION_ONLY = "0"
+        await self.app.recover_wakeup()
+        self.storage.setAlarm.assert_awaited_once()
+
+    async def test_observation_mode_rearms_running_lease_after_consumed_alarm(self):
+        lease = time.time() + 300
+        record = {
+            "id": "old",
+            "status": "RUNNING",
+            "lease_until": lease,
+            "calls": [{"outcome": "UNKNOWN"}],
+        }
+        self.app.env = types.SimpleNamespace(B_WEB_OBSERVATION_ONLY="1")
+        self.app.rows = lambda *_: [{"status": "RUNNING", "record": json.dumps(record)}]
+        self.storage.getAlarm.return_value = None
+        await self.app.recover_wakeup()
+        await self.app.alarm()
+        self.storage.getAlarm.assert_not_awaited()
+        self.storage.setAlarm.assert_not_awaited()
+        self.assertEqual(record["calls"][0]["outcome"], "UNKNOWN")
+        self.app.env.B_WEB_OBSERVATION_ONLY = "0"
+        await self.app.recover_wakeup()
+        self.storage.setAlarm.assert_awaited_once_with(int(lease * 1000))
+
+    async def test_observation_alarm_marker_failure_does_not_silently_succeed(self):
+        self.app.env = types.SimpleNamespace(B_WEB_OBSERVATION_ONLY="1")
+
+        def fail(*_):
+            raise RuntimeError("fixture storage failure")
+
+        self.app.sql = types.SimpleNamespace(exec=fail)
+        with patch.object(self.loaded, "import_from_javascript") as sdk:
+            with self.assertRaisesRegex(RuntimeError, "storage failure"):
+                await self.app.alarm()
+            sdk.assert_not_called()
+        self.storage.setAlarm.assert_not_awaited()
+
+    async def test_restore_hold_blocks_recovery_and_alarm_after_flag_unset(self):
+        self.app.env = types.SimpleNamespace(B_WEB_OBSERVATION_ONLY="0")
+        self.alarm_control.execute(
+            "INSERT INTO control VALUES('snapshot-restore-hold','{}')"
+        )
+        self.app._restore_hold = lambda: bool(
+            self.alarm_control.execute(
+                "SELECT 1 FROM control WHERE id='snapshot-restore-hold'"
+            ).fetchone()
+        )
+        self.app.rows = lambda *_: [
+            {"record": json.dumps({"id": "q", "status": "QUEUED"}), "status": "QUEUED"}
+        ]
+        with patch.object(self.loaded, "import_from_javascript") as sdk:
+            await self.app.recover_wakeup()
+            await self.app.alarm()
+            sdk.assert_not_called()
+        self.storage.setAlarm.assert_not_awaited()
+        before = self.alarm_control.execute("SELECT COUNT(*) FROM control").fetchone()[
+            0
+        ]
+        with patch.object(
+            self.loaded, "reply", side_effect=lambda body, status=200: (body, status)
+        ):
+            for path in ("/api/jobs", "/api/source-jobs", "/api/restore"):
+                _, status = await self.app.authorized(None, path, "POST", {})
+                self.assertEqual(status, 503)
+        self.assertEqual(
+            self.alarm_control.execute("SELECT COUNT(*) FROM control").fetchone()[0],
+            before,
+        )
+        self.storage.setAlarm.assert_not_awaited()
+
+    async def test_restore_hold_blocks_login_before_session_or_attempt_write(self):
+        self.app.env = types.SimpleNamespace(B_WEB_OBSERVATION_ONLY="0")
+        self.app._restore_hold = lambda: True
+        request = types.SimpleNamespace(
+            url="https://fixture/api/login",
+            method="POST",
+            headers={"Origin": "https://fixture", "Content-Type": "application/json"},
+            text=AsyncMock(return_value='{"password":"fixture"}'),
+        )
+        with patch.object(
+            self.loaded, "reply", side_effect=lambda body, status=200: (body, status)
+        ):
+            body, status = await self.app.fetch(request)
+        self.assertEqual(status, 503)
+        self.assertIn("held", body["error"])
+        self.assertEqual(
+            self.alarm_control.execute("SELECT COUNT(*) FROM control").fetchone()[0], 0
+        )
+
+    async def test_held_isolated_qa_can_login_readonly_but_other_hosts_cannot(self):
+        self.alarm_control.row_factory = sqlite3.Row
+        self.alarm_control.execute(
+            "CREATE TABLE sessions(hash TEXT PRIMARY KEY,expires REAL)"
+        )
+        self.alarm_control.execute(
+            "CREATE TABLE attempts(ip TEXT PRIMARY KEY,started REAL,count INTEGER)"
+        )
+        self.app.rows = lambda query, *args: [
+            dict(row) for row in self.alarm_control.execute(query, args)
+        ]
+        self.app._restore_hold = lambda: True
+        self.app.ctx.id = types.SimpleNamespace(name="qa-isolated-restore-" + "c" * 32)
+        self.app.env = types.SimpleNamespace(
+            B_WEB_OBSERVATION_ONLY="1",
+            B_WEB_ISOLATED_RESTORE="1",
+            B_WEB_QA_READONLY_LOGIN="1",
+            LOGIN_PASSWORD_HASH=hashlib.sha256(b"fixture").hexdigest(),
+        )
+        host = "creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev"
+        request = types.SimpleNamespace(
+            url="https://other.example/api/login",
+            method="POST",
+            headers={
+                "Origin": "https://other.example",
+                "Content-Type": "application/json",
+            },
+            text=AsyncMock(return_value='{"password":"fixture"}'),
+        )
+        with patch.object(
+            self.loaded,
+            "reply",
+            side_effect=lambda body, status=200, **kwargs: (body, status),
+        ):
+            _, status = await self.app.fetch(request)
+            self.assertEqual(status, 503)
+            self.assertEqual(
+                self.alarm_control.execute("SELECT COUNT(*) FROM sessions").fetchone()[
+                    0
+                ],
+                0,
+            )
+            request.url = "https://" + host + "/api/login"
+            request.headers["Origin"] = "https://" + host
+            self.app.env.B_WEB_QA_RESTORE_OBJECT_NAME = self.app.ctx.id.name
+            self.app._restore_hold = lambda: False
+            _, status = await self.app.fetch(request)
+            self.assertEqual(status, 503)
+            self.assertEqual(
+                self.alarm_control.execute("SELECT COUNT(*) FROM attempts").fetchone()[
+                    0
+                ],
+                0,
+            )
+            self.app._restore_hold = lambda: True
+            with patch.object(self.loaded.secrets, "token_hex", return_value="e" * 64):
+                body, status = await self.app.fetch(request)
+            self.assertEqual(status, 200)
+            self.assertTrue(body["ok"])
+            self.assertEqual(
+                self.alarm_control.execute("SELECT COUNT(*) FROM sessions").fetchone()[
+                    0
+                ],
+                1,
+            )
+            _, status = await self.app.authorized(None, "/api/jobs", "POST", {})
+            self.assertEqual(status, 503)
+        self.storage.setAlarm.assert_not_awaited()
+
+    async def test_isolated_restore_routing_fails_closed(self):
+        endpoint = object.__new__(self.loaded.Default)
+        stub = types.SimpleNamespace(fetch=AsyncMock(return_value="ok"))
+        names = []
+        database = types.SimpleNamespace(
+            getByName=lambda name: names.append(name) or stub
+        )
+        endpoint.env = types.SimpleNamespace(DATABASE=database)
+        request = types.SimpleNamespace(
+            url="https://creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev/api/state"
+        )
+        self.assertEqual(await endpoint.fetch(request), "ok")
+        self.assertEqual(names, ["private-owner-v1"])
+        names.clear()
+        endpoint.env.B_WEB_QA_RESTORE_OBJECT_NAME = "qa-isolated-restore-" + "c" * 32
+        with patch.object(
+            self.loaded, "reply", side_effect=lambda body, status=200: (body, status)
+        ):
+            _, status = await endpoint.fetch(request)
+            self.assertEqual(status, 503)
+            self.assertEqual(names, [])
+            endpoint.env.B_WEB_OBSERVATION_ONLY = "1"
+            endpoint.env.B_WEB_ISOLATED_RESTORE = "1"
+            endpoint.env.B_WEB_QA_READONLY_LOGIN = "1"
+            request.url = "https://production.example/api/state"
+            _, status = await endpoint.fetch(request)
+            self.assertEqual(status, 503)
+            self.assertEqual(names, [])
+            request.url = "https://creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev/api/state"
+            endpoint.env.B_WEB_QA_RESTORE_OBJECT_NAME = "private-owner-v1"
+            _, status = await endpoint.fetch(request)
+            self.assertEqual(status, 503)
+            self.assertEqual(names, [])
+            endpoint.env.B_WEB_QA_RESTORE_OBJECT_NAME = (
+                "qa-isolated-restore-" + "c" * 32
+            )
+            self.assertEqual(await endpoint.fetch(request), "ok")
+            self.assertEqual(names, [endpoint.env.B_WEB_QA_RESTORE_OBJECT_NAME])
+
+    async def test_held_qa_logout_only_changes_sessions(self):
+        self.alarm_control.execute(
+            "CREATE TABLE sessions(hash TEXT PRIMARY KEY,expires REAL)"
+        )
+        self.alarm_control.execute("INSERT INTO sessions VALUES('fixture', 9999999999)")
+        self.app._restore_hold = lambda: True
+        self.app.ctx.id = types.SimpleNamespace(name="qa-isolated-restore-" + "c" * 32)
+        self.app.env = types.SimpleNamespace(
+            B_WEB_OBSERVATION_ONLY="1",
+            B_WEB_ISOLATED_RESTORE="1",
+            B_WEB_QA_READONLY_LOGIN="1",
+        )
+        request = types.SimpleNamespace(
+            url="https://creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev/api/logout"
+        )
+        with patch.object(
+            self.loaded,
+            "reply",
+            side_effect=lambda body, status=200, **kwargs: (body, status),
+        ):
+            _, status = await self.app.authorized(request, "/api/logout", "POST", {})
+            self.assertEqual(status, 200)
+            self.assertEqual(
+                self.alarm_control.execute("SELECT COUNT(*) FROM sessions").fetchone()[
+                    0
+                ],
+                0,
+            )
+            _, status = await self.app.authorized(request, "/api/jobs", "POST", {})
+            self.assertEqual(status, 503)
+        self.storage.setAlarm.assert_not_awaited()
+
+    async def test_qa_route_cookie_login_read_logout_rejects_old_cookie(self):
+        self.alarm_control.row_factory = sqlite3.Row
+        self.alarm_control.execute(
+            "CREATE TABLE sessions(hash TEXT PRIMARY KEY,expires REAL)"
+        )
+        self.alarm_control.execute(
+            "CREATE TABLE attempts(ip TEXT PRIMARY KEY,started REAL,count INTEGER)"
+        )
+        self.app.rows = lambda query, *args: [
+            dict(row) for row in self.alarm_control.execute(query, args)
+        ]
+        self.app._restore_hold = lambda: True
+        name = "qa-isolated-restore-" + "c" * 32
+        self.app.ctx.id = types.SimpleNamespace(name=name)
+        self.app.env = types.SimpleNamespace(
+            B_WEB_OBSERVATION_ONLY="1",
+            B_WEB_ISOLATED_RESTORE="1",
+            B_WEB_QA_READONLY_LOGIN="1",
+            B_WEB_QA_RESTORE_OBJECT_NAME=name,
+            LOGIN_PASSWORD_HASH=hashlib.sha256(b"fixture").hexdigest(),
+        )
+        endpoint = object.__new__(self.loaded.Default)
+        endpoint.env = self.app.env
+        endpoint.env.DATABASE = types.SimpleNamespace(
+            getByName=lambda target: self.app if target == name else None
+        )
+        original_authorized = self.app.authorized
+
+        async def fixture_read(request, path, method, data):
+            if path == "/api/fixture-read" and method == "GET":
+                return self.loaded.reply({"revision": "fixture"})
+            return await original_authorized(request, path, method, data)
+
+        self.app.authorized = fixture_read
+        host = "https://creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev"
+        request = types.SimpleNamespace(
+            url=host + "/api/login",
+            method="POST",
+            headers={"Origin": host, "Content-Type": "application/json"},
+            text=AsyncMock(return_value='{"password":"fixture"}'),
+        )
+        with (
+            patch.object(
+                self.loaded,
+                "reply",
+                side_effect=lambda body, status=200, headers=None: (
+                    body,
+                    status,
+                    headers or {},
+                ),
+            ),
+            patch.object(self.loaded.secrets, "token_hex", return_value="e" * 64),
+        ):
+            _, status, headers = await endpoint.fetch(request)
+            self.assertEqual(status, 200)
+            request.headers["Cookie"] = headers["Set-Cookie"].split(";", 1)[0]
+            request.url = host + "/api/fixture-read"
+            request.method = "GET"
+            body, status, _ = await endpoint.fetch(request)
+            self.assertEqual((body["revision"], status), ("fixture", 200))
+            request.url = host + "/api/logout"
+            request.method = "POST"
+            _, status, _ = await endpoint.fetch(request)
+            self.assertEqual(status, 200)
+            request.url = host + "/api/fixture-read"
+            request.method = "GET"
+            _, status, _ = await endpoint.fetch(request)
+            self.assertEqual(status, 401)
+        self.storage.setAlarm.assert_not_awaited()
+
+    async def test_expired_running_lease_stays_unknown_after_observation(self):
+        record = {
+            "id": "old",
+            "status": "RUNNING",
+            "lease_until": time.time() - 1,
+            "calls": [{"outcome": "UNKNOWN"}],
+        }
+        self.app.env = types.SimpleNamespace(B_WEB_OBSERVATION_ONLY="1")
+        self.app.rows = lambda *_: [{"status": "RUNNING", "record": json.dumps(record)}]
+        saved = []
+        self.app.sync_run = saved.append
+        await self.app.alarm()
+        self.assertEqual(saved, [])
+        self.app.env.B_WEB_OBSERVATION_ONLY = "0"
+        with patch.object(self.loaded, "import_from_javascript") as sdk:
+            await self.app.alarm()
+            sdk.assert_not_called()
+        self.assertEqual(saved[0]["status"], "FAILED")
+        self.assertTrue(saved[0]["unknown_outcome"])
+        self.assertEqual(saved[0]["calls"][0]["outcome"], "UNKNOWN")
+
+    async def test_observation_mode_refuses_mutations_before_dispatch(self):
+        self.app.env = types.SimpleNamespace(B_WEB_OBSERVATION_ONLY="1")
+        with patch.object(
+            self.loaded, "reply", side_effect=lambda body, status=200: (body, status)
+        ):
+            for path in (
+                "/api/jobs",
+                "/api/source-jobs",
+                "/api/diagnostics/editing",
+                "/api/restore",
+            ):
+                body, status = await self.app.authorized(None, path, "POST", {})
+                self.assertEqual(status, 503)
+                self.assertIn("Observation-only", body["error"])
+        self.storage.setAlarm.assert_not_awaited()
+
+    async def test_source_receipts_require_session_before_operator_route(self):
+        self.app.authenticated = lambda _: False
+        request = types.SimpleNamespace(
+            url="https://fixture/api/source-receipts/" + "a" * 32,
+            method="GET",
+            headers={"X-Operator-Key": "fixture"},
+        )
+        with patch.object(
+            self.loaded, "reply", side_effect=lambda body, status=200: (body, status)
+        ):
+            _, status = await self.app.fetch(request)
+        self.assertEqual(status, 401)
+
+    def test_observation_mode_constructor_does_not_schedule_recovery(self):
+        from unittest.mock import MagicMock
+
+        base = self.loaded.Database.__mro__[1]
+        for flag, expected in (("1", False), ("bad", False), ("0", True), ("", True)):
+            ctx = types.SimpleNamespace(
+                storage=types.SimpleNamespace(
+                    sql=types.SimpleNamespace(exec=MagicMock())
+                ),
+                blockConcurrencyWhile=MagicMock(),
+            )
+            env = types.SimpleNamespace(B_WEB_OBSERVATION_ONLY=flag)
+            with patch.object(
+                base,
+                "__init__",
+                lambda obj, context, environment: setattr(obj, "env", environment),
+                create=True,
+            ):
+                self.loaded.Database(ctx, env)
+            self.assertEqual(ctx.blockConcurrencyWhile.called, expected)
+
+    def test_active_count_includes_old_and_diagnostic_jobs(self):
+        import sqlite3
+
+        db = sqlite3.connect(":memory:")
+        self.addCleanup(db.close)
+        db.row_factory = sqlite3.Row
+        db.execute("CREATE TABLE jobs(id TEXT, status TEXT, record TEXT)")
+        db.execute(
+            "INSERT INTO jobs VALUES(?,?,?)",
+            ("old-diagnostic", "QUEUED", json.dumps({"kind": "QA_EDITING_DIAGNOSTIC"})),
+        )
+        db.executemany(
+            "INSERT INTO jobs VALUES(?,?,?)",
+            [(str(i), "SUCCEEDED", "{}") for i in range(35)],
+        )
+        self.app.rows = lambda statement, *args: [
+            dict(r) for r in db.execute(statement, args)
+        ]
+        visible = self.app.rows(
+            "SELECT record FROM jobs WHERE COALESCE(json_extract(record,'$.kind'),'') != 'QA_EDITING_DIAGNOSTIC' ORDER BY rowid DESC LIMIT 30"
+        )
+        self.assertEqual(len(visible), 30)
+        self.assertEqual(self.app.active_job_count(), 1)
+        db.execute("UPDATE jobs SET status='CANCELLED' WHERE id='old-diagnostic'")
+        self.assertEqual(self.app.active_job_count(), 0)
+        db.execute("UPDATE jobs SET status='QUEUED' WHERE id='0'")
+        self.assertEqual(self.app.active_job_count(), 1)
+        visible = self.app.rows(
+            "SELECT id FROM jobs WHERE COALESCE(json_extract(record,'$.kind'),'') != 'QA_EDITING_DIAGNOSTIC' ORDER BY rowid DESC LIMIT 30"
+        )
+        self.assertNotIn("0", [row["id"] for row in visible])
 
     async def test_cloud_backup_pins_revision_and_media_and_rejects_unsafe_snapshots(
         self,
@@ -487,3 +918,52 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 db.execute("SELECT COUNT(*) FROM review_events").fetchone()[0], 0
             )
+        records[run_id] = copy.deepcopy(job)
+
+        async def reassigned_stage(*_):
+            records[run_id]["lease_until"] += 1000
+            records[run_id]["new_owner_marker"] = "fixture-owner"
+            return json.dumps(
+                {
+                    **envelopes[0],
+                    "ok": True,
+                    "model": "fixture-model",
+                    "worker_version": "fixture-version",
+                    "model_calls": 1,
+                }
+            )
+
+        sdk.stage = AsyncMock(side_effect=reassigned_stage)
+        with patch.object(self.loaded, "import_from_javascript", return_value=sdk):
+            await self.app.alarm()
+        self.assertEqual(records[run_id]["new_owner_marker"], "fixture-owner")
+        self.assertEqual(records[run_id]["calls"][0]["outcome"], "UNKNOWN")
+        late = self.alarm_control.execute(
+            "SELECT record FROM control WHERE id LIKE 'late-source-%'"
+        ).fetchall()
+        self.assertEqual(len(late), 1)
+        self.assertEqual(json.loads(late[0][0])["response"]["model_calls"], 1)
+        self.assertEqual(sdk.stage.await_count, 1)
+        records[run_id] = copy.deepcopy(job)
+
+        async def invalid_reassigned_stage(*_):
+            records[run_id]["lease_until"] += 2000
+            records[run_id]["new_owner_marker"] = "fixture-invalid-owner"
+            return '{"ok":true}'
+
+        sdk.stage = AsyncMock(side_effect=invalid_reassigned_stage)
+        with patch.object(self.loaded, "import_from_javascript", return_value=sdk):
+            await self.app.alarm()
+        self.assertEqual(records[run_id]["new_owner_marker"], "fixture-invalid-owner")
+        late = self.alarm_control.execute(
+            "SELECT record FROM control WHERE id LIKE 'late-source-%'"
+        ).fetchall()
+        invalid = [
+            json.loads(row[0])
+            for row in late
+            if json.loads(row[0]).get("outcome") == "UNKNOWN"
+        ]
+        self.assertEqual(len(invalid), 1)
+        self.assertEqual(
+            invalid[0]["raw_sha256"], hashlib.sha256(b'{"ok":true}').hexdigest()
+        )

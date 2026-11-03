@@ -21,6 +21,12 @@ from uuid import uuid4
 
 from creator_loop.backend.creator.web_domain import WebDomain, WebInputError
 from creator_loop.backend.runtime import database
+from creator_loop.backend.runtime.cloud_coordination_snapshot import (
+    capture_parts,
+    capture_pinned,
+    restore_parts,
+    verify_restored,
+)
 from creator_loop.backend.runtime.cloud_import import B_TABLES
 from creator_loop.backend.runtime.database import (
     _connect_write,
@@ -70,6 +76,11 @@ class CloudImportAPITests(unittest.TestCase):
         )
         tree = ast.parse(source.read_text("utf-8"))
         methods = {
+            "observation_only",
+            "active_job_count",
+            "_capture_coordination_snapshot",
+            "_restore_coordination_snapshot_isolated",
+            "_restore_hold",
             "import_preserved_b",
             "authorized",
             "put_object",
@@ -118,6 +129,9 @@ class CloudImportAPITests(unittest.TestCase):
             "_connect_write": _connect_write,
             "validate": validate,
             "_migrate_locked": _migrate_locked,
+            "capture_pinned": capture_pinned,
+            "restore_parts": restore_parts,
+            "verify_restored": verify_restored,
             "Path": lambda value: self.root if value == "/tmp" else Path(value),
             "digest": digest,
             "reply": lambda value, status=200, **_: SimpleNamespace(
@@ -321,6 +335,194 @@ class CloudImportAPITests(unittest.TestCase):
         (self.fixture.root / row[0]).write_bytes(b"corrupted")
         with self.assertRaisesRegex(ValueError, "Media changed"):
             self.call(path="/media/" + file["file_id"])
+
+    def test_internal_snapshot_requires_observation_and_pins_atomically(self):
+        self.coord.execute("ALTER TABLE backups ADD COLUMN created_at REAL")
+        self.coord.execute(
+            "CREATE TABLE preservation_archives(sha256 TEXT PRIMARY KEY,record TEXT)"
+        )
+        self.coord.execute(
+            "CREATE TABLE preservation_chunks(sha256 TEXT,position INTEGER,content TEXT,PRIMARY KEY(sha256,position))"
+        )
+        self.coord.execute(
+            "INSERT INTO control VALUES('late-source-fixture',?)",
+            (json.dumps({"outcome": "unknown"}),),
+        )
+        self.coord.commit()
+        checkpoint = self.api.rows("SELECT revision,sha256 FROM checkpoint WHERE id=1")[
+            0
+        ]
+        key = "a" * 32
+
+        def transaction(callback):
+            self.coord.execute("BEGIN IMMEDIATE")
+            try:
+                result = callback()
+            except Exception:
+                self.coord.rollback()
+                raise
+            self.coord.commit()
+            return result
+
+        self.api.ctx.storage.transactionSync = transaction
+        with self.assertRaisesRegex(ValueError, "observation-only"):
+            self.api._capture_coordination_snapshot(
+                key, checkpoint["revision"], checkpoint["sha256"]
+            )
+        self.api.env.B_WEB_OBSERVATION_ONLY = "1"
+        with self.assertRaisesRegex(ValueError, "Checkpoint changed"):
+            self.api._capture_coordination_snapshot(
+                key, checkpoint["revision"], "0" * 64
+            )
+        self.assertEqual(
+            self.api.rows("SELECT name FROM sqlite_master WHERE name='snapshot_parts'"),
+            [],
+        )
+
+        def interrupted(_rows, execute, snapshot_id):
+            execute(
+                "INSERT INTO snapshot_parts(snapshot_id,position,content) VALUES(?,?,?)",
+                snapshot_id,
+                0,
+                "fixture",
+            )
+            raise RuntimeError("fixture interruption")
+
+        namespace = self.api._capture_coordination_snapshot.__func__.__globals__
+        with patch.dict(namespace, {"capture_pinned": interrupted}):
+            with self.assertRaisesRegex(RuntimeError, "fixture interruption"):
+                self.api._capture_coordination_snapshot(
+                    key, checkpoint["revision"], checkpoint["sha256"]
+                )
+        self.assertEqual(
+            self.api.rows("SELECT name FROM sqlite_master WHERE name='snapshot_parts'"),
+            [],
+        )
+        self.assertEqual(
+            self.api.rows(
+                "SELECT name FROM sqlite_master WHERE name='snapshot_manifests'"
+            ),
+            [],
+        )
+        result = self.api._capture_coordination_snapshot(
+            key, checkpoint["revision"], checkpoint["sha256"]
+        )
+        self.assertFalse(result["data_verified"])
+        self.assertFalse(result["quiescence_verified"])
+        self.assertEqual(result["manifest"]["alarm"], "NOT_CAPTURED")
+        self.assertEqual(
+            result["manifest"]["late_writes_after_snapshot"], "NOT_CAPTURED"
+        )
+        self.assertEqual(result["manifest"]["counts"]["control"], 1)
+        self.assertEqual(
+            len(self.api.rows("SELECT id FROM snapshot_manifests WHERE id=?", key)), 1
+        )
+        self.assertGreater(
+            len(
+                self.api.rows(
+                    "SELECT position FROM snapshot_parts WHERE snapshot_id=?", key
+                )
+            ),
+            0,
+        )
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            self.api._capture_coordination_snapshot(
+                key, checkpoint["revision"], checkpoint["sha256"]
+            )
+
+    def test_internal_restore_requires_empty_isolated_named_object_and_holds_jobs(self):
+        from tests.backend import test_cloud_coordination_snapshot as snapshot_tests
+
+        source = snapshot_tests.CoordinationSnapshotTests("runTest")
+        source.setUp()
+        self.addCleanup(source.doCleanups)
+        parts = []
+        source.source.execute("BEGIN")
+        try:
+            manifest = capture_parts(
+                snapshot_tests.row_reader(source.source),
+                lambda index, data: parts.append(data),
+            )
+        finally:
+            source.source.rollback()
+        target = snapshot_tests.database()
+        self.addCleanup(target.close)
+        target.execute("CREATE TABLE sessions(hash TEXT PRIMARY KEY,expires REAL)")
+        target.execute(
+            "CREATE TABLE attempts(ip TEXT PRIMARY KEY,started REAL,count INTEGER)"
+        )
+        target.commit()
+        isolate = object.__new__(type(self.api))
+        isolate.env = SimpleNamespace(
+            B_WEB_OBSERVATION_ONLY="1", B_WEB_ISOLATED_RESTORE="1"
+        )
+        isolate.rows = snapshot_tests.row_reader(target)
+        isolate.sql = SimpleNamespace(
+            exec=lambda statement, *args: target.execute(statement, args)
+        )
+
+        def transaction(callback):
+            target.execute("BEGIN IMMEDIATE")
+            try:
+                result = callback()
+            except Exception:
+                target.rollback()
+                raise
+            target.commit()
+            return result
+
+        isolate.ctx = SimpleNamespace(
+            id=SimpleNamespace(name="private-owner-v1"),
+            storage=SimpleNamespace(transactionSync=transaction),
+        )
+        with self.assertRaisesRegex(ValueError, "guard refused"):
+            isolate._restore_coordination_snapshot_isolated(
+                manifest, lambda i: parts[i]
+            )
+        isolate.ctx.id.name = "qa-isolated-restore-" + "c" * 32
+        target.execute("INSERT INTO sessions VALUES('existing',1)")
+        target.commit()
+        with self.assertRaisesRegex(ValueError, "session state"):
+            isolate._restore_coordination_snapshot_isolated(
+                manifest, lambda i: parts[i]
+            )
+        self.assertEqual(
+            target.execute("SELECT COUNT(*) FROM checkpoint").fetchone()[0], 0
+        )
+        target.execute("DELETE FROM sessions")  # Disposable in-memory fixture only.
+        target.commit()
+        target.execute(
+            "CREATE TABLE snapshot_parts(snapshot_id TEXT, position INTEGER, content TEXT)"
+        )
+        target.execute("INSERT INTO snapshot_parts VALUES('other',0,'fixture')")
+        target.commit()
+        with self.assertRaisesRegex(ValueError, "staging is not empty"):
+            isolate._restore_coordination_snapshot_isolated(
+                manifest, lambda i: parts[i]
+            )
+        self.assertEqual(
+            target.execute("SELECT COUNT(*) FROM snapshot_parts").fetchone()[0], 1
+        )
+        target.execute(
+            "DELETE FROM snapshot_parts"
+        )  # Disposable in-memory fixture only.
+        target.commit()
+        bad = parts.copy()
+        bad[-1] += b"x"
+        with self.assertRaisesRegex(ValueError, "part mismatch"):
+            isolate._restore_coordination_snapshot_isolated(manifest, lambda i: bad[i])
+        self.assertEqual(
+            target.execute("SELECT COUNT(*) FROM checkpoint").fetchone()[0], 0
+        )
+        result = isolate._restore_coordination_snapshot_isolated(
+            manifest, lambda i: parts[i]
+        )
+        self.assertEqual(
+            result, {"restored": True, "jobs_held": True, "alarm_restored": False}
+        )
+        self.assertEqual(target.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 2)
+        isolate.env.B_WEB_OBSERVATION_ONLY = "0"
+        self.assertTrue(isolate._restore_hold())
 
     def test_restore_receipt_read_is_operator_only_and_never_replays_mutation(self):
         key = "f" * 32
