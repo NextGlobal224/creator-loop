@@ -204,6 +204,70 @@ def expected_binding_types(
     return types
 
 
+def verify_fixture_bindings(
+    settings: dict, config: dict, production_id: str, qa19_id: str
+) -> str:
+    """Verify actual bindings before the first fixture request, not merely the namespace."""
+    namespace = validate_fixture_namespace(settings, production_id, qa19_id)
+    expected = expected_binding_types(
+        "qa-fixture", {"resources": {"bindings": []}}, config
+    )
+    if "B_WEB_QA_SOURCE_OBJECT_NAME" not in config["vars"]:
+        raise ValueError("Fixture snapshot identities are not configured")
+    bindings = {binding["name"]: binding for binding in settings["bindings"]}
+    if set(bindings) != set(expected) or any(
+        bindings[name].get("type") != kind for name, kind in expected.items()
+    ):
+        raise ValueError("Fixture binding set incomplete or unexpected")
+    if any(
+        bindings[name].get("text") != value for name, value in config["vars"].items()
+    ):
+        raise ValueError("Fixture guard values differ from verified configuration")
+    return namespace
+
+
+def verify_fixture_namespace_ownership(
+    settings: dict,
+    config: dict,
+    production_id: str,
+    qa19_id: str,
+    observation: dict,
+) -> str:
+    """Require complete account namespace metadata before any fixture request."""
+    namespace = verify_fixture_bindings(settings, config, production_id, qa19_id)
+    rows = observation.get("result") if isinstance(observation, dict) else None
+    info = observation.get("result_info") if isinstance(observation, dict) else None
+    if (
+        not isinstance(observation, dict)
+        or observation.get("success") is not True
+        or not isinstance(rows, list)
+        or not isinstance(info, dict)
+        or type(info.get("total_count")) is not int
+        or info["total_count"] != len(rows)
+        or info.get("cursor") not in (None, "")
+        or (info.get("has_more") is not None and info.get("has_more") is not False)
+        or (
+            info.get("total_pages") is not None
+            and (type(info["total_pages"]) is not int or info["total_pages"] != 1)
+        )
+        or not all(isinstance(row, dict) for row in rows)
+    ):
+        raise ValueError("Complete namespace metadata required")
+    for identity, script in (
+        (production_id, TARGETS["production"]),
+        (qa19_id, TARGETS["qa19"]),
+        (namespace, TARGETS["qa-fixture"]),
+    ):
+        matches = [row for row in rows if row.get("id") == identity]
+        if len(matches) != 1 or not (
+            matches[0].get("script") == script
+            and matches[0].get("class") == "Database"
+            and matches[0].get("use_sqlite") is True
+        ):
+            raise ValueError("Namespace owner or SQLite backend mismatch")
+    return namespace
+
+
 def sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 

@@ -165,6 +165,117 @@ class CloudDeploymentTests(unittest.TestCase):
                     {"bindings": [binding, extra]}, production, qa19
                 )
 
+    def test_fixture_runtime_binding_proof_requires_exact_values_and_secrets(self):
+        from pathlib import Path
+
+        from scripts.b_web_cloud_deploy import (
+            expected_binding_types,
+            verify_fixture_bindings,
+            verify_fixture_namespace_ownership,
+        )
+
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+        )
+        config = json.loads(path.read_text(encoding="utf-8"))
+        with self.assertRaisesRegex(ValueError, "identities"):
+            verify_fixture_bindings(
+                {
+                    "bindings": [
+                        {
+                            "name": "DATABASE",
+                            "type": "durable_object_namespace",
+                            "namespace_id": "c" * 32,
+                            "class_name": "Database",
+                        }
+                    ]
+                },
+                config,
+                "a" * 32,
+                "b" * 32,
+            )
+        config["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "qa-isolated-restore-" + "d" * 32,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "a" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": "b" * 64,
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "qa-isolated-restore-" + "e" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "f" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": "1" * 64,
+            }
+        )
+        expected = expected_binding_types(
+            "qa-fixture", {"resources": {"bindings": []}}, config
+        )
+        bindings = [{"name": name, "type": kind} for name, kind in expected.items()]
+        for binding in bindings:
+            name = binding["name"]
+            if name in config["vars"]:
+                binding["text"] = config["vars"][name]
+            if name == "DATABASE":
+                binding.update(namespace_id="c" * 32, class_name="Database")
+
+        def verify(value):
+            return verify_fixture_bindings(value, config, "a" * 32, "b" * 32)
+
+        self.assertEqual(verify({"bindings": bindings}), "c" * 32)
+        namespace_rows = [
+            {"id": name * 32, "script": script, "class": "Database", "use_sqlite": True}
+            for name, script in (
+                ("a", "creator-loop-b-web"),
+                ("b", "creator-loop-b-web-qa19"),
+                ("c", "creator-loop-b-snapshot-qa"),
+            )
+        ]
+        observed = {
+            "success": True,
+            "result": namespace_rows,
+            "result_info": {"total_count": 3},
+        }
+
+        def verify_owner(value):
+            return verify_fixture_namespace_ownership(
+                {"bindings": bindings}, config, "a" * 32, "b" * 32, value
+            )
+
+        self.assertEqual(verify_owner(observed), "c" * 32)
+        for changed in (
+            {**observed, "result": namespace_rows[:-1]},
+            {**observed, "result_info": {"total_count": 3, "cursor": "next"}},
+            {**observed, "result_info": {"total_count": 3, "cursor": []}},
+            {**observed, "result_info": {"total_count": 3, "has_more": 0}},
+            {**observed, "result_info": {"total_count": 3, "total_pages": True}},
+            {
+                **observed,
+                "result": [
+                    *namespace_rows[:2],
+                    {**namespace_rows[2], "script": "other-worker"},
+                ],
+            },
+            {
+                **observed,
+                "result": [
+                    *namespace_rows[:2],
+                    {**namespace_rows[2], "use_sqlite": False},
+                ],
+            },
+        ):
+            with self.subTest(metadata=changed), self.assertRaises(ValueError):
+                verify_owner(changed)
+        for missing in (
+            "OPERATOR_KEY",
+            "LOGIN_PASSWORD_HASH",
+            "B_WEB_OBSERVATION_ONLY",
+        ):
+            with self.subTest(missing=missing), self.assertRaises(ValueError):
+                verify({"bindings": [b for b in bindings if b["name"] != missing]})
+        bad = copy.deepcopy(bindings)
+        next(b for b in bad if b["name"] == "B_WEB_OBSERVATION_ONLY")["text"] = "0"
+        with self.assertRaises(ValueError):
+            verify({"bindings": bad})
+
     def test_production_fails_before_any_network_or_activation(self):
         env = {
             "GITHUB_REPOSITORY": REPO,
