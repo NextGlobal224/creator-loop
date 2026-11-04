@@ -131,6 +131,7 @@ class CloudImportAPITests(unittest.TestCase):
             "_connect_write": _connect_write,
             "validate": validate,
             "_migrate_locked": _migrate_locked,
+            "capture_parts": capture_parts,
             "capture_pinned": capture_pinned,
             "restore_parts": restore_parts,
             "verify_restored": verify_restored,
@@ -605,12 +606,51 @@ class CloudImportAPITests(unittest.TestCase):
             "INSERT INTO control VALUES(?,?)", ("snapshot-restore-hold", original_hold)
         )
         source.source.commit()
-        parts = []
-        with source.source:
-            manifest = capture_parts(
-                snapshot_tests.row_reader(source.source),
-                lambda i, part: parts.append(part),
+        source_name, source_id = "qa-isolated-restore-" + "e" * 32, "b" * 32
+        exporter = object.__new__(type(self.api))
+        exporter.env = SimpleNamespace(
+            B_WEB_OBSERVATION_ONLY="1",
+            B_WEB_ISOLATED_RESTORE="1",
+            B_WEB_QA_READONLY_LOGIN="1",
+            B_WEB_QA_RESTORE_OBJECT_NAME=source_name,
+            B_WEB_QA_SNAPSHOT_EXPORT="1",
+            B_WEB_QA_EXPORT_SNAPSHOT_ID=source_id,
+        )
+        exporter.rows = snapshot_tests.row_reader(source.source)
+        exporter.sql = SimpleNamespace(
+            exec=lambda statement, *args: source.source.execute(statement, args)
+        )
+
+        def source_transaction(callback):
+            with source.source:
+                return callback()
+
+        exporter.ctx = SimpleNamespace(
+            id=SimpleNamespace(name=source_name),
+            storage=SimpleNamespace(transactionSync=source_transaction),
+        )
+        checkpoint = exporter.rows("SELECT revision,sha256 FROM checkpoint WHERE id=1")[
+            0
+        ]
+        exporter._qa_snapshot_export(
+            {
+                "operation": "capture",
+                "snapshot_id": source_id,
+                "revision": checkpoint["revision"],
+                "checkpoint_sha256": checkpoint["sha256"],
+            }
+        )
+        manifest = exporter._qa_snapshot_export(
+            {"operation": "manifest", "snapshot_id": source_id}
+        )["manifest"]
+        parts = [
+            base64.b64decode(
+                exporter._qa_snapshot_export(
+                    {"operation": "part", "snapshot_id": source_id, "position": i}
+                )["content_base64"]
             )
+            for i in range(len(manifest["parts"]))
+        ]
         manifest_hash = hashlib.sha256(
             json.dumps(
                 manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
@@ -654,6 +694,23 @@ class CloudImportAPITests(unittest.TestCase):
         )
         status = {"operation": "status", "snapshot_id": snapshot_id}
         self.assertEqual(isolate._qa_snapshot_staging(status)["staged_parts"], 0)
+        plan = isolate._qa_snapshot_staging(
+            {"operation": "plan", "snapshot_id": snapshot_id, "manifest": manifest}
+        )
+        self.assertEqual(plan["raw_bytes"], sum(map(len, parts)))
+        self.assertEqual(
+            plan["staging_base64_bytes"],
+            sum(len(base64.b64encode(part)) for part in parts),
+        )
+        self.assertTrue(plan["resource_proof_required"])
+        with self.assertRaisesRegex(ValueError, "Verified held restore"):
+            isolate._qa_snapshot_staging(
+                {
+                    "operation": "cleanup",
+                    "snapshot_id": snapshot_id,
+                    "manifest": manifest,
+                }
+            )
         with self.assertRaisesRegex(ValueError, "configuration"):
             isolate._qa_snapshot_staging({**status, "snapshot_id": "b" * 32})
         for i, part in enumerate(parts):
@@ -723,6 +780,73 @@ class CloudImportAPITests(unittest.TestCase):
         self.assertEqual(
             json.loads(separate[0]),
             {"snapshot_id": snapshot_id, "manifest_sha256": manifest_hash},
+        )
+        self.assertTrue(isolate._qa_snapshot_staging(status)["restored"])
+        read_rows = isolate.rows
+
+        def bounded_rows(query, *args):
+            if "qa_restore_parts" in query and "content" in query:
+                self.assertIn("position=?", query)
+            return read_rows(query, *args)
+
+        isolate.rows = bounded_rows
+        target.execute(
+            "INSERT INTO control VALUES(?,?)",
+            ("late-receipt-fixture", '{"status":"received"}'),
+        )
+        target.commit()
+        with self.assertRaisesRegex(ValueError, "state changed"):
+            isolate._qa_snapshot_staging(
+                {
+                    "operation": "cleanup",
+                    "snapshot_id": snapshot_id,
+                    "manifest": manifest,
+                }
+            )
+        self.assertEqual(
+            target.execute("SELECT count(*) FROM qa_restore_parts").fetchone()[0],
+            len(parts),
+        )
+        target.execute("DELETE FROM control WHERE id='late-receipt-fixture'")
+        target.commit()
+        target.execute("UPDATE qa_restore_parts SET content='eA==' WHERE position=0")
+        target.commit()
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            isolate._qa_snapshot_staging(
+                {
+                    "operation": "cleanup",
+                    "snapshot_id": snapshot_id,
+                    "manifest": manifest,
+                }
+            )
+        self.assertEqual(
+            target.execute("SELECT count(*) FROM qa_restore_parts").fetchone()[0],
+            len(parts),
+        )
+        target.execute(
+            "UPDATE qa_restore_parts SET content=? WHERE position=0", (saved,)
+        )
+        target.commit()
+        self.assertFalse(
+            isolate._qa_snapshot_staging(
+                {
+                    "operation": "cleanup",
+                    "snapshot_id": snapshot_id,
+                    "manifest": manifest,
+                }
+            )["already_clean"]
+        )
+        self.assertEqual(
+            target.execute("SELECT count(*) FROM qa_restore_parts").fetchone()[0], 0
+        )
+        self.assertTrue(
+            isolate._qa_snapshot_staging(
+                {
+                    "operation": "cleanup",
+                    "snapshot_id": snapshot_id,
+                    "manifest": manifest,
+                }
+            )["already_clean"]
         )
         self.assertTrue(isolate._qa_snapshot_staging(status)["restored"])
         with self.assertRaisesRegex(ValueError, "already completed"):

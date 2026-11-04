@@ -43,6 +43,7 @@ from creator_loop.backend.knowledge.cloud_video import (
     store_cloud_video,
 )
 from creator_loop.backend.runtime.cloud_coordination_snapshot import (
+    capture_parts,
     capture_pinned,
     restore_parts,
     verify_restored,
@@ -63,6 +64,42 @@ from workers import (
 )
 
 MAX_BODY = 16 * 1024 * 1024
+QA_SNAPSHOT_BODY_LIMIT = 512 * 1024
+
+
+async def read_qa_snapshot_body(request):
+    """Read at most the QA limit, without trusting Content-Length."""
+    length = request.headers.get("Content-Length")
+    if length and (not length.isdigit() or int(length) > QA_SNAPSHOT_BODY_LIMIT):
+        raise ValueError("QA snapshot body too large")
+    body = getattr(request, "body", None)
+    if body is None:
+        raise ValueError("QA snapshot body required")
+    reader = body.getReader()
+    chunks = []
+    size = 0
+    while True:
+        part = await reader.read()
+        if part.done:
+            break
+        value = part.value
+        length = value.byteLength
+        if (
+            type(length) is not int
+            or length < 0
+            or size + length > QA_SNAPSHOT_BODY_LIMIT
+        ):
+            await reader.cancel()
+            raise ValueError("QA snapshot body too large")
+        chunk = bytes(value.to_py())
+        if len(chunk) != length:
+            await reader.cancel()
+            raise ValueError("Invalid QA snapshot body chunk")
+        chunks.append(chunk)
+        size += length
+    return b"".join(chunks).decode("utf-8", errors="strict")
+
+
 # Bounded operational media, distinct from the unchanged service/budget guard.
 # Base64 + max checkpoint + 512 object records still fit MAX_BODY on restore.
 MAX_MEDIA_TOTAL = 10 * 1024 * 1024 + 512 * 1024
@@ -429,6 +466,17 @@ class Database(DurableObject):
                         }
                     ),
                 )
+            if receipt is not None:
+                fingerprint = capture_parts(self.rows, lambda _position, _part: None)
+                self.sql.exec(
+                    "CREATE TABLE IF NOT EXISTS qa_restore_integrity(snapshot_id TEXT PRIMARY KEY,manifest_sha256 TEXT NOT NULL,state_sha256 TEXT NOT NULL)"
+                )
+                self.sql.exec(
+                    "INSERT INTO qa_restore_integrity VALUES(?,?,?)",
+                    receipt["snapshot_id"],
+                    receipt["manifest_sha256"],
+                    fingerprint["sha256"],
+                )
             return {"restored": True, "jobs_held": True, "alarm_restored": False}
 
         return self.ctx.storage.transactionSync(restore)
@@ -494,6 +542,96 @@ class Database(DurableObject):
                 "staged_parts": count,
                 "mode": "OBSERVATION_ONLY",
             }
+        if operation in ("plan", "cleanup"):
+            if set(data) != {"operation", "snapshot_id", "manifest"} or not isinstance(
+                data["manifest"], dict
+            ):
+                raise ValueError("Invalid manifest request")
+            manifest = data["manifest"]
+            encoded_manifest = json.dumps(
+                manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+            if digest(encoded_manifest) != expected_hash:
+                raise ValueError("Pinned manifest hash mismatch")
+            parts = manifest.get("parts")
+            if not isinstance(parts, list) or not 0 < len(parts) <= 384:
+                raise ValueError("Invalid manifest parts")
+            sizes = []
+            for part in parts:
+                if (
+                    not isinstance(part, dict)
+                    or type(part.get("bytes")) is not int
+                    or not 0 < part["bytes"] <= 262144
+                    or not isinstance(part.get("sha256"), str)
+                    or not re.fullmatch("[a-f0-9]{64}", part["sha256"])
+                ):
+                    raise ValueError("Invalid manifest part")
+                sizes.append(part["bytes"])
+            if sum(sizes) != manifest.get("bytes"):
+                raise ValueError("Manifest byte count mismatch")
+            if operation == "plan":
+                return {
+                    "raw_bytes": sum(sizes),
+                    "staging_base64_bytes": sum(
+                        4 * ((size + 2) // 3) for size in sizes
+                    ),
+                    "storage_overhead_and_restored_bytes": "UNKNOWN",
+                    "resource_proof_required": True,
+                }
+
+            def cleanup():
+                status = self._qa_snapshot_staging(
+                    {"operation": "status", "snapshot_id": snapshot_id}
+                )
+                if not status.get("restored") or not status.get("jobs_held"):
+                    raise ValueError("Verified held restore required")
+                verify_restored(self.rows)
+                proof = self.rows(
+                    "SELECT manifest_sha256,state_sha256 FROM qa_restore_integrity WHERE snapshot_id=?",
+                    snapshot_id,
+                )
+                if len(proof) != 1 or proof[0]["manifest_sha256"] != expected_hash:
+                    raise ValueError("Restore integrity proof missing")
+                current = capture_parts(self.rows, lambda _position, _part: None)
+                if current["sha256"] != proof[0]["state_sha256"]:
+                    raise ValueError("Restored state changed; preserve staging")
+                count = self.rows(
+                    "SELECT COUNT(*) AS n FROM qa_restore_parts WHERE snapshot_id=?",
+                    snapshot_id,
+                )[0]["n"]
+                if not count:
+                    return {"cleaned": True, "already_clean": True}
+                if count != len(parts) or self.rows(
+                    "SELECT 1 FROM qa_restore_parts WHERE snapshot_id != ? LIMIT 1",
+                    snapshot_id,
+                ):
+                    raise ValueError("Staged parts incomplete")
+                whole = hashlib.sha256()
+                for position, part in enumerate(parts):
+                    found = self.rows(
+                        "SELECT sha256,content FROM qa_restore_parts WHERE snapshot_id=? AND position=?",
+                        snapshot_id,
+                        position,
+                    )
+                    if len(found) != 1:
+                        raise ValueError("Staged part missing")
+                    row = found[0]
+                    raw = base64.b64decode(row["content"], validate=True)
+                    if (
+                        len(raw) != part["bytes"]
+                        or digest(raw) != part["sha256"]
+                        or row["sha256"] != part["sha256"]
+                    ):
+                        raise ValueError("Staged part does not match manifest")
+                    whole.update(raw)
+                if whole.hexdigest() != manifest.get("sha256"):
+                    raise ValueError("Staged stream hash mismatch")
+                self.sql.exec(
+                    "DELETE FROM qa_restore_parts WHERE snapshot_id=?", snapshot_id
+                )
+                return {"cleaned": True, "already_clean": False}
+
+            return self.ctx.storage.transactionSync(cleanup)
         if self._restore_hold():
             raise ValueError("Restore already completed; inspect status")
         if operation == "put":
@@ -1215,12 +1353,10 @@ class Database(DurableObject):
                 return reply(
                     {"error": "Isolated QA operator verification required"}, 403
                 )
-            length = request.headers.get("Content-Length")
-            if length and (not length.isdigit() or int(length) > 512 * 1024):
-                return reply({"error": "Staging request too large"}, 413)
-            raw = await request.text()
-            if len(raw.encode()) > 512 * 1024:
-                return reply({"error": "Staging request too large"}, 413)
+            try:
+                raw = await read_qa_snapshot_body(request)
+            except (ValueError, TypeError, AttributeError):
+                return reply({"error": "Invalid or oversized staging request"}, 413)
             try:
                 data = json.loads(raw)
                 result = (

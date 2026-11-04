@@ -14,6 +14,29 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 
+class FakeRequestBody:
+    def __init__(self, chunks):
+        self.chunks = list(chunks)
+        self.cancelled = False
+        self.read_count = 0
+
+    def getReader(self):
+        return self
+
+    async def read(self):
+        self.read_count += 1
+        if not self.chunks:
+            return types.SimpleNamespace(done=True)
+        chunk = self.chunks.pop(0)
+        return types.SimpleNamespace(
+            done=False,
+            value=types.SimpleNamespace(byteLength=len(chunk), to_py=lambda: chunk),
+        )
+
+    async def cancel(self):
+        self.cancelled = True
+
+
 class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
     def test_python_analysis_boundary_rejects_changed_or_unverified_factual_background(
         self,
@@ -339,6 +362,7 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 "X-Operator-Key": "wrong",
             },
             text=AsyncMock(return_value='{"operation":"status"}'),
+            body=FakeRequestBody([b'{"operation":"status"}']),
         )
         with patch.object(
             self.loaded,
@@ -365,8 +389,24 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((body["received"], status), ("status", 200))
             self.app._qa_snapshot_export = lambda data: {"export": data["operation"]}
             request.url = host + "/api/qa-snapshot-export"
+            request.body = FakeRequestBody([b'{"operation":"status"}'])
             body, status = await self.app.fetch(request)
             self.assertEqual((body["export"], status), ("status", 200))
+            for route in ("qa-snapshot-staging", "qa-snapshot-export"):
+                request.url = host + "/api/" + route
+                for header in (None, "1"):
+                    if header is None:
+                        request.headers.pop("Content-Length", None)
+                    else:
+                        request.headers["Content-Length"] = header
+                    request.body = FakeRequestBody(
+                        [b"x" * (512 * 1024), b"x", b"never read"]
+                    )
+                    _, status = await self.app.fetch(request)
+                    self.assertEqual(status, 413)
+                    self.assertTrue(request.body.cancelled)
+                    self.assertEqual(request.body.read_count, 2)
+                    request.text.assert_not_awaited()
         self.storage.setAlarm.assert_not_awaited()
 
     async def test_qa_snapshot_route_stages_and_restores_real_fixture_through_worker(
@@ -444,7 +484,7 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         async def submit(payload):
-            request.text.return_value = json.dumps(payload)
+            request.body = FakeRequestBody([json.dumps(payload).encode()])
             return await endpoint.fetch(request)
 
         with patch.object(
