@@ -300,6 +300,140 @@ class CloudDeploymentTests(unittest.TestCase):
                 gh.assert_not_called()
                 activate.assert_not_called()
 
+    def test_fixture_bootstrap_orders_creation_verification_and_login(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_sequence
+
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        config = {"vars": {"B_WEB_QA_SOURCE_OBJECT_NAME": "fixture"}}
+        steps = []
+        preflight = MagicMock(
+            side_effect=lambda _: steps.append("preflight") or ("a" * 32, "b" * 32)
+        )
+        create = MagicMock(side_effect=lambda _: steps.append("create") or candidate)
+        observe = MagicMock(
+            return_value=({}, {}, [{"version_id": candidate, "percentage": 100}])
+        )
+        login = MagicMock(
+            side_effect=lambda: (
+                steps.append("login")
+                or {"authenticated": True, "deployment": candidate}
+            )
+        )
+        record = MagicMock(side_effect=lambda event: steps.append(event["state"]))
+        with (
+            patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+            patch(
+                "scripts.b_web_cloud_deploy.verify_fixture_namespace_ownership",
+                return_value="c" * 32,
+            ) as verify,
+        ):
+            self.assertEqual(
+                fixture_bootstrap_sequence(
+                    preflight, create, observe, login, record, config
+                ),
+                "c" * 32,
+            )
+            verify.assert_called_once()
+        self.assertEqual(
+            steps,
+            [
+                "preflight",
+                "creation_attempting",
+                "create",
+                "creation_returned",
+                "metadata_verified",
+                "login",
+                "login_verified",
+            ],
+        )
+        create.assert_called_once_with(config)
+        login.assert_called_once_with()
+
+    def test_fixture_bootstrap_fails_closed_before_or_after_creation(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_sequence
+
+        config = {"vars": {"B_WEB_QA_SOURCE_OBJECT_NAME": "fixture"}}
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        for failure in (
+            "missing_config",
+            "permission",
+            "resource",
+            "bad_ids",
+            "creation",
+            "namespace",
+            "version",
+            "login",
+            "login_false",
+        ):
+            with self.subTest(failure=failure):
+                preflight = MagicMock(return_value=("a" * 32, "b" * 32))
+                create = MagicMock(return_value=candidate)
+                observe = MagicMock(
+                    return_value=(
+                        {},
+                        {},
+                        [{"version_id": candidate, "percentage": 100}],
+                    )
+                )
+                login = MagicMock(
+                    return_value={"authenticated": True, "deployment": candidate}
+                )
+                record = MagicMock()
+                if failure in ("permission", "resource"):
+                    preflight.side_effect = ValueError(failure)
+                if failure == "bad_ids":
+                    preflight.return_value = ("a" * 32, "a" * 32)
+                if failure == "creation":
+                    create.side_effect = TimeoutError("unknown")
+                if failure == "version":
+                    observe.return_value = (
+                        {},
+                        {},
+                        [{"version_id": candidate, "percentage": 50}],
+                    )
+                if failure == "login":
+                    login.side_effect = ValueError("login refused")
+                if failure == "login_false":
+                    login.return_value = {
+                        "authenticated": False,
+                        "deployment": candidate,
+                    }
+                with (
+                    patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+                    patch(
+                        "scripts.b_web_cloud_deploy.verify_fixture_namespace_ownership",
+                        side_effect=ValueError("wrong namespace")
+                        if failure == "namespace"
+                        else None,
+                        return_value="c" * 32,
+                    ),
+                    self.assertRaises((ValueError, TimeoutError)),
+                ):
+                    fixture_bootstrap_sequence(
+                        preflight,
+                        create,
+                        observe,
+                        login,
+                        record,
+                        {"vars": {}} if failure == "missing_config" else config,
+                    )
+                if failure in ("login", "login_false"):
+                    login.assert_called_once()
+                else:
+                    login.assert_not_called()
+                if failure in ("missing_config", "permission", "resource", "bad_ids"):
+                    create.assert_not_called()
+                else:
+                    create.assert_called_once()
+                    self.assertIn(
+                        record.call_args_list[-1].args[0]["state"],
+                        (
+                            "creation_unknown",
+                            "postcreate_unverified",
+                            "login_unverified",
+                        ),
+                    )
+
     def test_idle_check_requires_complete_native_count(self):
         require_idle_jobs({"jobs": [], "active_job_count": 0})
         for count in (None, True, -1, 1, "0"):

@@ -268,6 +268,62 @@ def verify_fixture_namespace_ownership(
     return namespace
 
 
+def fixture_bootstrap_sequence(preflight, create, observe, login, record, config):
+    """Order a single isolated first-create; caller must supply trusted I/O adapters.
+
+    Preflight must independently establish identity, permission, artifact and
+    the resource budget before returning the two existing namespace IDs. This
+    sequencer does not itself prove those conditions and is not yet exposed by
+    the live deployment workflow.
+    """
+    validate_fixture_config(config)
+    if "B_WEB_QA_SOURCE_OBJECT_NAME" not in config["vars"]:
+        raise ValueError("Fixture snapshot identities are not configured")
+    production_id, qa19_id = preflight(config)
+    if (
+        not isinstance(production_id, str)
+        or not re.fullmatch("[a-f0-9]{32}", production_id)
+        or not isinstance(qa19_id, str)
+        or not re.fullmatch("[a-f0-9]{32}", qa19_id)
+        or production_id == qa19_id
+    ):
+        raise ValueError("Existing namespace identities are incomplete")
+    record({"state": "creation_attempting", "target": TARGETS["qa-fixture"]})
+    try:
+        candidate = create(config)
+    except Exception:
+        record({"state": "creation_unknown", "target": TARGETS["qa-fixture"]})
+        raise
+    record({"state": "creation_returned", "target": TARGETS["qa-fixture"]})
+    try:
+        if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+            raise ValueError("Fixture creation version unconfirmed")
+        settings, namespaces, deployment = observe()
+        namespace = verify_fixture_namespace_ownership(
+            settings, config, production_id, qa19_id, namespaces
+        )
+        if deployment != [{"version_id": candidate, "percentage": 100}]:
+            raise ValueError("Fixture deployed version or traffic mismatch")
+    except Exception:
+        record({"state": "postcreate_unverified", "target": TARGETS["qa-fixture"]})
+        raise
+    record({"state": "metadata_verified", "target": TARGETS["qa-fixture"]})
+    try:
+        receipt = login()
+        if (
+            not isinstance(receipt, dict)
+            or set(receipt) != {"authenticated", "deployment"}
+            or receipt.get("authenticated") is not True
+            or receipt.get("deployment") != candidate
+        ):
+            raise ValueError("Fixture login or runtime identity unconfirmed")
+    except Exception:
+        record({"state": "login_unverified", "target": TARGETS["qa-fixture"]})
+        raise
+    record({"state": "login_verified", "target": TARGETS["qa-fixture"]})
+    return namespace
+
+
 def sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
