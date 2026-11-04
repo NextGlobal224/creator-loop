@@ -502,6 +502,17 @@ class Database(DurableObject):
         expected_name = getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", "")
         snapshot_id = getattr(self.env, "B_WEB_QA_RESTORE_SNAPSHOT_ID", "")
         expected_hash = getattr(self.env, "B_WEB_QA_RESTORE_MANIFEST_SHA256", "")
+        source_name = getattr(self.env, "B_WEB_QA_SOURCE_OBJECT_NAME", "")
+        if source_name and (
+            not isinstance(source_name, str)
+            or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", source_name)
+            or source_name == expected_name
+        ):
+            raise ValueError("Invalid isolated QA source identity")
+        if source_name and name == source_name:
+            expected_name = source_name
+            snapshot_id = getattr(self.env, "B_WEB_QA_SOURCE_SNAPSHOT_ID", "")
+            expected_hash = getattr(self.env, "B_WEB_QA_SOURCE_MANIFEST_SHA256", "")
         if (
             getattr(self.env, "B_WEB_OBSERVATION_ONLY", "") != "1"
             or getattr(self.env, "B_WEB_ISOLATED_RESTORE", "") != "1"
@@ -767,12 +778,21 @@ class Database(DurableObject):
         """Authenticated QA export prototype; no production quiescence proof."""
         name = getattr(getattr(self.ctx, "id", None), "name", None)
         snapshot_id = getattr(self.env, "B_WEB_QA_EXPORT_SNAPSHOT_ID", "")
+        source_name = getattr(self.env, "B_WEB_QA_SOURCE_OBJECT_NAME", "")
+        target_name = getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", "")
+        if source_name and (
+            not isinstance(source_name, str)
+            or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", source_name)
+            or source_name == target_name
+        ):
+            raise ValueError("Invalid isolated QA source identity")
+        expected_name = source_name or target_name
         if (
             getattr(self.env, "B_WEB_OBSERVATION_ONLY", "") != "1"
             or getattr(self.env, "B_WEB_ISOLATED_RESTORE", "") != "1"
             or getattr(self.env, "B_WEB_QA_READONLY_LOGIN", "") != "1"
             or getattr(self.env, "B_WEB_QA_SNAPSHOT_EXPORT", "") != "1"
-            or name != getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", "")
+            or name != expected_name
             or not isinstance(name, str)
             or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", name)
             or not isinstance(snapshot_id, str)
@@ -1357,7 +1377,10 @@ class Database(DurableObject):
                 method != "POST"
                 or not self._isolated_readonly_login(url)
                 or getattr(getattr(self.ctx, "id", None), "name", None)
-                != getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", "")
+                not in (
+                    getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", ""),
+                    getattr(self.env, "B_WEB_QA_SOURCE_OBJECT_NAME", ""),
+                )
                 or not secret
                 or not hmac.compare_digest(
                     request.headers.get("X-Operator-Key") or "", secret
@@ -3754,12 +3777,41 @@ class Database(DurableObject):
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
         name = getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", "")
-        if (
-            getattr(self.env, "B_WEB_QA_HOSTNAME", "")
-            == "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
-            and not name
-        ):
-            return reply({"error": "Isolated QA object is not configured"}, 503)
+        fixture_mode = getattr(self.env, "B_WEB_QA_HOSTNAME", "") == (
+            "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
+        )
+        if fixture_mode:
+            source = getattr(self.env, "B_WEB_QA_SOURCE_OBJECT_NAME", "")
+            if (
+                not isinstance(name, str)
+                or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", name)
+                or not isinstance(source, str)
+                or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", source)
+                or source == name
+                or not valid_isolated_qa_host(urlsplit(request.url), self.env)
+            ):
+                return reply({"error": "Isolated QA objects are not configured"}, 503)
+            secret = getattr(self.env, "OPERATOR_KEY", "")
+            if not secret or not hmac.compare_digest(
+                request.headers.get("X-Operator-Key") or "", secret
+            ):
+                return reply({"error": "Isolated QA operator required"}, 403)
+            path = urlsplit(request.url).path
+            if path in ("/api/qa-snapshot-staging", "/api/qa-snapshot-export"):
+                parsed = urlsplit(request.url)
+                if (
+                    request.method != "POST"
+                    or request.headers.get("Origin")
+                    != parsed.scheme + "://" + parsed.netloc
+                    or request.headers.get("Content-Type") != "application/json"
+                ):
+                    return reply({"error": "Isolated QA operator required"}, 403)
+                role = request.headers.get("X-QA-Object")
+                if role not in ("source", "target") or (
+                    path == "/api/qa-snapshot-export" and role != "source"
+                ):
+                    return reply({"error": "Isolated QA object role required"}, 403)
+                name = source if role == "source" else name
         if name:
             allowed = (
                 isinstance(name, str)

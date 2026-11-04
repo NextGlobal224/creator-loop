@@ -95,6 +95,9 @@ class CloudDeploymentTests(unittest.TestCase):
                 "B_WEB_QA_RESTORE_SNAPSHOT_ID": "a" * 32,
                 "B_WEB_QA_RESTORE_MANIFEST_SHA256": "b" * 64,
                 "B_WEB_QA_EXPORT_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "qa-isolated-restore-" + "e" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "f" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": "1" * 64,
             }
         )
         expected_configured = expected_binding_types(
@@ -107,6 +110,12 @@ class CloudDeploymentTests(unittest.TestCase):
         del incomplete["vars"]["B_WEB_QA_EXPORT_SNAPSHOT_ID"]
         with self.assertRaises(ValueError):
             validate_fixture_config(incomplete)
+        same = copy.deepcopy(configured)
+        same["vars"]["B_WEB_QA_SOURCE_OBJECT_NAME"] = same["vars"][
+            "B_WEB_QA_RESTORE_OBJECT_NAME"
+        ]
+        with self.assertRaises(ValueError):
+            validate_fixture_config(same)
         configured["vars"]["B_WEB_QA_RESTORE_OBJECT_NAME"] = "private-owner-v1"
         with self.assertRaises(ValueError):
             validate_fixture_config(configured)

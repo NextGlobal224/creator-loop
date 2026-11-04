@@ -75,6 +75,9 @@ def validate_fixture_config(config: dict) -> None:
         "B_WEB_QA_RESTORE_SNAPSHOT_ID": "[a-f0-9]{32}",
         "B_WEB_QA_RESTORE_MANIFEST_SHA256": "[a-f0-9]{64}",
         "B_WEB_QA_EXPORT_SNAPSHOT_ID": "[a-f0-9]{32}",
+        "B_WEB_QA_SOURCE_OBJECT_NAME": "qa-isolated-restore-[a-f0-9]{32}",
+        "B_WEB_QA_SOURCE_SNAPSHOT_ID": "[a-f0-9]{32}",
+        "B_WEB_QA_SOURCE_MANIFEST_SHA256": "[a-f0-9]{64}",
     }
     values = config["vars"]
     if not isinstance(values, dict) or any(values.get(k) != v for k, v in base.items()):
@@ -86,6 +89,12 @@ def validate_fixture_config(config: dict) -> None:
         if key in values
     ):
         raise ValueError("Invalid fixture snapshot identity")
+    if (
+        extra
+        and values["B_WEB_QA_SOURCE_OBJECT_NAME"]
+        == values["B_WEB_QA_RESTORE_OBJECT_NAME"]
+    ):
+        raise ValueError("Fixture source and target must differ")
 
 
 def validate_fixture_namespace(settings: dict, production_id: str, qa19_id: str) -> str:
@@ -116,6 +125,9 @@ def validate_fixture_namespace(settings: dict, production_id: str, qa19_id: str)
         "B_WEB_QA_RESTORE_SNAPSHOT_ID": "plain_text",
         "B_WEB_QA_RESTORE_MANIFEST_SHA256": "plain_text",
         "B_WEB_QA_EXPORT_SNAPSHOT_ID": "plain_text",
+        "B_WEB_QA_SOURCE_OBJECT_NAME": "plain_text",
+        "B_WEB_QA_SOURCE_SNAPSHOT_ID": "plain_text",
+        "B_WEB_QA_SOURCE_MANIFEST_SHA256": "plain_text",
     }
     names = [b.get("name") for b in bindings if isinstance(b, dict)]
     if len(names) != len(bindings) or any(not isinstance(name, str) for name in names):

@@ -656,6 +656,14 @@ class CloudImportAPITests(unittest.TestCase):
                 manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
             ).encode()
         ).hexdigest()
+        exporter.env.B_WEB_QA_SOURCE_OBJECT_NAME = source_name
+        exporter.env.B_WEB_QA_RESTORE_OBJECT_NAME = "qa-isolated-restore-" + "c" * 32
+        exporter.env.B_WEB_QA_SOURCE_SNAPSHOT_ID = source_id
+        exporter.env.B_WEB_QA_SOURCE_MANIFEST_SHA256 = manifest_hash
+        source_plan = exporter._qa_snapshot_staging(
+            {"operation": "plan", "snapshot_id": source_id, "manifest": manifest}
+        )
+        self.assertEqual(source_plan["raw_bytes"], sum(map(len, parts)))
         target = snapshot_tests.database()
         self.addCleanup(target.close)
         target.execute("CREATE TABLE sessions(hash TEXT PRIMARY KEY,expires REAL)")

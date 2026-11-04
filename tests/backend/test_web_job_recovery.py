@@ -38,6 +38,78 @@ class FakeRequestBody:
 
 
 class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_fixture_routes_two_distinct_objects_only_after_operator_check(self):
+        source, target = (
+            "qa-isolated-restore-" + "a" * 32,
+            "qa-isolated-restore-" + "b" * 32,
+        )
+        host = "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
+        seen = []
+
+        async def answer(request):
+            return "ok"
+
+        def lookup(name):
+            seen.append(name)
+            return types.SimpleNamespace(fetch=answer)
+
+        worker = object.__new__(self.loaded.Default)
+        worker.env = types.SimpleNamespace(
+            B_WEB_QA_HOSTNAME=host,
+            B_WEB_OBSERVATION_ONLY="1",
+            B_WEB_ISOLATED_RESTORE="1",
+            B_WEB_QA_READONLY_LOGIN="1",
+            B_WEB_QA_RESTORE_OBJECT_NAME=target,
+            B_WEB_QA_SOURCE_OBJECT_NAME=source,
+            OPERATOR_KEY="fixture-key",
+            DATABASE=types.SimpleNamespace(getByName=lookup),
+        )
+        request = types.SimpleNamespace(
+            url="https://" + host + "/api/qa-snapshot-staging",
+            method="POST",
+            headers={},
+        )
+        with patch.object(
+            self.loaded,
+            "reply",
+            side_effect=lambda body, status=200, **kwargs: (body, status),
+        ):
+            self.assertEqual((await worker.fetch(request))[1], 403)
+            self.assertEqual(seen, [])
+            request.headers = {
+                "X-Operator-Key": "fixture-key",
+                "X-QA-Object": "source",
+                "Origin": "https://" + host,
+                "Content-Type": "application/json",
+            }
+            request.method = "GET"
+            self.assertEqual((await worker.fetch(request))[1], 403)
+            request.method = "POST"
+            request.headers["Origin"] = "https://other.example"
+            self.assertEqual((await worker.fetch(request))[1], 403)
+            request.headers["Origin"] = "https://" + host
+            request.headers["Content-Type"] = "text/plain"
+            self.assertEqual((await worker.fetch(request))[1], 403)
+            self.assertEqual(seen, [])
+            request.headers["Content-Type"] = "application/json"
+            self.assertEqual(await worker.fetch(request), "ok")
+            self.assertEqual(seen[-1], source)
+            request.headers["X-QA-Object"] = "target"
+            self.assertEqual(await worker.fetch(request), "ok")
+            self.assertEqual(seen[-1], target)
+            request.url = "https://" + host + "/api/qa-snapshot-export"
+            self.assertEqual((await worker.fetch(request))[1], 403)
+            request.headers["X-QA-Object"] = "source"
+            self.assertEqual(await worker.fetch(request), "ok")
+            self.assertEqual(seen[-1], source)
+            request.url = "https://" + host + "/api/state"
+            request.headers = {}
+            prior = len(seen)
+            self.assertEqual((await worker.fetch(request))[1], 403)
+            self.assertEqual(len(seen), prior)
+            worker.env.B_WEB_QA_SOURCE_OBJECT_NAME = target
+            self.assertEqual((await worker.fetch(request))[1], 503)
+
     async def test_qa_worker_rejects_wrong_or_missing_host_before_object_lookup(self):
         worker = object.__new__(self.loaded.Default)
         lookup = MagicMock()
