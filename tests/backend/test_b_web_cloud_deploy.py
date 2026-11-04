@@ -31,6 +31,131 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_unverified_qa_targets_refuse_before_network_or_login(self):
+        env = {
+            "GITHUB_REPOSITORY": REPO,
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_SHA": "a" * 40,
+            "B_CI_RUN": "8",
+            "B_OPERATION": "deploy",
+            "B_EXPECTED_DEPLOYMENT": "12345678-1234-1234-1234-123456789abc",
+        }
+        for target, reason in (("qa19", "quiescence"), ("qa-fixture", "bootstrap")):
+            with (
+                self.subTest(target=target),
+                patch.dict(os.environ, {**env, "B_TARGET": target}),
+                patch("scripts.b_web_cloud_deploy.read_json") as http,
+                patch("scripts.b_web_cloud_deploy.subprocess.check_output") as gh,
+            ):
+                with self.assertRaisesRegex(ValueError, reason):
+                    main()
+                http.assert_not_called()
+                gh.assert_not_called()
+
+    def test_fixture_configuration_cannot_bind_production_or_ai(self):
+        from pathlib import Path
+
+        from scripts.b_web_cloud_deploy import TARGETS, validate_fixture_config
+
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+        )
+        config = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(config["name"], TARGETS["qa-fixture"])
+        self.assertNotIn(config["name"], (TARGETS["production"], TARGETS["qa19"]))
+        self.assertEqual(
+            config["migrations"], [{"tag": "v1", "new_sqlite_classes": ["Database"]}]
+        )
+        self.assertEqual(
+            config["durable_objects"]["bindings"],
+            [{"name": "DATABASE", "class_name": "Database"}],
+        )
+        self.assertNotIn("ai", config)
+        self.assertNotIn("browser", config)
+        self.assertEqual(config["vars"]["B_WEB_OBSERVATION_ONLY"], "1")
+        self.assertEqual(
+            config["vars"]["B_WEB_QA_HOSTNAME"],
+            "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev",
+        )
+        validate_fixture_config(config)
+        expected = expected_binding_types(
+            "qa-fixture", {"resources": {"bindings": []}}, config
+        )
+        self.assertNotIn("AI", expected)
+        self.assertNotIn("BROWSER", expected)
+        self.assertEqual(expected["OPERATOR_KEY"], "secret_text")
+        self.assertEqual(expected["LOGIN_PASSWORD_HASH"], "secret_text")
+        with self.assertRaises(ValueError):
+            expected_binding_types("qa-fixture", {"resources": {"bindings": []}})
+        configured = copy.deepcopy(config)
+        configured["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "qa-isolated-restore-" + "d" * 32,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "a" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": "b" * 64,
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "c" * 32,
+            }
+        )
+        expected_configured = expected_binding_types(
+            "qa-fixture", {"resources": {"bindings": []}}, configured
+        )
+        self.assertEqual(
+            expected_configured["B_WEB_QA_RESTORE_MANIFEST_SHA256"], "plain_text"
+        )
+        incomplete = copy.deepcopy(configured)
+        del incomplete["vars"]["B_WEB_QA_EXPORT_SNAPSHOT_ID"]
+        with self.assertRaises(ValueError):
+            validate_fixture_config(incomplete)
+        configured["vars"]["B_WEB_QA_RESTORE_OBJECT_NAME"] = "private-owner-v1"
+        with self.assertRaises(ValueError):
+            validate_fixture_config(configured)
+        for field, value in (
+            ("name", TARGETS["production"]),
+            ("ai", {"binding": "AI"}),
+            ("compatibility_flags", []),
+        ):
+            bad = copy.deepcopy(config)
+            bad[field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_fixture_config(bad)
+
+    def test_fixture_namespace_must_be_distinct_and_have_no_external_service(self):
+        from scripts.b_web_cloud_deploy import validate_fixture_namespace
+
+        production, qa19, fixture = "a" * 32, "b" * 32, "c" * 32
+        binding = {
+            "name": "DATABASE",
+            "type": "durable_object_namespace",
+            "namespace_id": fixture,
+            "class_name": "Database",
+        }
+        self.assertEqual(
+            validate_fixture_namespace({"bindings": [binding]}, production, qa19),
+            fixture,
+        )
+        for change in (
+            {**binding, "namespace_id": production},
+            {**binding, "namespace_id": qa19},
+            {**binding, "script_name": "creator-loop-b-web"},
+        ):
+            with self.subTest(binding=change), self.assertRaises(ValueError):
+                validate_fixture_namespace({"bindings": [change]}, production, qa19)
+        with self.assertRaises(ValueError):
+            validate_fixture_namespace(
+                {"bindings": [binding, {"name": "AI", "type": "ai"}]}, production, qa19
+            )
+        for extra in (
+            {"name": "UNEXPECTED"},
+            {"name": "UNEXPECTED", "type": None},
+            {"name": None, "type": None},
+            {"name": "ASSETS"},
+        ):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                validate_fixture_namespace(
+                    {"bindings": [binding, extra]}, production, qa19
+                )
+
     def test_production_fails_before_any_network_or_activation(self):
         env = {
             "GITHUB_REPOSITORY": REPO,
@@ -639,11 +764,12 @@ class CloudDeploymentTests(unittest.TestCase):
         }
         with (
             patch.dict(os.environ, env),
+            patch.object(deploy, "require_legacy_qa_fence"),
             patch.object(deploy, "ACCOUNT_SHA", deploy.sha(account.encode())),
             patch.object(deploy.subprocess, "check_output", side_effect=gh),
             patch.object(deploy.subprocess, "run") as upload,
             patch.object(deploy, "activate_once") as activate,
-            patch.object(deploy, "read_json", side_effect=read),
+            patch.object(deploy, "read_json", side_effect=read) as read_mock,
             patch.object(deploy.time, "sleep"),
             patch.object(
                 deploy,
@@ -663,6 +789,11 @@ class CloudDeploymentTests(unittest.TestCase):
             main()
         upload.assert_not_called()
         activate.assert_not_called()
+        urls = [call.args[0] for call in read_mock.call_args_list]
+        self.assertLess(
+            next(i for i, url in enumerate(urls) if url.endswith("/graphql")),
+            next(i for i, url in enumerate(urls) if url.endswith("/api/login")),
+        )
         receipt = json.loads(write.call_args.args[0])
         self.assertFalse(receipt["activation_attempted"])
         self.assertTrue(receipt["live_runtime_confirmed"])

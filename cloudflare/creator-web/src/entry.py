@@ -65,6 +65,22 @@ from workers import (
 
 MAX_BODY = 16 * 1024 * 1024
 QA_SNAPSHOT_BODY_LIMIT = 512 * 1024
+QA_ISOLATED_HOSTS = frozenset(
+    {
+        "creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev",
+        "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev",
+    }
+)
+
+
+def valid_isolated_qa_host(url, env):
+    configured = getattr(env, "B_WEB_QA_HOSTNAME", "")
+    return (
+        isinstance(configured, str)
+        and configured in QA_ISOLATED_HOSTS
+        and url.scheme == "https"
+        and url.netloc == configured
+    )
 
 
 async def read_qa_snapshot_body(request):
@@ -335,8 +351,7 @@ class Database(DurableObject):
             getattr(self.env, "B_WEB_OBSERVATION_ONLY", "") == "1"
             and getattr(self.env, "B_WEB_ISOLATED_RESTORE", "") == "1"
             and getattr(self.env, "B_WEB_QA_READONLY_LOGIN", "") == "1"
-            and url.hostname
-            == "creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev"
+            and valid_isolated_qa_host(url, self.env)
             and isinstance(name, str)
             and bool(re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", name))
         )
@@ -3739,6 +3754,12 @@ class Database(DurableObject):
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
         name = getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", "")
+        if (
+            getattr(self.env, "B_WEB_QA_HOSTNAME", "")
+            == "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
+            and not name
+        ):
+            return reply({"error": "Isolated QA object is not configured"}, 503)
         if name:
             allowed = (
                 isinstance(name, str)
@@ -3746,8 +3767,7 @@ class Default(WorkerEntrypoint):
                 and getattr(self.env, "B_WEB_OBSERVATION_ONLY", "") == "1"
                 and getattr(self.env, "B_WEB_ISOLATED_RESTORE", "") == "1"
                 and getattr(self.env, "B_WEB_QA_READONLY_LOGIN", "") == "1"
-                and urlsplit(request.url).hostname
-                == "creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev"
+                and valid_isolated_qa_host(urlsplit(request.url), self.env)
             )
             if not allowed:
                 return reply({"error": "Invalid isolated restore routing"}, 503)

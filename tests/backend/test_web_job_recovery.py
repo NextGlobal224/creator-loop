@@ -11,7 +11,7 @@ import time
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class FakeRequestBody:
@@ -38,6 +38,61 @@ class FakeRequestBody:
 
 
 class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_qa_worker_rejects_wrong_or_missing_host_before_object_lookup(self):
+        worker = object.__new__(self.loaded.Default)
+        lookup = MagicMock()
+        worker.env = types.SimpleNamespace(
+            B_WEB_OBSERVATION_ONLY="1",
+            B_WEB_ISOLATED_RESTORE="1",
+            B_WEB_QA_READONLY_LOGIN="1",
+            B_WEB_QA_RESTORE_OBJECT_NAME="qa-isolated-restore-" + "c" * 32,
+            DATABASE=types.SimpleNamespace(getByName=lookup),
+        )
+        request = types.SimpleNamespace(
+            url="https://creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev/api/state"
+        )
+        with patch.object(
+            self.loaded,
+            "reply",
+            side_effect=lambda body, status=200, **kwargs: (body, status),
+        ):
+            _, status = await worker.fetch(request)
+            self.assertEqual(status, 503)
+            worker.env.B_WEB_QA_HOSTNAME = (
+                "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
+            )
+            request.url = (
+                "https://creator-loop-b-web.creator-loop-ai-beta.workers.dev/api/state"
+            )
+            _, status = await worker.fetch(request)
+            self.assertEqual(status, 503)
+            lookup.assert_not_called()
+
+    def test_isolated_host_requires_exact_configured_allowlisted_https_host(self):
+        from urllib.parse import urlsplit
+
+        candidate = "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
+        production = "creator-loop-b-web.creator-loop-ai-beta.workers.dev"
+        qa19 = "creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev"
+        for configured, requested, expected in (
+            (candidate, "https://" + candidate + "/api/state", True),
+            (qa19, "https://" + qa19 + "/api/state", True),
+            ("", "https://" + candidate + "/", False),
+            (production, "https://" + production + "/", False),
+            (candidate, "https://" + qa19 + "/", False),
+            (candidate, "https://" + candidate + ".evil.example/", False),
+            (candidate, "http://" + candidate + "/", False),
+            (candidate, "https://" + candidate + ":443/", False),
+        ):
+            with self.subTest(configured=configured, requested=requested):
+                self.assertEqual(
+                    self.loaded.valid_isolated_qa_host(
+                        urlsplit(requested),
+                        types.SimpleNamespace(B_WEB_QA_HOSTNAME=configured),
+                    ),
+                    expected,
+                )
+
     def test_python_analysis_boundary_rejects_changed_or_unverified_factual_background(
         self,
     ):
@@ -289,6 +344,7 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             B_WEB_OBSERVATION_ONLY="1",
             B_WEB_ISOLATED_RESTORE="1",
             B_WEB_QA_READONLY_LOGIN="1",
+            B_WEB_QA_HOSTNAME="creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev",
             LOGIN_PASSWORD_HASH=hashlib.sha256(b"fixture").hexdigest(),
         )
         host = "creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev"
@@ -348,6 +404,7 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             B_WEB_OBSERVATION_ONLY="1",
             B_WEB_ISOLATED_RESTORE="1",
             B_WEB_QA_READONLY_LOGIN="1",
+            B_WEB_QA_HOSTNAME="creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev",
             B_WEB_QA_RESTORE_OBJECT_NAME=name,
             OPERATOR_KEY="fixture-operator",
         )
@@ -461,6 +518,7 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             B_WEB_OBSERVATION_ONLY="1",
             B_WEB_ISOLATED_RESTORE="1",
             B_WEB_QA_READONLY_LOGIN="1",
+            B_WEB_QA_HOSTNAME="creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev",
             B_WEB_QA_RESTORE_OBJECT_NAME=name,
             B_WEB_QA_RESTORE_SNAPSHOT_ID=key,
             B_WEB_QA_RESTORE_MANIFEST_SHA256=manifest_hash,
@@ -539,6 +597,9 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             endpoint.env.B_WEB_OBSERVATION_ONLY = "1"
             endpoint.env.B_WEB_ISOLATED_RESTORE = "1"
             endpoint.env.B_WEB_QA_READONLY_LOGIN = "1"
+            endpoint.env.B_WEB_QA_HOSTNAME = (
+                "creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev"
+            )
             request.url = "https://production.example/api/state"
             _, status = await endpoint.fetch(request)
             self.assertEqual(status, 503)
@@ -565,6 +626,7 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             B_WEB_OBSERVATION_ONLY="1",
             B_WEB_ISOLATED_RESTORE="1",
             B_WEB_QA_READONLY_LOGIN="1",
+            B_WEB_QA_HOSTNAME="creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev",
         )
         request = types.SimpleNamespace(
             url="https://creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev/api/logout"
@@ -604,6 +666,7 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             B_WEB_OBSERVATION_ONLY="1",
             B_WEB_ISOLATED_RESTORE="1",
             B_WEB_QA_READONLY_LOGIN="1",
+            B_WEB_QA_HOSTNAME="creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev",
             B_WEB_QA_RESTORE_OBJECT_NAME=name,
             LOGIN_PASSWORD_HASH=hashlib.sha256(b"fixture").hexdigest(),
         )

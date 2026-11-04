@@ -22,13 +22,146 @@ REPO = "NextGlobal224/creator-loop"
 ACCOUNT_SHA = "cb4cbcb99957ea0ea4b795edd35824fe18158d1b0e782945dc09d81d554d9499"
 CHECKS = {"windows-artifact", "security-dependencies-workflow", "fast-schema-domain"}
 MODEL = "@cf/openai/gpt-oss-120b"
-TARGETS = {"production": "creator-loop-b-web", "qa19": "creator-loop-b-web-qa19"}
+TARGETS = {
+    "production": "creator-loop-b-web",
+    "qa19": "creator-loop-b-web-qa19",
+    "qa-fixture": "creator-loop-b-snapshot-qa",
+}
 UUID = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
+
+
+def validate_fixture_config(config: dict) -> None:
+    """Reject all service or cross-worker bindings in the isolated prototype."""
+    if not isinstance(config, dict) or set(config) != {
+        "name",
+        "main",
+        "compatibility_date",
+        "compatibility_flags",
+        "rules",
+        "workers_dev",
+        "observability",
+        "durable_objects",
+        "migrations",
+        "assets",
+        "version_metadata",
+        "vars",
+    }:
+        raise ValueError("Unexpected fixture Worker configuration")
+    if (
+        config["name"] != TARGETS["qa-fixture"]
+        or config["main"] != "src/entry.py"
+        or config["compatibility_date"] != "2026-10-13"
+        or config["compatibility_flags"] != ["python_workers"]
+        or config["rules"] != [{"type": "ESModule", "globs": ["**/*.mjs"]}]
+        or config["workers_dev"] is not True
+        or config["observability"] != {"enabled": False}
+        or config["durable_objects"]
+        != {"bindings": [{"name": "DATABASE", "class_name": "Database"}]}
+        or config["migrations"] != [{"tag": "v1", "new_sqlite_classes": ["Database"]}]
+        or config["assets"]
+        != {"directory": "public", "binding": "ASSETS", "run_worker_first": True}
+        or config["version_metadata"] != {"binding": "CREATOR_VERSION"}
+    ):
+        raise ValueError("Unsafe fixture Worker identity or binding")
+    base = {
+        "B_WEB_OBSERVATION_ONLY": "1",
+        "B_WEB_ISOLATED_RESTORE": "1",
+        "B_WEB_QA_READONLY_LOGIN": "1",
+        "B_WEB_QA_SNAPSHOT_EXPORT": "1",
+        "B_WEB_QA_HOSTNAME": "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev",
+    }
+    patterns = {
+        "B_WEB_QA_RESTORE_OBJECT_NAME": "qa-isolated-restore-[a-f0-9]{32}",
+        "B_WEB_QA_RESTORE_SNAPSHOT_ID": "[a-f0-9]{32}",
+        "B_WEB_QA_RESTORE_MANIFEST_SHA256": "[a-f0-9]{64}",
+        "B_WEB_QA_EXPORT_SNAPSHOT_ID": "[a-f0-9]{32}",
+    }
+    values = config["vars"]
+    if not isinstance(values, dict) or any(values.get(k) != v for k, v in base.items()):
+        raise ValueError("Unsafe fixture guard configuration")
+    extra = set(values) - set(base)
+    if extra not in (set(), set(patterns)) or any(
+        not isinstance(values[key], str) or not re.fullmatch(pattern, values[key])
+        for key, pattern in patterns.items()
+        if key in values
+    ):
+        raise ValueError("Invalid fixture snapshot identity")
+
+
+def validate_fixture_namespace(settings: dict, production_id: str, qa19_id: str) -> str:
+    """Validate observed metadata; this does not prove quiescence or capacity."""
+    if (
+        not isinstance(production_id, str)
+        or not re.fullmatch("[a-f0-9]{32}", production_id)
+        or not isinstance(qa19_id, str)
+        or not re.fullmatch("[a-f0-9]{32}", qa19_id)
+        or production_id == qa19_id
+        or not isinstance(settings, dict)
+        or not isinstance(settings.get("bindings"), list)
+    ):
+        raise ValueError("Existing namespace identities are incomplete")
+    bindings = settings["bindings"]
+    permitted = {
+        "DATABASE": "durable_object_namespace",
+        "ASSETS": "assets",
+        "CREATOR_VERSION": "version_metadata",
+        "OPERATOR_KEY": "secret_text",
+        "LOGIN_PASSWORD_HASH": "secret_text",
+        "B_WEB_OBSERVATION_ONLY": "plain_text",
+        "B_WEB_ISOLATED_RESTORE": "plain_text",
+        "B_WEB_QA_READONLY_LOGIN": "plain_text",
+        "B_WEB_QA_SNAPSHOT_EXPORT": "plain_text",
+        "B_WEB_QA_HOSTNAME": "plain_text",
+        "B_WEB_QA_RESTORE_OBJECT_NAME": "plain_text",
+        "B_WEB_QA_RESTORE_SNAPSHOT_ID": "plain_text",
+        "B_WEB_QA_RESTORE_MANIFEST_SHA256": "plain_text",
+        "B_WEB_QA_EXPORT_SNAPSHOT_ID": "plain_text",
+    }
+    names = [b.get("name") for b in bindings if isinstance(b, dict)]
+    if len(names) != len(bindings) or any(not isinstance(name, str) for name in names):
+        raise ValueError("Unexpected fixture binding name")
+    if len(set(names)) != len(names) or any(
+        b["name"] not in permitted or permitted[b["name"]] != b.get("type")
+        for b in bindings
+    ):
+        raise ValueError("Unexpected fixture service or duplicate binding")
+    databases = [
+        b for b in bindings if isinstance(b, dict) and b.get("name") == "DATABASE"
+    ]
+    if len(databases) != 1:
+        raise ValueError("Fixture DATABASE binding missing or ambiguous")
+    binding = databases[0]
+    namespace = binding.get("namespace_id")
+    if (
+        binding.get("type") != "durable_object_namespace"
+        or binding.get("class_name") != "Database"
+        or binding.get("script_name") not in (None, TARGETS["qa-fixture"])
+        or not isinstance(namespace, str)
+        or not re.fullmatch("[a-f0-9]{32}", namespace)
+        or namespace in (production_id, qa19_id)
+        or any(
+            isinstance(b, dict) and b.get("type") in ("ai", "browser") for b in bindings
+        )
+    ):
+        raise ValueError("Fixture namespace or service binding unsafe")
+    return namespace
 
 
 def expected_binding_types(
     target: str, previous_version: dict, config: dict | None = None
 ) -> dict[str, str]:
+    if target == "qa-fixture":
+        if config is None:
+            raise ValueError("Exact fixture configuration required")
+        validate_fixture_config(config)
+        return {
+            "DATABASE": "durable_object_namespace",
+            "ASSETS": "assets",
+            "CREATOR_VERSION": "version_metadata",
+            "OPERATOR_KEY": "secret_text",
+            "LOGIN_PASSWORD_HASH": "secret_text",
+            **{name: "plain_text" for name in config["vars"]},
+        }
     types = {
         "AI": "ai",
         "ASSETS": "assets",
@@ -61,6 +194,11 @@ def expected_binding_types(
 
 def sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
+
+
+def require_legacy_qa_fence() -> None:
+    """No external fence for the old QA19 constructor/alarm is proven yet."""
+    raise ValueError("QA19 preflight unavailable: old runtime quiescence unproven")
 
 
 def read_included_usage(account: str, headers: dict, start: str, end: str) -> dict:
@@ -469,6 +607,16 @@ def main():
         raise ValueError(
             "Production preflight unavailable: non-activating job observation and quiescence required"
         )
+    if target == "qa19":
+        # The currently deployed QA19 runtime can rearm old work on login.
+        # Resource totals, an empty recent-jobs page, or a config flag cannot
+        # establish that its old alarms and in-flight invocations are fenced.
+        require_legacy_qa_fence()
+    if target == "qa-fixture":
+        # This target is deliberately distinct, but the bootstrap path must
+        # establish fresh namespace ownership, resource proof and credentials
+        # before it can create a Worker. Never reuse QA19's bootstrap route.
+        raise ValueError("Isolated QA bootstrap is not yet verified")
 
     def gh(*args):
         return subprocess.check_output(["gh", *args], timeout=180)
@@ -592,6 +740,32 @@ def main():
     compatible_bindings(previous_version, previous_version)
     if cloud("/workers/account-settings")["default_usage_model"] != "standard":
         raise ValueError("Purchased standard plan configuration changed")
+    # The operator supplies only an already-observed included-resource proof.
+    # Re-read relevant account usage here; never rely on its age/value alone.
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    usage = read_included_usage(
+        account,
+        headers,
+        (now - timedelta(days=31)).isoformat(),
+        now.isoformat(),
+    )
+    w = usage["workersInvocationsAdaptive"][0]["sum"]
+    d = usage["durableObjectsPeriodicGroups"][0]["sum"]
+    requests = usage["durableObjectsInvocationsAdaptiveGroups"][0]["sum"]["requests"]
+    storage = usage["durableObjectsSqlStorageGroups"]
+    if not (
+        w["requests"] + 400 < 10000000
+        and w["cpuTimeUs"] / 1000 + 12000000 < 30000000
+        and requests + 400 < 1000000
+        and d["duration"] + 60000 < 400000
+        and d["rowsRead"] + 10000000 < 25000000000
+        and d["rowsWritten"] + 1000000 < 50000000
+        and 0 < len(storage) < 100
+        and sum(s["max"]["storedBytes"] for s in storage) + 512 * 1024**2 < 5 * 1024**3
+    ):
+        raise ValueError("Included-resource guard closed")
     origin = "https://" + worker + ".creator-loop-ai-beta.workers.dev"
     password = os.environ[
         "B_WEB_QA19_PASSWORD" if target == "qa19" else "B_WEB_QA_PASSWORD"
@@ -627,32 +801,6 @@ def main():
         require_idle_jobs(state)
         return state
 
-    # The operator supplies only an already-observed included-resource proof.
-    # Re-read relevant account usage here; never rely on its age/value alone.
-    from datetime import datetime, timedelta, timezone
-
-    now = datetime.now(timezone.utc)
-    usage = read_included_usage(
-        account,
-        headers,
-        (now - timedelta(days=31)).isoformat(),
-        now.isoformat(),
-    )
-    w = usage["workersInvocationsAdaptive"][0]["sum"]
-    d = usage["durableObjectsPeriodicGroups"][0]["sum"]
-    requests = usage["durableObjectsInvocationsAdaptiveGroups"][0]["sum"]["requests"]
-    storage = usage["durableObjectsSqlStorageGroups"]
-    if not (
-        w["requests"] + 400 < 10000000
-        and w["cpuTimeUs"] / 1000 + 12000000 < 30000000
-        and requests + 400 < 1000000
-        and d["duration"] + 60000 < 400000
-        and d["rowsRead"] + 10000000 < 25000000000
-        and d["rowsWritten"] + 1000000 < 50000000
-        and 0 < len(storage) < 100
-        and sum(s["max"]["storedBytes"] for s in storage) + 512 * 1024**2 < 5 * 1024**3
-    ):
-        raise ValueError("Included-resource guard closed")
     record = {
         "execution": "live",
         "provider": "cloudflare",
