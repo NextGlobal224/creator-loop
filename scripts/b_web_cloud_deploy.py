@@ -268,7 +268,9 @@ def verify_fixture_namespace_ownership(
     return namespace
 
 
-def fixture_bootstrap_sequence(preflight, create, observe, login, record, config):
+def fixture_bootstrap_sequence(
+    preflight, create, observe, restore, login, record, config
+):
     """Order a single isolated first-create; caller must supply trusted I/O adapters.
 
     Preflight must independently establish identity, permission, artifact and
@@ -308,6 +310,25 @@ def fixture_bootstrap_sequence(preflight, create, observe, login, record, config
         record({"state": "postcreate_unverified", "target": TARGETS["qa-fixture"]})
         raise
     record({"state": "metadata_verified", "target": TARGETS["qa-fixture"]})
+    try:
+        restored = restore()
+        if (
+            not isinstance(restored, dict)
+            or restored.get("restored") is not True
+            or restored.get("jobs_held") is not True
+            or restored.get("alarm_restored") is not False
+            or restored.get("target") != config["vars"]["B_WEB_QA_RESTORE_OBJECT_NAME"]
+            or restored.get("snapshot_id")
+            != config["vars"]["B_WEB_QA_RESTORE_SNAPSHOT_ID"]
+            or restored.get("manifest_sha256")
+            != config["vars"]["B_WEB_QA_RESTORE_MANIFEST_SHA256"]
+            or restored.get("deployment") != candidate
+        ):
+            raise ValueError("Fixture restore or hold unconfirmed")
+    except Exception:
+        record({"state": "restore_unverified", "target": TARGETS["qa-fixture"]})
+        raise
+    record({"state": "restore_verified", "target": TARGETS["qa-fixture"]})
     try:
         receipt = login()
         if (

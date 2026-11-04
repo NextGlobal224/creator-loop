@@ -304,7 +304,14 @@ class CloudDeploymentTests(unittest.TestCase):
         from scripts.b_web_cloud_deploy import fixture_bootstrap_sequence
 
         candidate = "12345678-1234-1234-1234-123456789abc"
-        config = {"vars": {"B_WEB_QA_SOURCE_OBJECT_NAME": "fixture"}}
+        config = {
+            "vars": {
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "fixture",
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "target",
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "snapshot",
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": "manifest",
+            }
+        }
         steps = []
         preflight = MagicMock(
             side_effect=lambda _: steps.append("preflight") or ("a" * 32, "b" * 32)
@@ -312,6 +319,20 @@ class CloudDeploymentTests(unittest.TestCase):
         create = MagicMock(side_effect=lambda _: steps.append("create") or candidate)
         observe = MagicMock(
             return_value=({}, {}, [{"version_id": candidate, "percentage": 100}])
+        )
+        restore = MagicMock(
+            side_effect=lambda: (
+                steps.append("restore")
+                or {
+                    "restored": True,
+                    "jobs_held": True,
+                    "alarm_restored": False,
+                    "target": "target",
+                    "snapshot_id": "snapshot",
+                    "manifest_sha256": "manifest",
+                    "deployment": candidate,
+                }
+            )
         )
         login = MagicMock(
             side_effect=lambda: (
@@ -329,7 +350,7 @@ class CloudDeploymentTests(unittest.TestCase):
         ):
             self.assertEqual(
                 fixture_bootstrap_sequence(
-                    preflight, create, observe, login, record, config
+                    preflight, create, observe, restore, login, record, config
                 ),
                 "c" * 32,
             )
@@ -342,6 +363,8 @@ class CloudDeploymentTests(unittest.TestCase):
                 "create",
                 "creation_returned",
                 "metadata_verified",
+                "restore",
+                "restore_verified",
                 "login",
                 "login_verified",
             ],
@@ -352,7 +375,14 @@ class CloudDeploymentTests(unittest.TestCase):
     def test_fixture_bootstrap_fails_closed_before_or_after_creation(self):
         from scripts.b_web_cloud_deploy import fixture_bootstrap_sequence
 
-        config = {"vars": {"B_WEB_QA_SOURCE_OBJECT_NAME": "fixture"}}
+        config = {
+            "vars": {
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "fixture",
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "target",
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "snapshot",
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": "manifest",
+            }
+        }
         candidate = "12345678-1234-1234-1234-123456789abc"
         for failure in (
             "missing_config",
@@ -362,6 +392,11 @@ class CloudDeploymentTests(unittest.TestCase):
             "creation",
             "namespace",
             "version",
+            "restore",
+            "restore_target",
+            "restore_snapshot",
+            "restore_manifest",
+            "restore_deployment",
             "login",
             "login_false",
         ):
@@ -378,6 +413,17 @@ class CloudDeploymentTests(unittest.TestCase):
                 login = MagicMock(
                     return_value={"authenticated": True, "deployment": candidate}
                 )
+                restore = MagicMock(
+                    return_value={
+                        "restored": True,
+                        "jobs_held": True,
+                        "alarm_restored": False,
+                        "target": "target",
+                        "snapshot_id": "snapshot",
+                        "manifest_sha256": "manifest",
+                        "deployment": candidate,
+                    }
+                )
                 record = MagicMock()
                 if failure in ("permission", "resource"):
                     preflight.side_effect = ValueError(failure)
@@ -393,6 +439,20 @@ class CloudDeploymentTests(unittest.TestCase):
                     )
                 if failure == "login":
                     login.side_effect = ValueError("login refused")
+                if failure == "restore":
+                    restore.return_value = {
+                        "restored": False,
+                        "jobs_held": True,
+                        "alarm_restored": False,
+                    }
+                if failure.startswith("restore_"):
+                    field = {
+                        "restore_target": "target",
+                        "restore_snapshot": "snapshot_id",
+                        "restore_manifest": "manifest_sha256",
+                        "restore_deployment": "deployment",
+                    }[failure]
+                    restore.return_value[field] = "wrong"
                 if failure == "login_false":
                     login.return_value = {
                         "authenticated": False,
@@ -413,6 +473,7 @@ class CloudDeploymentTests(unittest.TestCase):
                         preflight,
                         create,
                         observe,
+                        restore,
                         login,
                         record,
                         {"vars": {}} if failure == "missing_config" else config,
@@ -430,6 +491,7 @@ class CloudDeploymentTests(unittest.TestCase):
                         (
                             "creation_unknown",
                             "postcreate_unverified",
+                            "restore_unverified",
                             "login_unverified",
                         ),
                     )

@@ -595,6 +595,7 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             B_WEB_QA_RESTORE_SNAPSHOT_ID=key,
             B_WEB_QA_RESTORE_MANIFEST_SHA256=manifest_hash,
             OPERATOR_KEY="fixture-operator",
+            LOGIN_PASSWORD_HASH=hashlib.sha256(b"fixture-password").hexdigest(),
         )
         endpoint = object.__new__(self.loaded.Default)
         endpoint.env = self.app.env
@@ -622,6 +623,18 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             "reply",
             side_effect=lambda body, status=200, **kwargs: (body, status),
         ):
+            login_request = types.SimpleNamespace(
+                url=host + "/api/login",
+                method="POST",
+                headers={"Origin": host, "Content-Type": "application/json"},
+                text=AsyncMock(
+                    return_value=json.dumps({"password": "fixture-password"})
+                ),
+            )
+            body, status = await endpoint.fetch(login_request)
+            self.assertEqual(
+                (body["error"], status), ("Isolated restore is not complete", 503)
+            )
             _, status = await submit({"operation": "status", "snapshot_id": key})
             self.assertEqual(status, 403)
             request.headers["X-Operator-Key"] = "fixture-operator"
@@ -642,6 +655,8 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((body["restored"], status), (True, 200))
             body, status = await submit({"operation": "status", "snapshot_id": key})
             self.assertEqual((body["jobs_held"], status), (True, 200))
+            body, status = await endpoint.fetch(login_request)
+            self.assertEqual((body["ok"], status), (True, 200))
         self.assertEqual(target.execute("SELECT count(*) FROM jobs").fetchone()[0], 2)
         self.storage.setAlarm.assert_not_awaited()
 
