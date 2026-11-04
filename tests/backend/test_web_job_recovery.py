@@ -1,5 +1,6 @@
 """Failure boundaries for durable Web wakeups, without a model or cloud service."""
 
+import base64
 import copy
 import hashlib
 import importlib.util
@@ -315,6 +316,163 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             )
             _, status = await self.app.authorized(None, "/api/jobs", "POST", {})
             self.assertEqual(status, 503)
+        self.storage.setAlarm.assert_not_awaited()
+
+    async def test_qa_snapshot_route_requires_isolated_operator_and_same_origin(self):
+        name = "qa-isolated-restore-" + "c" * 32
+        self.app.ctx.id = types.SimpleNamespace(name=name)
+        self.app.env = types.SimpleNamespace(
+            B_WEB_OBSERVATION_ONLY="1",
+            B_WEB_ISOLATED_RESTORE="1",
+            B_WEB_QA_READONLY_LOGIN="1",
+            B_WEB_QA_RESTORE_OBJECT_NAME=name,
+            OPERATOR_KEY="fixture-operator",
+        )
+        self.app._qa_snapshot_staging = lambda data: {"received": data["operation"]}
+        host = "https://creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev"
+        request = types.SimpleNamespace(
+            url=host + "/api/qa-snapshot-staging",
+            method="POST",
+            headers={
+                "Origin": host,
+                "Content-Type": "application/json",
+                "X-Operator-Key": "wrong",
+            },
+            text=AsyncMock(return_value='{"operation":"status"}'),
+        )
+        with patch.object(
+            self.loaded,
+            "reply",
+            side_effect=lambda body, status=200, **kwargs: (body, status),
+        ):
+            _, status = await self.app.fetch(request)
+            self.assertEqual(status, 403)
+            request.text.assert_not_awaited()
+            request.headers["X-Operator-Key"] = "fixture-operator"
+            request.headers["Origin"] = "https://other.example"
+            _, status = await self.app.fetch(request)
+            self.assertEqual(status, 403)
+            request.headers["Origin"] = host
+            self.app.env.B_WEB_ISOLATED_RESTORE = "0"
+            _, status = await self.app.fetch(request)
+            self.assertEqual(status, 403)
+            self.app.env.B_WEB_ISOLATED_RESTORE = "1"
+            self.app.env.B_WEB_OBSERVATION_ONLY = "unexpected"
+            _, status = await self.app.fetch(request)
+            self.assertEqual(status, 403)
+            self.app.env.B_WEB_OBSERVATION_ONLY = "1"
+            body, status = await self.app.fetch(request)
+            self.assertEqual((body["received"], status), ("status", 200))
+            self.app._qa_snapshot_export = lambda data: {"export": data["operation"]}
+            request.url = host + "/api/qa-snapshot-export"
+            body, status = await self.app.fetch(request)
+            self.assertEqual((body["export"], status), ("status", 200))
+        self.storage.setAlarm.assert_not_awaited()
+
+    async def test_qa_snapshot_route_stages_and_restores_real_fixture_through_worker(
+        self,
+    ):
+        from creator_loop.backend.runtime.cloud_coordination_snapshot import (
+            capture_parts,
+        )
+
+        from tests.backend import test_cloud_coordination_snapshot as fixtures
+
+        source = fixtures.CoordinationSnapshotTests("runTest")
+        source.setUp()
+        self.addCleanup(source.doCleanups)
+        parts = []
+        with source.source:
+            manifest = capture_parts(
+                fixtures.row_reader(source.source), lambda i, part: parts.append(part)
+            )
+        target = fixtures.database()
+        self.addCleanup(target.close)
+        target.execute("CREATE TABLE sessions(hash TEXT PRIMARY KEY,expires REAL)")
+        target.execute(
+            "CREATE TABLE attempts(ip TEXT PRIMARY KEY,started REAL,count INTEGER)"
+        )
+        target.commit()
+        self.app.rows = fixtures.row_reader(target)
+        self.app.sql = types.SimpleNamespace(
+            exec=lambda statement, *args: target.execute(statement, args)
+        )
+        self.app._restore_hold = self.loaded.Database._restore_hold.__get__(self.app)
+
+        def transaction(callback):
+            target.execute("BEGIN IMMEDIATE")
+            try:
+                value = callback()
+            except Exception:
+                target.rollback()
+                raise
+            target.commit()
+            return value
+
+        self.storage.transactionSync = transaction
+        name, key = "qa-isolated-restore-" + "c" * 32, "a" * 32
+        self.app.ctx.id = types.SimpleNamespace(name=name)
+        manifest_hash = hashlib.sha256(
+            json.dumps(
+                manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
+        self.app.env = types.SimpleNamespace(
+            B_WEB_OBSERVATION_ONLY="1",
+            B_WEB_ISOLATED_RESTORE="1",
+            B_WEB_QA_READONLY_LOGIN="1",
+            B_WEB_QA_RESTORE_OBJECT_NAME=name,
+            B_WEB_QA_RESTORE_SNAPSHOT_ID=key,
+            B_WEB_QA_RESTORE_MANIFEST_SHA256=manifest_hash,
+            OPERATOR_KEY="fixture-operator",
+        )
+        endpoint = object.__new__(self.loaded.Default)
+        endpoint.env = self.app.env
+        endpoint.env.DATABASE = types.SimpleNamespace(
+            getByName=lambda value: self.app if value == name else None
+        )
+        host = "https://creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev"
+        request = types.SimpleNamespace(
+            url=host + "/api/qa-snapshot-staging",
+            method="POST",
+            headers={
+                "Origin": host,
+                "Content-Type": "application/json",
+                "X-Operator-Key": "wrong",
+            },
+            text=AsyncMock(),
+        )
+
+        async def submit(payload):
+            request.text.return_value = json.dumps(payload)
+            return await endpoint.fetch(request)
+
+        with patch.object(
+            self.loaded,
+            "reply",
+            side_effect=lambda body, status=200, **kwargs: (body, status),
+        ):
+            _, status = await submit({"operation": "status", "snapshot_id": key})
+            self.assertEqual(status, 403)
+            request.headers["X-Operator-Key"] = "fixture-operator"
+            for i, part in enumerate(parts):
+                body, status = await submit(
+                    {
+                        "operation": "put",
+                        "snapshot_id": key,
+                        "position": i,
+                        "sha256": hashlib.sha256(part).hexdigest(),
+                        "content_base64": base64.b64encode(part).decode(),
+                    }
+                )
+                self.assertEqual((body["stored"], status), (True, 200))
+            body, status = await submit(
+                {"operation": "restore", "snapshot_id": key, "manifest": manifest}
+            )
+            self.assertEqual((body["restored"], status), (True, 200))
+            body, status = await submit({"operation": "status", "snapshot_id": key})
+            self.assertEqual((body["jobs_held"], status), (True, 200))
+        self.assertEqual(target.execute("SELECT count(*) FROM jobs").fetchone()[0], 2)
         self.storage.setAlarm.assert_not_awaited()
 
     async def test_isolated_restore_routing_fails_closed(self):

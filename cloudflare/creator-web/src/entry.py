@@ -295,7 +295,7 @@ class Database(DurableObject):
         # namespace provenance or authorize a cloud deployment.
         name = getattr(getattr(self.ctx, "id", None), "name", None)
         return (
-            self.observation_only()
+            getattr(self.env, "B_WEB_OBSERVATION_ONLY", "") == "1"
             and getattr(self.env, "B_WEB_ISOLATED_RESTORE", "") == "1"
             and getattr(self.env, "B_WEB_QA_READONLY_LOGIN", "") == "1"
             and url.hostname
@@ -331,7 +331,7 @@ class Database(DurableObject):
         )[0]["count"]
 
     def _capture_coordination_snapshot(self, snapshot_id, revision, checkpoint_sha256):
-        """Internal prototype only; no route or authority to activate a DO.
+        """Snapshot primitive exposed only by guarded QA export; not a fence.
 
         Caller must separately prove no in-flight writers, safe alarm handling,
         storage budget and cloud resource headroom before invoking this method.
@@ -369,8 +369,10 @@ class Database(DurableObject):
 
         return self.ctx.storage.transactionSync(snapshot)
 
-    def _restore_coordination_snapshot_isolated(self, manifest, read_part):
-        """Unexposed QA-only primitive; no production restore or network route.
+    def _restore_coordination_snapshot_isolated(
+        self, manifest, read_part, *, receipt=None
+    ):
+        """QA-only restore primitive, reachable via guarded QA staging route.
 
         A matching name and empty tables do not prove that an object has never
         existed or has no pending/running alarm. External resource/fence proof is
@@ -378,7 +380,7 @@ class Database(DurableObject):
         """
         name = getattr(getattr(self.ctx, "id", None), "name", None)
         if (
-            not self.observation_only()
+            getattr(self.env, "B_WEB_OBSERVATION_ONLY", "") != "1"
             or getattr(self.env, "B_WEB_ISOLATED_RESTORE", "") != "1"
             or not isinstance(name, str)
             or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", name)
@@ -403,14 +405,292 @@ class Database(DurableObject):
                 self.sql.exec,
                 verify=lambda: verify_restored(self.rows),
             )
-            self.sql.exec(
-                "INSERT INTO control VALUES(?,?)",
-                "snapshot-restore-hold",
-                json.dumps({"reason": "ISOLATED_RESTORE", "released": False}),
-            )
+            if self._restore_hold():
+                # Preserve the source hold and its original receipt verbatim.
+                # A distinct, collision-checked row records this new restore.
+                if not isinstance(receipt, dict) or not re.fullmatch(
+                    "[a-f0-9]{32}", receipt.get("snapshot_id", "")
+                ):
+                    raise ValueError("A distinct restore receipt is required")
+                self.sql.exec(
+                    "INSERT INTO control VALUES(?,?)",
+                    "qa-restore-receipt-" + receipt["snapshot_id"],
+                    json.dumps(receipt),
+                )
+            else:
+                self.sql.exec(
+                    "INSERT INTO control VALUES(?,?)",
+                    "snapshot-restore-hold",
+                    json.dumps(
+                        {
+                            "reason": "ISOLATED_RESTORE",
+                            "released": False,
+                            "receipt": receipt,
+                        }
+                    ),
+                )
             return {"restored": True, "jobs_held": True, "alarm_restored": False}
 
         return self.ctx.storage.transactionSync(restore)
+
+    def _qa_snapshot_staging(self, data):
+        """Isolated QA staging only; configuration is not cloud-isolation proof."""
+        name = getattr(getattr(self.ctx, "id", None), "name", None)
+        expected_name = getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", "")
+        snapshot_id = getattr(self.env, "B_WEB_QA_RESTORE_SNAPSHOT_ID", "")
+        expected_hash = getattr(self.env, "B_WEB_QA_RESTORE_MANIFEST_SHA256", "")
+        if (
+            getattr(self.env, "B_WEB_OBSERVATION_ONLY", "") != "1"
+            or getattr(self.env, "B_WEB_ISOLATED_RESTORE", "") != "1"
+            or getattr(self.env, "B_WEB_QA_READONLY_LOGIN", "") != "1"
+            or not isinstance(name, str)
+            or name != expected_name
+            or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", name)
+            or not isinstance(snapshot_id, str)
+            or not re.fullmatch("[a-f0-9]{32}", snapshot_id)
+            or not isinstance(expected_hash, str)
+            or not re.fullmatch("[a-f0-9]{64}", expected_hash)
+            or not isinstance(data, dict)
+            or data.get("snapshot_id") != snapshot_id
+        ):
+            raise ValueError("Isolated QA restore configuration refused")
+        operation = data.get("operation")
+        if operation == "status":
+            if set(data) != {"operation", "snapshot_id"}:
+                raise ValueError("Invalid staging status request")
+            held = self.rows(
+                "SELECT record FROM control WHERE id='snapshot-restore-hold'"
+            )
+            if held:
+                record = json.loads(held[0]["record"])
+                expected_receipt = {
+                    "snapshot_id": snapshot_id,
+                    "manifest_sha256": expected_hash,
+                }
+                if record.get("receipt") != expected_receipt:
+                    separate = self.rows(
+                        "SELECT record FROM control WHERE id=?",
+                        "qa-restore-receipt-" + snapshot_id,
+                    )
+                    if (
+                        len(separate) != 1
+                        or json.loads(separate[0]["record"]) != expected_receipt
+                    ):
+                        raise ValueError("Restore hold identity mismatch")
+                return {"restored": True, "jobs_held": True, "alarm_restored": False}
+            tables = self.rows(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='qa_restore_parts'"
+            )
+            count = (
+                self.rows(
+                    "SELECT COUNT(*) AS n FROM qa_restore_parts WHERE snapshot_id=?",
+                    snapshot_id,
+                )[0]["n"]
+                if tables
+                else 0
+            )
+            return {
+                "restored": False,
+                "staged_parts": count,
+                "mode": "OBSERVATION_ONLY",
+            }
+        if self._restore_hold():
+            raise ValueError("Restore already completed; inspect status")
+        if operation == "put":
+            if set(data) != {
+                "operation",
+                "snapshot_id",
+                "position",
+                "sha256",
+                "content_base64",
+            }:
+                raise ValueError("Invalid staging part request")
+            position, sha, encoded = (
+                data["position"],
+                data["sha256"],
+                data["content_base64"],
+            )
+            if (
+                type(position) is not int
+                or not 0 <= position < 384
+                or not isinstance(sha, str)
+                or not re.fullmatch("[a-f0-9]{64}", sha)
+                or not isinstance(encoded, str)
+                or len(encoded) > 349528
+            ):
+                raise ValueError("Invalid staging part metadata")
+            raw = base64.b64decode(encoded, validate=True)
+            if not 0 < len(raw) <= 262144 or digest(raw) != sha:
+                raise ValueError("Staging part hash or size mismatch")
+
+            def put():
+                for table in (
+                    "checkpoint",
+                    "objects",
+                    "object_chunks",
+                    "receipts",
+                    "backups",
+                    "jobs",
+                    "control",
+                    "preservation_archives",
+                    "preservation_chunks",
+                    "sessions",
+                    "attempts",
+                ):
+                    if self.rows("SELECT 1 FROM " + table + " LIMIT 1"):
+                        raise ValueError("Isolated target is not empty")
+                self.sql.exec(
+                    "CREATE TABLE IF NOT EXISTS qa_restore_parts(snapshot_id TEXT NOT NULL, position INTEGER NOT NULL, sha256 TEXT NOT NULL, content TEXT NOT NULL, PRIMARY KEY(snapshot_id,position))"
+                )
+                existing = self.rows(
+                    "SELECT sha256,content FROM qa_restore_parts WHERE snapshot_id=? AND position=?",
+                    snapshot_id,
+                    position,
+                )
+                if existing:
+                    if existing[0] != {"sha256": sha, "content": encoded}:
+                        raise ValueError("Staging part conflicts with existing data")
+                    return {"stored": True, "duplicate": True}
+                if self.rows(
+                    "SELECT 1 FROM qa_restore_parts WHERE snapshot_id != ? LIMIT 1",
+                    snapshot_id,
+                ):
+                    raise ValueError("Unexpected staged snapshot")
+                self.sql.exec(
+                    "INSERT INTO qa_restore_parts VALUES(?,?,?,?)",
+                    snapshot_id,
+                    position,
+                    sha,
+                    encoded,
+                )
+                return {"stored": True, "duplicate": False}
+
+            return self.ctx.storage.transactionSync(put)
+        if operation == "restore":
+            if set(data) != {"operation", "snapshot_id", "manifest"} or not isinstance(
+                data["manifest"], dict
+            ):
+                raise ValueError("Invalid restore request")
+            manifest = data["manifest"]
+            encoded_manifest = json.dumps(
+                manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+            if digest(encoded_manifest) != expected_hash:
+                raise ValueError("Pinned manifest hash mismatch")
+            parts = manifest.get("parts")
+            if not isinstance(parts, list) or not 0 < len(parts) <= 384:
+                raise ValueError("Invalid manifest part count")
+            staged = self.rows(
+                "SELECT position FROM qa_restore_parts WHERE snapshot_id=? ORDER BY position",
+                snapshot_id,
+            )
+            if self.rows(
+                "SELECT 1 FROM qa_restore_parts WHERE snapshot_id != ? LIMIT 1",
+                snapshot_id,
+            ) or [row["position"] for row in staged] != list(range(len(parts))):
+                raise ValueError("Staged snapshot incomplete or contains extra parts")
+
+            def read_part(position):
+                found = self.rows(
+                    "SELECT sha256,content FROM qa_restore_parts WHERE snapshot_id=? AND position=?",
+                    snapshot_id,
+                    position,
+                )
+                if len(found) != 1:
+                    raise ValueError("Missing staged snapshot part")
+                raw = base64.b64decode(found[0]["content"], validate=True)
+                if digest(raw) != found[0]["sha256"]:
+                    raise ValueError("Staged snapshot part changed")
+                return raw
+
+            return self._restore_coordination_snapshot_isolated(
+                manifest,
+                read_part,
+                receipt={"snapshot_id": snapshot_id, "manifest_sha256": expected_hash},
+            )
+        raise ValueError("Unknown QA snapshot operation")
+
+    def _qa_snapshot_export(self, data):
+        """Authenticated QA export prototype; no production quiescence proof."""
+        name = getattr(getattr(self.ctx, "id", None), "name", None)
+        snapshot_id = getattr(self.env, "B_WEB_QA_EXPORT_SNAPSHOT_ID", "")
+        if (
+            getattr(self.env, "B_WEB_OBSERVATION_ONLY", "") != "1"
+            or getattr(self.env, "B_WEB_ISOLATED_RESTORE", "") != "1"
+            or getattr(self.env, "B_WEB_QA_READONLY_LOGIN", "") != "1"
+            or getattr(self.env, "B_WEB_QA_SNAPSHOT_EXPORT", "") != "1"
+            or name != getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", "")
+            or not isinstance(name, str)
+            or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", name)
+            or not isinstance(snapshot_id, str)
+            or not re.fullmatch("[a-f0-9]{32}", snapshot_id)
+            or not isinstance(data, dict)
+            or data.get("snapshot_id") != snapshot_id
+        ):
+            raise ValueError("Isolated QA export configuration refused")
+        operation = data.get("operation")
+        if operation == "capture":
+            if set(data) != {
+                "operation",
+                "snapshot_id",
+                "revision",
+                "checkpoint_sha256",
+            }:
+                raise ValueError("Invalid QA capture request")
+            return self._capture_coordination_snapshot(
+                snapshot_id, data["revision"], data["checkpoint_sha256"]
+            )
+        if operation not in ("manifest", "part"):
+            raise ValueError("Unknown QA snapshot export operation")
+        expected_fields = {"operation", "snapshot_id"} | (
+            {"position"} if operation == "part" else set()
+        )
+        if set(data) != expected_fields:
+            raise ValueError("Invalid QA export request")
+        tables = self.rows(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='snapshot_manifests'"
+        )
+        found = (
+            self.rows("SELECT record FROM snapshot_manifests WHERE id=?", snapshot_id)
+            if tables
+            else []
+        )
+        if len(found) != 1:
+            raise ValueError("Pinned QA snapshot is not available")
+        manifest = json.loads(found[0]["record"])
+        if operation == "manifest":
+            return {
+                "manifest": manifest,
+                "data_verified": False,
+                "quiescence_verified": False,
+            }
+        position = data["position"]
+        parts = manifest.get("parts")
+        if (
+            type(position) is not int
+            or not isinstance(parts, list)
+            or not 0 <= position < len(parts) <= 384
+        ):
+            raise ValueError("Invalid QA export part")
+        result = self.rows(
+            "SELECT content FROM snapshot_parts WHERE snapshot_id=? AND position=?",
+            snapshot_id,
+            position,
+        )
+        if len(result) != 1:
+            raise ValueError("QA snapshot part missing")
+        raw = base64.b64decode(result[0]["content"], validate=True)
+        if not isinstance(parts[position], dict):
+            raise ValueError("Invalid QA snapshot part metadata")
+        if len(raw) != parts[position].get("bytes") or digest(raw) != parts[
+            position
+        ].get("sha256"):
+            raise ValueError("QA snapshot part failed verification")
+        return {
+            "position": position,
+            "sha256": digest(raw),
+            "content_base64": result[0]["content"],
+        }
 
     def load(self):
         baseline = Path("/tmp/creator-web-baseline")
@@ -918,6 +1198,44 @@ class Database(DurableObject):
     async def fetch(self, request):
         url = urlsplit(request.url)
         path, method = url.path, request.method
+        if path in ("/api/qa-snapshot-staging", "/api/qa-snapshot-export"):
+            secret = getattr(self.env, "OPERATOR_KEY", "")
+            if (
+                method != "POST"
+                or not self._isolated_readonly_login(url)
+                or getattr(getattr(self.ctx, "id", None), "name", None)
+                != getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", "")
+                or not secret
+                or not hmac.compare_digest(
+                    request.headers.get("X-Operator-Key") or "", secret
+                )
+                or request.headers.get("Origin") != url.scheme + "://" + url.netloc
+                or request.headers.get("Content-Type") != "application/json"
+            ):
+                return reply(
+                    {"error": "Isolated QA operator verification required"}, 403
+                )
+            length = request.headers.get("Content-Length")
+            if length and (not length.isdigit() or int(length) > 512 * 1024):
+                return reply({"error": "Staging request too large"}, 413)
+            raw = await request.text()
+            if len(raw.encode()) > 512 * 1024:
+                return reply({"error": "Staging request too large"}, 413)
+            try:
+                data = json.loads(raw)
+                result = (
+                    self._qa_snapshot_staging(data)
+                    if path == "/api/qa-snapshot-staging"
+                    else self._qa_snapshot_export(data)
+                )
+                return reply(result)
+            except (ValueError, TypeError, KeyError, sqlite3.Error):
+                return reply(
+                    {
+                        "error": "Staging or restore refused; inspect status before retry"
+                    },
+                    409,
+                )
         isolated_target = getattr(
             getattr(self, "env", None), "B_WEB_QA_RESTORE_OBJECT_NAME", ""
         )
