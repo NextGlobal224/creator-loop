@@ -309,6 +309,20 @@ def preservation_restore_preflight(reader):
     return projected
 
 
+def fixture_request_matches_version(request, env):
+    """Check this invocation's version; does not fence older deployments."""
+    requested = request.headers.get("X-QA-Expected-Version")
+    actual = getattr(getattr(env, "CREATOR_VERSION", None), "id", None)
+    return (
+        isinstance(requested, str)
+        and bool(
+            re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", requested)
+        )
+        and isinstance(actual, str)
+        and hmac.compare_digest(requested, actual)
+    )
+
+
 class Database(DurableObject):
     def __init__(self, ctx, env):
         super().__init__(ctx, env)
@@ -1371,6 +1385,13 @@ class Database(DurableObject):
     async def fetch(self, request):
         url = urlsplit(request.url)
         path, method = url.path, request.method
+        fixture_host = "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
+        configured_host = getattr(getattr(self, "env", None), "B_WEB_QA_HOSTNAME", "")
+        if url.hostname == fixture_host or configured_host == fixture_host:
+            if configured_host != fixture_host or url.hostname != fixture_host:
+                return reply({"error": "Isolated QA object hostname mismatch"}, 503)
+            if not fixture_request_matches_version(request, self.env):
+                return reply({"error": "Isolated QA object version mismatch"}, 409)
         if path in ("/api/qa-snapshot-staging", "/api/qa-snapshot-export"):
             secret = getattr(self.env, "OPERATOR_KEY", "")
             if (
@@ -3780,6 +3801,12 @@ class Default(WorkerEntrypoint):
         fixture_mode = getattr(self.env, "B_WEB_QA_HOSTNAME", "") == (
             "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
         )
+        if (
+            urlsplit(request.url).hostname
+            == "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
+            and not fixture_mode
+        ):
+            return reply({"error": "Isolated QA hostname is not configured"}, 503)
         if fixture_mode:
             source = getattr(self.env, "B_WEB_QA_SOURCE_OBJECT_NAME", "")
             if (
@@ -3796,6 +3823,8 @@ class Default(WorkerEntrypoint):
                 request.headers.get("X-Operator-Key") or "", secret
             ):
                 return reply({"error": "Isolated QA operator required"}, 403)
+            if not fixture_request_matches_version(request, self.env):
+                return reply({"error": "Isolated QA Worker version mismatch"}, 409)
             path = urlsplit(request.url).path
             if path in ("/api/qa-snapshot-staging", "/api/qa-snapshot-export"):
                 parsed = urlsplit(request.url)

@@ -62,6 +62,9 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             B_WEB_QA_RESTORE_OBJECT_NAME=target,
             B_WEB_QA_SOURCE_OBJECT_NAME=source,
             OPERATOR_KEY="fixture-key",
+            CREATOR_VERSION=types.SimpleNamespace(
+                id="11111111-1111-1111-1111-111111111111"
+            ),
             DATABASE=types.SimpleNamespace(getByName=lookup),
         )
         request = types.SimpleNamespace(
@@ -78,6 +81,7 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(seen, [])
             request.headers = {
                 "X-Operator-Key": "fixture-key",
+                "X-QA-Expected-Version": "11111111-1111-1111-1111-111111111111",
                 "X-QA-Object": "source",
                 "Origin": "https://" + host,
                 "Content-Type": "application/json",
@@ -92,6 +96,14 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await worker.fetch(request))[1], 403)
             self.assertEqual(seen, [])
             request.headers["Content-Type"] = "application/json"
+            request.headers["X-QA-Expected-Version"] = (
+                "22222222-2222-2222-2222-222222222222"
+            )
+            self.assertEqual((await worker.fetch(request))[1], 409)
+            self.assertEqual(seen, [])
+            request.headers["X-QA-Expected-Version"] = (
+                "11111111-1111-1111-1111-111111111111"
+            )
             self.assertEqual(await worker.fetch(request), "ok")
             self.assertEqual(seen[-1], source)
             request.headers["X-QA-Object"] = "target"
@@ -108,6 +120,79 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await worker.fetch(request))[1], 403)
             self.assertEqual(len(seen), prior)
             worker.env.B_WEB_QA_SOURCE_OBJECT_NAME = target
+            self.assertEqual((await worker.fetch(request))[1], 503)
+
+    async def test_fixture_object_rejects_wrong_version_before_processing(self):
+        self.app.env = types.SimpleNamespace(
+            B_WEB_QA_HOSTNAME="creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev",
+            CREATOR_VERSION=types.SimpleNamespace(
+                id="11111111-1111-1111-1111-111111111111"
+            ),
+        )
+        request = types.SimpleNamespace(
+            url="https://creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev/api/qa-snapshot-staging",
+            method="POST",
+            headers={"X-QA-Expected-Version": "22222222-2222-2222-2222-222222222222"},
+        )
+        with patch.object(
+            self.loaded,
+            "reply",
+            side_effect=lambda body, status=200, **kwargs: (body, status),
+        ):
+            self.assertEqual((await self.app.fetch(request))[1], 409)
+            request.headers.clear()
+            self.assertEqual((await self.app.fetch(request))[1], 409)
+            request.headers["X-QA-Expected-Version"] = (
+                "11111111-1111-1111-1111-111111111111"
+            )
+            self.assertEqual((await self.app.fetch(request))[1], 403)
+
+    async def test_fixture_rejects_worker_object_version_skew(self):
+        host = "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
+        worker = object.__new__(self.loaded.Default)
+        worker.env = types.SimpleNamespace(
+            B_WEB_QA_HOSTNAME=host,
+            B_WEB_OBSERVATION_ONLY="1",
+            B_WEB_ISOLATED_RESTORE="1",
+            B_WEB_QA_READONLY_LOGIN="1",
+            B_WEB_QA_RESTORE_OBJECT_NAME="qa-isolated-restore-" + "a" * 32,
+            B_WEB_QA_SOURCE_OBJECT_NAME="qa-isolated-restore-" + "b" * 32,
+            OPERATOR_KEY="fixture-key",
+            CREATOR_VERSION=types.SimpleNamespace(
+                id="11111111-1111-1111-1111-111111111111"
+            ),
+            DATABASE=types.SimpleNamespace(getByName=MagicMock(return_value=self.app)),
+        )
+        self.app.env = types.SimpleNamespace(
+            B_WEB_QA_HOSTNAME=host,
+            CREATOR_VERSION=types.SimpleNamespace(
+                id="22222222-2222-2222-2222-222222222222"
+            ),
+        )
+        request = types.SimpleNamespace(
+            url="https://" + host + "/api/qa-snapshot-staging",
+            method="POST",
+            headers={
+                "X-Operator-Key": "fixture-key",
+                "X-QA-Expected-Version": "11111111-1111-1111-1111-111111111111",
+                "X-QA-Object": "target",
+                "Origin": "https://" + host,
+                "Content-Type": "application/json",
+            },
+        )
+        with patch.object(
+            self.loaded,
+            "reply",
+            side_effect=lambda body, status=200, **kwargs: (body, status),
+        ):
+            body, status = await worker.fetch(request)
+            self.assertEqual(
+                (body["error"], status), ("Isolated QA object version mismatch", 409)
+            )
+            worker.env.DATABASE.getByName.assert_called_once()
+            self.app.env.B_WEB_QA_HOSTNAME = ""
+            self.assertEqual((await worker.fetch(request))[1], 503)
+            self.app.env.B_WEB_QA_HOSTNAME = "unexpected.example"
             self.assertEqual((await worker.fetch(request))[1], 503)
 
     async def test_qa_worker_rejects_wrong_or_missing_host_before_object_lookup(self):
@@ -130,6 +215,14 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
         ):
             _, status = await worker.fetch(request)
             self.assertEqual(status, 503)
+            del worker.env.B_WEB_QA_RESTORE_OBJECT_NAME
+            _, status = await worker.fetch(request)
+            self.assertEqual(status, 503)
+            worker.env.B_WEB_QA_HOSTNAME = "unexpected.example"
+            _, status = await worker.fetch(request)
+            self.assertEqual(status, 503)
+            lookup.assert_not_called()
+            worker.env.B_WEB_QA_RESTORE_OBJECT_NAME = "qa-isolated-restore-" + "c" * 32
             worker.env.B_WEB_QA_HOSTNAME = (
                 "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
             )
