@@ -548,6 +548,136 @@ def fixture_login_adapter(config, operator_key, password):
     return login
 
 
+def inspect_fixture_worker_after_ambiguous_create(account, headers):
+    """Read Worker metadata only; no response authorizes a creation retry."""
+    if not isinstance(account, str) or sha(account.encode()) != ACCOUNT_SHA:
+        raise ValueError("Wrong Cloudflare account")
+    url = (
+        "https://api.cloudflare.com/client/v4/accounts/"
+        + account
+        + "/workers/workers/"
+        + TARGETS["qa-fixture"]
+    )
+    try:
+        body, _ = read_json(url, headers)
+    except RuntimeError as error:
+        if str(error) == "HTTPS operation refused: HTTP404":
+            return {"state": "not_found", "retry_permitted": False}
+        raise
+    result = body.get("result") if isinstance(body, dict) else None
+    if (
+        not isinstance(body, dict)
+        or body.get("success") is not True
+        or not isinstance(result, dict)
+        or result.get("name") != TARGETS["qa-fixture"]
+        or not isinstance(result.get("id"), str)
+        or not result["id"]
+    ):
+        raise ValueError("Fixture Worker metadata unconfirmed")
+    return {"state": "present", "worker_id": result["id"], "retry_permitted": False}
+
+
+def fixture_restore_adapter(config, operator_key, manifest, reserve_once):
+    """Return a single-attempt fixture restore callback, not a fence or budget proof.
+
+    reserve_once must durably reject prior or ambiguous attempts across runs.
+    The caller must verify deployment/namespace/resource gates before invocation.
+    """
+    validate_fixture_config(config)
+    if (
+        not isinstance(operator_key, str)
+        or not operator_key
+        or not callable(reserve_once)
+    ):
+        raise ValueError("Fixture operator and durable reservation required")
+    config = copy.deepcopy(config)
+    manifest = copy.deepcopy(manifest)
+    identity = config["vars"]
+    encoded = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    if not isinstance(manifest, dict) or sha(encoded) != identity.get(
+        "B_WEB_QA_RESTORE_MANIFEST_SHA256"
+    ):
+        raise ValueError("Fixture restore manifest mismatch")
+    parts = manifest.get("parts")
+    if not isinstance(parts, list) or not 0 < len(parts) <= 384:
+        raise ValueError("Fixture restore parts missing")
+    origin = "https://" + identity["B_WEB_QA_HOSTNAME"]
+    target = identity["B_WEB_QA_RESTORE_OBJECT_NAME"]
+    snapshot = identity["B_WEB_QA_RESTORE_SNAPSHOT_ID"]
+    restore_payload = {
+        "operation": "restore",
+        "snapshot_id": snapshot,
+        "manifest": manifest,
+    }
+    if len(json.dumps(restore_payload).encode()) > 512 * 1024:
+        raise ValueError("Fixture restore request exceeds body limit")
+    attempted = False
+
+    def restore(candidate):
+        nonlocal attempted
+        if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+            raise ValueError("Exact fixture version required")
+        headers = {
+            "Origin": origin,
+            "Content-Type": "application/json",
+            "X-Operator-Key": operator_key,
+            "X-QA-Expected-Version": candidate,
+            "X-QA-Object": "target",
+        }
+
+        def request(payload):
+            result, _ = read_json(origin + "/api/qa-snapshot-staging", headers, payload)
+            if (
+                not isinstance(result, dict)
+                or result.get("qa_object") != target
+                or result.get("qa_deployment") != candidate
+            ):
+                raise ValueError("Fixture object identity unconfirmed")
+            return result
+
+        result = request({"operation": "status", "snapshot_id": snapshot})
+        if result.get("restored") is not True:
+            if (
+                result.get("restored") is not False
+                or type(result.get("staged_parts")) is not int
+                or result["staged_parts"] != len(parts)
+            ):
+                raise ValueError("Fixture staged parts incomplete or status unknown")
+            if attempted:
+                raise ValueError("Prior restore outcome unknown; no retry")
+            attempted = True
+            if (
+                reserve_once(
+                    candidate,
+                    target,
+                    snapshot,
+                    identity["B_WEB_QA_RESTORE_MANIFEST_SHA256"],
+                )
+                is not True
+            ):
+                raise ValueError("Fixture restore reservation unconfirmed")
+            result = request(restore_payload)
+        if (
+            result.get("restored") is not True
+            or result.get("jobs_held") is not True
+            or result.get("alarm_restored") is not False
+        ):
+            raise ValueError("Fixture held restore unconfirmed")
+        return {
+            "restored": True,
+            "jobs_held": True,
+            "alarm_restored": False,
+            "target": target,
+            "snapshot_id": snapshot,
+            "manifest_sha256": identity["B_WEB_QA_RESTORE_MANIFEST_SHA256"],
+            "deployment": candidate,
+        }
+
+    return restore
+
+
 def observe_fixture_cloud(
     account,
     headers,

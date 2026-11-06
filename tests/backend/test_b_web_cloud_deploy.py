@@ -32,6 +32,158 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_ambiguous_fixture_create_metadata_never_authorizes_retry(self):
+        from scripts.b_web_cloud_deploy import (
+            inspect_fixture_worker_after_ambiguous_create,
+        )
+
+        account = "fixture-account"
+        with patch(
+            "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+            hashlib.sha256(account.encode()).hexdigest(),
+        ):
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                side_effect=RuntimeError("HTTPS operation refused: HTTP404"),
+            ):
+                self.assertEqual(
+                    inspect_fixture_worker_after_ambiguous_create(account, {}),
+                    {"state": "not_found", "retry_permitted": False},
+                )
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                return_value=(
+                    {
+                        "success": True,
+                        "result": {
+                            "name": "creator-loop-b-snapshot-qa",
+                            "id": "fixture-id",
+                        },
+                    },
+                    {},
+                ),
+            ):
+                observed = inspect_fixture_worker_after_ambiguous_create(account, {})
+                self.assertEqual(observed["state"], "present")
+                self.assertIs(observed["retry_permitted"], False)
+            for response in (
+                RuntimeError("HTTPS operation refused: HTTP403"),
+                (
+                    {"success": True, "result": {"name": "other", "id": "fixture-id"}},
+                    {},
+                ),
+            ):
+                with (
+                    patch(
+                        "scripts.b_web_cloud_deploy.read_json",
+                        side_effect=response
+                        if isinstance(response, Exception)
+                        else None,
+                        return_value=response,
+                    ),
+                    self.assertRaises((RuntimeError, ValueError)),
+                ):
+                    inspect_fixture_worker_after_ambiguous_create(account, {})
+
+    def test_fixture_restore_adapter_status_reservation_and_no_blind_retry(self):
+        from scripts.b_web_cloud_deploy import fixture_restore_adapter
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        manifest = {"parts": [{"bytes": 1, "sha256": "a" * 64}], "bytes": 1}
+        encoded = json.dumps(
+            manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()
+        target = "qa-isolated-restore-" + "a" * 32
+        config["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": target,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "qa-isolated-restore-" + "b" * 32,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": hashlib.sha256(encoded).hexdigest(),
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "d" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "e" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": "f" * 64,
+            }
+        )
+        version = "11111111-1111-1111-1111-111111111111"
+        status = {
+            "qa_object": target,
+            "qa_deployment": version,
+            "restored": False,
+            "staged_parts": 1,
+        }
+        completed = {
+            "qa_object": target,
+            "qa_deployment": version,
+            "restored": True,
+            "jobs_held": True,
+            "alarm_restored": False,
+        }
+        oversized = {**manifest, "padding": "x" * (512 * 1024)}
+        oversized_config = copy.deepcopy(config)
+        oversized_config["vars"]["B_WEB_QA_RESTORE_MANIFEST_SHA256"] = hashlib.sha256(
+            json.dumps(
+                oversized, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
+        with self.assertRaisesRegex(ValueError, "body limit"):
+            fixture_restore_adapter(
+                oversized_config, "fixture-key", oversized, MagicMock()
+            )
+        for scenario in (
+            "success",
+            "already",
+            "timeout",
+            "timeout_reconciled",
+            "wrong_object",
+            "missing_parts",
+            "no_reservation",
+        ):
+            with self.subTest(scenario=scenario):
+                first = copy.deepcopy(completed if scenario == "already" else status)
+                if scenario == "wrong_object":
+                    first["qa_object"] = "other"
+                if scenario == "missing_parts":
+                    first["staged_parts"] = 0
+                second = (
+                    TimeoutError("unknown")
+                    if scenario in ("timeout", "timeout_reconciled")
+                    else (completed, {})
+                )
+                reserve = MagicMock(return_value=scenario != "no_reservation")
+                adapter = fixture_restore_adapter(
+                    config, "fixture-key", manifest, reserve
+                )
+                with patch(
+                    "scripts.b_web_cloud_deploy.read_json",
+                    side_effect=[
+                        (first, {}),
+                        second,
+                        (completed if scenario == "timeout_reconciled" else status, {}),
+                    ],
+                ) as request:
+                    if scenario in ("success", "already"):
+                        self.assertEqual(adapter(version)["target"], target)
+                    else:
+                        with self.assertRaises((ValueError, TimeoutError)):
+                            adapter(version)
+                    if scenario == "timeout":
+                        with self.assertRaisesRegex(ValueError, "no retry"):
+                            adapter(version)
+                        self.assertEqual(request.call_count, 3)
+                        reserve.assert_called_once()
+                    if scenario == "timeout_reconciled":
+                        self.assertEqual(adapter(version)["target"], target)
+                        self.assertEqual(request.call_count, 3)
+                        reserve.assert_called_once()
+                    if scenario in ("already", "wrong_object", "missing_parts"):
+                        reserve.assert_not_called()
+
     def test_fixture_login_adapter_checks_cookie_and_runtime_version(self):
         from scripts.b_web_cloud_deploy import fixture_login_adapter
 

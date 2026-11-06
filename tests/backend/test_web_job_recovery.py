@@ -38,6 +38,43 @@ class FakeRequestBody:
 
 
 class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_fixture_staging_status_reports_actual_object_and_version(self):
+        target = "qa-isolated-restore-" + "a" * 32
+        host = "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
+        version = "11111111-1111-1111-1111-111111111111"
+        self.app.ctx.id = types.SimpleNamespace(name=target)
+        self.app.env = types.SimpleNamespace(
+            B_WEB_QA_HOSTNAME=host,
+            B_WEB_QA_RESTORE_OBJECT_NAME=target,
+            B_WEB_QA_SOURCE_OBJECT_NAME="qa-isolated-restore-" + "b" * 32,
+            CREATOR_VERSION=types.SimpleNamespace(id=version),
+            OPERATOR_KEY="fixture-key",
+        )
+        self.app._isolated_readonly_login = lambda url: True
+        self.app._qa_snapshot_staging = MagicMock(
+            return_value={"restored": False, "staged_parts": 1}
+        )
+        request = types.SimpleNamespace(
+            url="https://" + host + "/api/qa-snapshot-staging",
+            method="POST",
+            headers={
+                "X-QA-Expected-Version": version,
+                "X-Operator-Key": "fixture-key",
+                "Origin": "https://" + host,
+                "Content-Type": "application/json",
+            },
+            body=FakeRequestBody([b'{"operation":"status"}']),
+        )
+        with patch.object(
+            self.loaded,
+            "reply",
+            side_effect=lambda body, status=200, **kwargs: (body, status),
+        ):
+            body, status = await self.app.fetch(request)
+        self.assertEqual(
+            (status, body["qa_object"], body["qa_deployment"]), (200, target, version)
+        )
+
     async def test_fixture_runtime_reports_version_without_model_binding(self):
         self.app.env = types.SimpleNamespace(
             B_WEB_QA_HOSTNAME="creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev",

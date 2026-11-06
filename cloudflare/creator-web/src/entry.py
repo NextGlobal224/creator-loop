@@ -1423,6 +1423,11 @@ class Database(DurableObject):
                     if path == "/api/qa-snapshot-staging"
                     else self._qa_snapshot_export(data)
                 )
+                if configured_host == fixture_host:
+                    result.update(
+                        qa_object=getattr(self.ctx.id, "name", None),
+                        qa_deployment=str(self.env.CREATOR_VERSION.id),
+                    )
                 return reply(result)
             except (ValueError, TypeError, KeyError, sqlite3.Error):
                 return reply(
