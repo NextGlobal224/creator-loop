@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import copy
 import hashlib
 import io
 import json
@@ -283,6 +284,7 @@ def fixture_bootstrap_sequence(
     validate_fixture_config(config)
     if "B_WEB_QA_SOURCE_OBJECT_NAME" not in config["vars"]:
         raise ValueError("Fixture snapshot identities are not configured")
+    observe.precreate(config)
     production_id, qa19_id = preflight(config)
     if (
         not isinstance(production_id, str)
@@ -294,7 +296,12 @@ def fixture_bootstrap_sequence(
         raise ValueError("Existing namespace identities are incomplete")
     record({"state": "creation_attempting", "target": TARGETS["qa-fixture"]})
     try:
-        candidate = create(config)
+        observe.precreate(config)
+    except Exception:
+        record({"state": "precreate_refused", "target": TARGETS["qa-fixture"]})
+        raise
+    try:
+        candidate = create(copy.deepcopy(config))
     except Exception:
         record({"state": "creation_unknown", "target": TARGETS["qa-fixture"]})
         raise
@@ -302,7 +309,7 @@ def fixture_bootstrap_sequence(
     try:
         if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
             raise ValueError("Fixture creation version unconfirmed")
-        settings, namespaces, deployment = observe()
+        settings, namespaces, deployment = observe(candidate, production_id, qa19_id)
         namespace = verify_fixture_namespace_ownership(
             settings, config, production_id, qa19_id, namespaces
         )
@@ -313,7 +320,7 @@ def fixture_bootstrap_sequence(
         raise
     record({"state": "metadata_verified", "target": TARGETS["qa-fixture"]})
     try:
-        restored = restore()
+        restored = restore(candidate)
         if (
             not isinstance(restored, dict)
             or restored.get("restored") is not True
@@ -332,7 +339,7 @@ def fixture_bootstrap_sequence(
         raise
     record({"state": "restore_verified", "target": TARGETS["qa-fixture"]})
     try:
-        receipt = login()
+        receipt = login(candidate)
         if (
             not isinstance(receipt, dict)
             or set(receipt) != {"authenticated", "deployment"}
@@ -442,23 +449,7 @@ def fixture_artifact_files(raw, commit, artifact_sha256):
     return files
 
 
-def observe_fixture_cloud(
-    account,
-    headers,
-    config,
-    production_id,
-    qa19_id,
-    artifact,
-    commit,
-    artifact_sha256,
-    candidate,
-):
-    """Read management metadata and module bytes; never call the Worker or DO."""
-    if not isinstance(account, str) or sha(account.encode()) != ACCOUNT_SHA:
-        raise ValueError("Wrong Cloudflare account")
-    if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
-        raise ValueError("Exact fixture version required")
-    files = fixture_artifact_files(artifact, commit, artifact_sha256)
+def verify_fixture_artifact_config(files, config):
     validate_fixture_config(config)
     try:
         artifact_config = json.loads(files["worker/wrangler.snapshot-qa.jsonc"])
@@ -482,6 +473,62 @@ def observe_fixture_cloud(
             raise ValueError()
     except (ValueError, TypeError, KeyError):
         raise ValueError("Fixture artifact configuration mismatch") from None
+
+
+def fixture_cloud_observer(account, headers, config, artifact, commit, artifact_sha256):
+    """Bind immutable artifact inputs before any caller may create a Worker.
+
+    This is not permission/resource proof or a deployment fence.
+    """
+    if not isinstance(account, str) or sha(account.encode()) != ACCOUNT_SHA:
+        raise ValueError("Wrong Cloudflare account")
+    files = fixture_artifact_files(artifact, commit, artifact_sha256)
+    verify_fixture_artifact_config(files, config)
+    config = copy.deepcopy(config)
+    headers = dict(headers)
+
+    def precreate(current_config):
+        if current_config != config:
+            raise ValueError("Fixture configuration changed before creation")
+        verify_fixture_artifact_config(
+            fixture_artifact_files(artifact, commit, artifact_sha256), current_config
+        )
+
+    def observe(candidate, production_id, qa19_id):
+        return observe_fixture_cloud(
+            account,
+            headers,
+            config,
+            production_id,
+            qa19_id,
+            artifact,
+            commit,
+            artifact_sha256,
+            candidate,
+        )
+
+    observe.precreate = precreate
+    return observe
+
+
+def observe_fixture_cloud(
+    account,
+    headers,
+    config,
+    production_id,
+    qa19_id,
+    artifact,
+    commit,
+    artifact_sha256,
+    candidate,
+):
+    """Read management metadata and module bytes; never call the Worker or DO."""
+    if not isinstance(account, str) or sha(account.encode()) != ACCOUNT_SHA:
+        raise ValueError("Wrong Cloudflare account")
+    if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+        raise ValueError("Exact fixture version required")
+    files = fixture_artifact_files(artifact, commit, artifact_sha256)
+    verify_fixture_artifact_config(files, config)
     api = "https://api.cloudflare.com/client/v4/accounts/" + account
     script = "/workers/scripts/" + TARGETS["qa-fixture"]
     deployment_path = api + script + "/deployments"

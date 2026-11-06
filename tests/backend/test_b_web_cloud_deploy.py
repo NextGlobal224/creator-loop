@@ -321,7 +321,7 @@ class CloudDeploymentTests(unittest.TestCase):
             return_value=({}, {}, [{"version_id": candidate, "percentage": 100}])
         )
         restore = MagicMock(
-            side_effect=lambda: (
+            side_effect=lambda version: (
                 steps.append("restore")
                 or {
                     "restored": True,
@@ -335,7 +335,7 @@ class CloudDeploymentTests(unittest.TestCase):
             )
         )
         login = MagicMock(
-            side_effect=lambda: (
+            side_effect=lambda version: (
                 steps.append("login")
                 or {"authenticated": True, "deployment": candidate}
             )
@@ -370,7 +370,97 @@ class CloudDeploymentTests(unittest.TestCase):
             ],
         )
         create.assert_called_once_with(config)
-        login.assert_called_once_with()
+        observe.assert_called_once_with(candidate, "a" * 32, "b" * 32)
+        restore.assert_called_once_with(candidate)
+        login.assert_called_once_with(candidate)
+
+    def test_bootstrap_real_cloud_observer_refuses_wrong_account_before_object_use(
+        self,
+    ):
+        from scripts.b_web_cloud_deploy import (
+            fixture_bootstrap_sequence,
+            fixture_cloud_observer,
+        )
+
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        config = {"vars": {"B_WEB_QA_SOURCE_OBJECT_NAME": "fixture"}}
+        create = MagicMock(return_value=candidate)
+        restore, login, record = MagicMock(), MagicMock(), MagicMock()
+        with (
+            patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+            self.assertRaisesRegex(ValueError, "Wrong Cloudflare account"),
+        ):
+            observer = fixture_cloud_observer(
+                "wrong-account", {}, config, b"archive", "a" * 40, "b" * 64
+            )
+            fixture_bootstrap_sequence(
+                lambda _: ("a" * 32, "b" * 32),
+                create,
+                observer,
+                restore,
+                login,
+                record,
+                config,
+            )
+        restore.assert_not_called()
+        login.assert_not_called()
+        create.assert_not_called()
+        record.assert_not_called()
+
+    def test_fixture_observer_rejects_bad_artifact_before_worker_creation(self):
+        from scripts.b_web_cloud_deploy import fixture_cloud_observer
+
+        account = "fixture-account"
+        with (
+            patch(
+                "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+                hashlib.sha256(account.encode()).hexdigest(),
+            ),
+            self.assertRaisesRegex(ValueError, "Fixture artifact identity mismatch"),
+        ):
+            fixture_cloud_observer(account, {}, {}, b"bad", "a" * 40, "0" * 64)
+
+    def test_fixture_precreate_rejects_configuration_mutation(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_sequence
+
+        for mutator in ("preflight", "record"):
+            with self.subTest(mutator=mutator):
+                config = {"vars": {"B_WEB_QA_SOURCE_OBJECT_NAME": "fixture"}}
+                expected = copy.deepcopy(config)
+                observer = MagicMock()
+
+                def precreate(value):
+                    if value != expected:
+                        raise ValueError(
+                            "Fixture configuration changed before creation"
+                        )
+
+                observer.precreate.side_effect = precreate
+
+                def preflight(value):
+                    if mutator == "preflight":
+                        value["untrusted"] = True
+                    return "a" * 32, "b" * 32
+
+                def record(event):
+                    if mutator == "record" and event["state"] == "creation_attempting":
+                        config["untrusted"] = True
+
+                create = MagicMock()
+                with (
+                    patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+                    self.assertRaisesRegex(ValueError, "configuration changed"),
+                ):
+                    fixture_bootstrap_sequence(
+                        preflight,
+                        create,
+                        observer,
+                        MagicMock(),
+                        MagicMock(),
+                        record,
+                        config,
+                    )
+                create.assert_not_called()
 
     def test_fixture_bootstrap_fails_closed_before_or_after_creation(self):
         from scripts.b_web_cloud_deploy import fixture_bootstrap_sequence
