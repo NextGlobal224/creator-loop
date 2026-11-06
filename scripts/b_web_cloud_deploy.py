@@ -511,6 +511,43 @@ def fixture_cloud_observer(account, headers, config, artifact, commit, artifact_
     return observe
 
 
+def fixture_login_adapter(config, operator_key, password):
+    """Return the fixture-only login callback; caller must first establish the fence."""
+    validate_fixture_config(config)
+    if (
+        not isinstance(operator_key, str)
+        or not operator_key
+        or not isinstance(password, str)
+        or not password
+    ):
+        raise ValueError("Fixture credentials required")
+    origin = "https://" + config["vars"]["B_WEB_QA_HOSTNAME"]
+
+    def login(candidate):
+        if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+            raise ValueError("Exact fixture version required")
+        headers = {
+            "Origin": origin,
+            "Content-Type": "application/json",
+            "X-Operator-Key": operator_key,
+            "X-QA-Expected-Version": candidate,
+        }
+        result, response = read_json(
+            origin + "/api/login", headers, {"password": password}
+        )
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            raise ValueError("Fixture login unconfirmed")
+        cookie = response.get("Set-Cookie", "").split(";", 1)[0]
+        if not re.fullmatch(r"__Host-creator=[a-f0-9]{64}", cookie):
+            raise ValueError("Fixture session unconfirmed")
+        runtime, _ = read_json(origin + "/api/runtime", {**headers, "Cookie": cookie})
+        if not isinstance(runtime, dict) or runtime.get("deployment") != candidate:
+            raise ValueError("Fixture runtime version unconfirmed")
+        return {"authenticated": True, "deployment": candidate}
+
+    return login
+
+
 def observe_fixture_cloud(
     account,
     headers,

@@ -38,6 +38,27 @@ class FakeRequestBody:
 
 
 class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_fixture_runtime_reports_version_without_model_binding(self):
+        self.app.env = types.SimpleNamespace(
+            B_WEB_QA_HOSTNAME="creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev",
+            CREATOR_VERSION=types.SimpleNamespace(
+                id="11111111-1111-1111-1111-111111111111"
+            ),
+        )
+        sdk = types.SimpleNamespace(components=lambda: "{}")
+        with (
+            patch.object(self.loaded, "import_from_javascript", return_value=sdk),
+            patch.object(
+                self.loaded,
+                "reply",
+                side_effect=lambda body, status=200, **kwargs: (body, status),
+            ),
+        ):
+            body, status = await self.app.authorized(None, "/api/runtime", "GET", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["deployment"], "11111111-1111-1111-1111-111111111111")
+        self.assertIsNone(body["model"])
+
     async def test_fixture_routes_two_distinct_objects_only_after_operator_check(self):
         source, target = (
             "qa-isolated-restore-" + "a" * 32,

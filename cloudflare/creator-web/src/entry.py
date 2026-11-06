@@ -1815,12 +1815,17 @@ class Database(DurableObject):
             )
         if path == "/api/runtime" and method == "GET":
             sdk = import_from_javascript("creator_ai.mjs")
+            fixture = getattr(self.env, "B_WEB_QA_HOSTNAME", "") == (
+                "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
+            )
             return reply(
                 {
                     "components": json.loads(sdk.components()),
                     "version": VERSION,
                     "deployment": str(self.env.CREATOR_VERSION.id),
-                    "model": self.env.CREATOR_MODEL,
+                    "model": getattr(self.env, "CREATOR_MODEL", None)
+                    if fixture
+                    else self.env.CREATOR_MODEL,
                 }
             )
         if path == "/api/logout" and method == "POST":

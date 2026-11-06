@@ -8,6 +8,7 @@ import os
 import unittest
 import zipfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from scripts.b_web_cloud_deploy import (
@@ -31,6 +32,57 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_fixture_login_adapter_checks_cookie_and_runtime_version(self):
+        from scripts.b_web_cloud_deploy import fixture_login_adapter
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        candidate = "11111111-1111-1111-1111-111111111111"
+        for scenario in ("success", "bad_login", "bad_cookie", "wrong_version"):
+            with self.subTest(scenario=scenario):
+                login = {"ok": scenario != "bad_login"}
+                cookie = (
+                    "bad"
+                    if scenario == "bad_cookie"
+                    else "__Host-creator=" + "a" * 64 + "; Secure"
+                )
+                runtime = {
+                    "deployment": "22222222-2222-2222-2222-222222222222"
+                    if scenario == "wrong_version"
+                    else candidate
+                }
+                with patch(
+                    "scripts.b_web_cloud_deploy.read_json",
+                    side_effect=[(login, {"Set-Cookie": cookie}), (runtime, {})],
+                ) as request:
+                    adapter = fixture_login_adapter(
+                        config, "fixture-operator", "fixture-password"
+                    )
+                    if scenario == "success":
+                        self.assertEqual(
+                            adapter(candidate),
+                            {"authenticated": True, "deployment": candidate},
+                        )
+                        self.assertEqual(request.call_count, 2)
+                        self.assertEqual(
+                            request.call_args_list[0].args[1]["X-QA-Expected-Version"],
+                            candidate,
+                        )
+                        self.assertEqual(
+                            request.call_args_list[1].args[1]["Cookie"],
+                            "__Host-creator=" + "a" * 64,
+                        )
+                    else:
+                        with self.assertRaises(ValueError):
+                            adapter(candidate)
+                        self.assertEqual(
+                            request.call_count, 2 if scenario == "wrong_version" else 1
+                        )
+
     def test_unverified_qa_targets_refuse_before_network_or_login(self):
         env = {
             "GITHUB_REPOSITORY": REPO,
