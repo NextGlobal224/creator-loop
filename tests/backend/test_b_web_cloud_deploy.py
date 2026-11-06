@@ -496,6 +496,232 @@ class CloudDeploymentTests(unittest.TestCase):
                         ),
                     )
 
+    def test_fixture_cloud_observer_reads_only_management_metadata(self):
+        from pathlib import Path
+
+        from scripts.b_web_cloud_deploy import (
+            expected_binding_types,
+            observe_fixture_cloud,
+        )
+
+        account = "fixture-account"
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        artifact_config = copy.deepcopy(config)
+        config["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "qa-isolated-restore-" + "d" * 32,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "a" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": "b" * 64,
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "qa-isolated-restore-" + "e" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "f" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": "1" * 64,
+            }
+        )
+        bindings = [
+            {"name": name, "type": kind}
+            for name, kind in expected_binding_types(
+                "qa-fixture", {"resources": {"bindings": []}}, config
+            ).items()
+        ]
+        for item in bindings:
+            if item["name"] in config["vars"]:
+                item["text"] = config["vars"][item["name"]]
+            if item["name"] == "DATABASE":
+                item.update(namespace_id="c" * 32, class_name="Database")
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        settings = {
+            "id": candidate,
+            "compatibility_date": "2026-10-13",
+            "compatibility_flags": ["python_workers"],
+            "modules": [
+                {
+                    "name": "entry.py",
+                    "content_base64": "c291cmNl",
+                    "content_type": "text/x-python",
+                }
+            ],
+            "bindings": bindings,
+        }
+        namespaces = {
+            "success": True,
+            "result_info": {"total_count": 3},
+            "result": [
+                {
+                    "id": name * 32,
+                    "script": script,
+                    "class": "Database",
+                    "use_sqlite": True,
+                }
+                for name, script in (
+                    ("a", "creator-loop-b-web"),
+                    ("b", "creator-loop-b-web-qa19"),
+                    ("c", "creator-loop-b-snapshot-qa"),
+                )
+            ],
+        }
+        deployment = {
+            "success": True,
+            "result": {
+                "deployments": [
+                    {"versions": [{"version_id": candidate, "percentage": 100}]}
+                ]
+            },
+        }
+        for scenario in (
+            "valid_but_unfenced",
+            "wrong_traffic",
+            "wrong_version",
+            "missing_version",
+            "missing_modules",
+            "wrong_bytes",
+            "invalid_encoding",
+            "duplicate_modules",
+            "artifact_collision",
+            "invalid_artifact_bytes",
+            "wrong_content_type",
+            "missing_content_type",
+            "wrong_artifact_config",
+            "changed_traffic",
+        ):
+            with self.subTest(scenario=scenario):
+                first = copy.deepcopy(deployment)
+                final = copy.deepcopy(deployment)
+                body = copy.deepcopy(settings)
+                files = {
+                    "worker/src/entry.py": b"source",
+                    "worker/src/creator_ai.mjs": b"js",
+                    "worker/src/migrations/001.sql": b"sql",
+                    "worker/python_modules/workers/workflows.js": b"sdk",
+                    "worker/python_modules/workers/__init__.py": b"init",
+                    "worker/wrangler.snapshot-qa.jsonc": json.dumps(
+                        artifact_config
+                    ).encode(),
+                }
+                body["modules"].extend(
+                    [
+                        {
+                            "name": "creator_ai.mjs",
+                            "content_base64": "anM=",
+                            "content_type": "application/javascript+module",
+                        },
+                        {
+                            "name": "migrations/001.sql",
+                            "content_base64": "c3Fs",
+                            "content_type": "text/plain",
+                        },
+                        {
+                            "name": "python_modules/workers/workflows.js",
+                            "content_base64": "c2Rr",
+                            "content_type": "application/javascript+module",
+                        },
+                        {
+                            "name": "python_modules/workers/__init__.py",
+                            "content_base64": "aW5pdA==",
+                            "content_type": "application/octet-stream",
+                        },
+                    ]
+                )
+                if scenario == "wrong_traffic":
+                    first["result"]["deployments"][0]["versions"][0]["version_id"] = (
+                        "other"
+                    )
+                if scenario == "wrong_version":
+                    body["id"] = "other"
+                if scenario == "missing_version":
+                    del body["id"]
+                if scenario == "missing_modules":
+                    del body["modules"]
+                if scenario == "wrong_bytes":
+                    body["modules"][0]["content_base64"] = "d3Jvbmc="
+                if scenario == "invalid_encoding":
+                    body["modules"][0]["content_base64"] = "!invalid!"
+                if scenario == "duplicate_modules":
+                    body["modules"].append(copy.deepcopy(body["modules"][0]))
+                if scenario == "artifact_collision":
+                    files.update(
+                        {
+                            "worker/src/python_modules/x.py": b"a",
+                            "worker/python_modules/x.py": b"b",
+                        }
+                    )
+                if scenario == "invalid_artifact_bytes":
+                    files["worker/src/entry.py"] = "source"
+                if scenario == "wrong_content_type":
+                    body["modules"][0]["content_type"] = "text/plain"
+                if scenario == "missing_content_type":
+                    del body["modules"][0]["content_type"]
+                if scenario == "wrong_artifact_config":
+                    changed_config = copy.deepcopy(artifact_config)
+                    changed_config["compatibility_date"] = "2020-01-01"
+                    files["worker/wrangler.snapshot-qa.jsonc"] = json.dumps(
+                        changed_config
+                    ).encode()
+                if scenario == "changed_traffic":
+                    final["result"]["deployments"][0]["versions"][0]["percentage"] = 50
+                replies = [
+                    (first, {}),
+                    ({"success": True, "result": body}, {}),
+                    (namespaces, {}),
+                    (final, {}),
+                ]
+                with (
+                    patch(
+                        "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+                        hashlib.sha256(account.encode()).hexdigest(),
+                    ),
+                    patch(
+                        "scripts.b_web_cloud_deploy.read_json", side_effect=replies
+                    ) as read,
+                    patch(
+                        "scripts.b_web_cloud_deploy.fixture_artifact_files",
+                        return_value=files,
+                    ),
+                    self.assertRaisesRegex(
+                        ValueError,
+                        {
+                            "valid_but_unfenced": "fence and static asset",
+                            "wrong_traffic": "not receiving all traffic",
+                            "wrong_version": "version metadata unavailable",
+                            "missing_version": "version metadata unavailable",
+                            "missing_modules": "Version-bound modules missing",
+                            "wrong_bytes": "modules differ",
+                            "invalid_encoding": "Invalid version-bound module encoding",
+                            "duplicate_modules": "Invalid version-bound module",
+                            "artifact_collision": "Ambiguous or invalid artifact module",
+                            "invalid_artifact_bytes": "Ambiguous or invalid artifact module",
+                            "wrong_content_type": "content type mismatch",
+                            "missing_content_type": "content type mismatch",
+                            "wrong_artifact_config": "artifact configuration mismatch",
+                            "changed_traffic": "deployment changed",
+                        }[scenario],
+                    ),
+                ):
+                    observe_fixture_cloud(
+                        account,
+                        {},
+                        config,
+                        "a" * 32,
+                        "b" * 32,
+                        b"artifact",
+                        "a" * 40,
+                        "b" * 64,
+                        candidate,
+                    )
+                if scenario == "wrong_traffic":
+                    self.assertEqual(read.call_count, 1)
+                if scenario == "valid_but_unfenced":
+                    self.assertEqual(read.call_count, 4)
+                    self.assertIn(
+                        "/versions/" + candidate + "?include=modules",
+                        read.call_args_list[1].args[0],
+                    )
+
     def test_idle_check_requires_complete_native_count(self):
         require_idle_jobs({"jobs": [], "active_job_count": 0})
         for count in (None, True, -1, 1, "0"):
@@ -1359,6 +1585,101 @@ class CloudDeploymentTests(unittest.TestCase):
         ):
             with self.subTest(mutate=mutate), self.assertRaises(ValueError):
                 runtime_files(self.archive(mutate), "a" * 40)
+
+    def test_fixture_artifact_requires_commit_digest_and_bundle_closure(self):
+        from scripts.b_web_cloud_deploy import fixture_artifact_files
+
+        def prepare(files, manifest):
+            files.update(
+                {
+                    "worker/wrangler.snapshot-qa.jsonc": b"{}",
+                    "worker/python_modules/workers/__init__.py": b"sdk",
+                    "worker/public/login.html": b"login",
+                    "worker/public/login.js": b"js",
+                    "worker/public/style.css": b"css",
+                    "worker/public/_headers": b"headers",
+                    "worker/public/index.html": b"index",
+                    "worker/public/app.js": b"app",
+                    "worker/public/pending.mjs": b"pending",
+                    "worker/public/operator-grant.mjs": b"grant",
+                    "worker/public/intake.mjs": b"intake",
+                    "worker/public/source-review.mjs": b"review",
+                    "worker/src/migrations/0001_one.sql": b"sql",
+                    "worker/src/migrations/0002_two.sql": b"sql2",
+                    "worker/python_modules/creator_loop/backend/runtime/database.py": b'MIGRATIONS = ("0001_one", "0002_two")',
+                }
+            )
+            files["worker/bundle-manifest.json"] = json.dumps(
+                {
+                    "files": [
+                        {
+                            "path": "workers/__init__.py",
+                            "sha256": hashlib.sha256(b"sdk").hexdigest(),
+                        },
+                        {
+                            "path": "creator_ai.mjs",
+                            "sha256": hashlib.sha256(b"fixture").hexdigest(),
+                        },
+                        {
+                            "path": "creator_loop/backend/runtime/database.py",
+                            "sha256": hashlib.sha256(
+                                b'MIGRATIONS = ("0001_one", "0002_two")'
+                            ).hexdigest(),
+                        },
+                    ]
+                }
+            ).encode()
+            manifest["files"] = {
+                name: hashlib.sha256(data).hexdigest() for name, data in files.items()
+            }
+
+        raw = self.archive(prepare)
+        self.assertIn(
+            "worker/public/login.html",
+            fixture_artifact_files(raw, "a" * 40, hashlib.sha256(raw).hexdigest()),
+        )
+        for commit, digest in (
+            ("b" * 40, hashlib.sha256(raw).hexdigest()),
+            ("a" * 40, "0" * 64),
+        ):
+            with (
+                self.subTest(commit=commit, digest=digest),
+                self.assertRaises(ValueError),
+            ):
+                fixture_artifact_files(raw, commit, digest)
+
+        def missing(files, manifest):
+            prepare(files, manifest)
+            del files["worker/public/login.js"]
+            del manifest["files"]["worker/public/login.js"]
+
+        incomplete = self.archive(missing)
+        with self.assertRaisesRegex(ValueError, "missing required files"):
+            fixture_artifact_files(
+                incomplete, "a" * 40, hashlib.sha256(incomplete).hexdigest()
+            )
+
+        def unlisted(files, manifest):
+            prepare(files, manifest)
+            files["worker/python_modules/unlisted.py"] = b"extra"
+            manifest["files"]["worker/python_modules/unlisted.py"] = hashlib.sha256(
+                b"extra"
+            ).hexdigest()
+
+        extra = self.archive(unlisted)
+        with self.assertRaisesRegex(ValueError, "bundle closure"):
+            fixture_artifact_files(extra, "a" * 40, hashlib.sha256(extra).hexdigest())
+
+        def missing_migration(files, manifest):
+            prepare(files, manifest)
+            del files["worker/src/migrations/0002_two.sql"]
+            del manifest["files"]["worker/src/migrations/0002_two.sql"]
+
+        incomplete = self.archive(missing_migration)
+        with self.assertRaisesRegex(ValueError, "bundle closure"):
+            fixture_artifact_files(
+                incomplete, "a" * 40, hashlib.sha256(incomplete).hexdigest()
+            )
 
     def test_rollback_refuses_different_namespace_class_or_model(self):
         current = {

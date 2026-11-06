@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import base64
 import hashlib
 import io
 import json
@@ -343,6 +345,236 @@ def fixture_bootstrap_sequence(
         raise
     record({"state": "login_verified", "target": TARGETS["qa-fixture"]})
     return namespace
+
+
+def fixture_artifact_files(raw, commit, artifact_sha256):
+    """Validate archive identity/closure; caller must authenticate CI and digest."""
+    if (
+        not isinstance(raw, bytes)
+        or not isinstance(commit, str)
+        or not re.fullmatch(r"[a-f0-9]{40}", commit)
+        or not isinstance(artifact_sha256, str)
+        or not re.fullmatch(r"[a-f0-9]{64}", artifact_sha256)
+        or sha(raw) != artifact_sha256
+    ):
+        raise ValueError("Fixture artifact identity mismatch")
+    files = runtime_files(raw, commit)
+    required = {
+        "worker/bundle-manifest.json",
+        "worker/wrangler.snapshot-qa.jsonc",
+        "worker/python_modules/workers/__init__.py",
+        "worker/python_modules/creator_loop/backend/runtime/database.py",
+        "worker/public/login.html",
+        "worker/public/login.js",
+        "worker/public/style.css",
+        "worker/public/_headers",
+        "worker/public/index.html",
+        "worker/public/app.js",
+        "worker/public/pending.mjs",
+        "worker/public/operator-grant.mjs",
+        "worker/public/intake.mjs",
+        "worker/public/source-review.mjs",
+    }
+    if not required <= files.keys():
+        raise ValueError("Fixture artifact missing required files")
+    try:
+        tree = ast.parse(
+            files["worker/python_modules/creator_loop/backend/runtime/database.py"]
+        )
+        declarations = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "MIGRATIONS"
+                for target in node.targets
+            )
+        ]
+        if len(declarations) != 1:
+            raise ValueError()
+        migrations = ast.literal_eval(declarations[0].value)
+        if (
+            not isinstance(migrations, tuple)
+            or not migrations
+            or any(
+                not isinstance(name, str)
+                or not re.fullmatch(r"[0-9]{4}_[a-z0-9_]+", name)
+                for name in migrations
+            )
+            or len(set(migrations)) != len(migrations)
+        ):
+            raise ValueError()
+        expected_migrations = {
+            "worker/src/migrations/" + name + ".sql" for name in migrations
+        }
+        if expected_migrations != {
+            name for name in files if name.startswith("worker/src/migrations/")
+        }:
+            raise ValueError()
+        bundle = json.loads(files["worker/bundle-manifest.json"])
+        items = bundle["files"]
+        if not isinstance(items, list) or not items:
+            raise ValueError()
+        names = set()
+        for item in items:
+            path = item["path"]
+            if not isinstance(path, str) or path in names:
+                raise ValueError()
+            names.add(path)
+            source = (
+                "worker/src/" if path == "creator_ai.mjs" else "worker/python_modules/"
+            ) + path
+            if source not in files or sha(files[source]) != item["sha256"]:
+                raise ValueError()
+        if "creator_ai.mjs" not in names or "workers/__init__.py" not in names:
+            raise ValueError()
+        bundled = {
+            "worker/python_modules/" + name
+            for name in names
+            if name != "creator_ai.mjs"
+        }
+        if bundled != {
+            name for name in files if name.startswith("worker/python_modules/")
+        }:
+            raise ValueError()
+    except (ValueError, TypeError, KeyError, SyntaxError):
+        raise ValueError("Fixture artifact bundle closure mismatch") from None
+    return files
+
+
+def observe_fixture_cloud(
+    account,
+    headers,
+    config,
+    production_id,
+    qa19_id,
+    artifact,
+    commit,
+    artifact_sha256,
+    candidate,
+):
+    """Read management metadata and module bytes; never call the Worker or DO."""
+    if not isinstance(account, str) or sha(account.encode()) != ACCOUNT_SHA:
+        raise ValueError("Wrong Cloudflare account")
+    if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+        raise ValueError("Exact fixture version required")
+    files = fixture_artifact_files(artifact, commit, artifact_sha256)
+    validate_fixture_config(config)
+    try:
+        artifact_config = json.loads(files["worker/wrangler.snapshot-qa.jsonc"])
+        validate_fixture_config(artifact_config)
+        if any(
+            artifact_config[key] != config[key]
+            for key in artifact_config
+            if key != "vars"
+        ) or any(
+            config["vars"].get(key) != value
+            for key, value in artifact_config["vars"].items()
+        ):
+            raise ValueError()
+        if set(artifact_config["vars"]) != {
+            "B_WEB_OBSERVATION_ONLY",
+            "B_WEB_ISOLATED_RESTORE",
+            "B_WEB_QA_READONLY_LOGIN",
+            "B_WEB_QA_SNAPSHOT_EXPORT",
+            "B_WEB_QA_HOSTNAME",
+        }:
+            raise ValueError()
+    except (ValueError, TypeError, KeyError):
+        raise ValueError("Fixture artifact configuration mismatch") from None
+    api = "https://api.cloudflare.com/client/v4/accounts/" + account
+    script = "/workers/scripts/" + TARGETS["qa-fixture"]
+    deployment_path = api + script + "/deployments"
+    first, _ = read_json(deployment_path, headers)
+    expected = [{"version_id": candidate, "percentage": 100}]
+    if (
+        not isinstance(first, dict)
+        or first.get("success") is not True
+        or not isinstance(first.get("result"), dict)
+        or not first["result"].get("deployments")
+        or first["result"]["deployments"][0].get("versions") != expected
+    ):
+        raise ValueError("Fixture candidate is not receiving all traffic")
+    version, _ = read_json(
+        api
+        + "/workers/workers/"
+        + TARGETS["qa-fixture"]
+        + "/versions/"
+        + candidate
+        + "?include=modules",
+        headers,
+    )
+    namespaces, _ = read_json(
+        api + "/workers/durable_objects/namespaces?per_page=100&page=1", headers
+    )
+    if (
+        not isinstance(version, dict)
+        or version.get("success") is not True
+        or not isinstance(version.get("result"), dict)
+        or version["result"].get("id") != candidate
+    ):
+        raise ValueError("Fixture version metadata unavailable")
+    verified = version["result"]
+    verify_fixture_namespace_ownership(
+        verified, config, production_id, qa19_id, namespaces
+    )
+    if verified.get("compatibility_date") != config["compatibility_date"] or sorted(
+        verified.get("compatibility_flags", [])
+    ) != sorted(config["compatibility_flags"]):
+        raise ValueError("Fixture runtime compatibility mismatch")
+    expected_modules = {}
+    for name, body in files.items():
+        if name.startswith("worker/python_modules/"):
+            module_name = name[len("worker/") :]
+        elif name.startswith("worker/src/"):
+            module_name = name[len("worker/src/") :]
+        else:
+            continue
+        if module_name in expected_modules or not isinstance(body, bytes):
+            raise ValueError("Ambiguous or invalid artifact module")
+        # Wrangler 4.150.0 findAdditionalModules: vendored files are Data,
+        # except JS in workers/; the Python entry and configured ESModule /
+        # default SQL Text rules have distinct content types.
+        if module_name.startswith("python_modules/"):
+            vendor = module_name[len("python_modules/") :]
+            kind = (
+                "application/javascript+module"
+                if vendor.startswith("workers/") and vendor.endswith((".js", ".mjs"))
+                else "application/octet-stream"
+            )
+        elif module_name == "entry.py":
+            kind = "text/x-python"
+        elif module_name.endswith(".mjs"):
+            kind = "application/javascript+module"
+        elif module_name.endswith(".sql"):
+            kind = "text/plain"
+        else:
+            raise ValueError("Unsupported fixture module type")
+        expected_modules[module_name] = (body, kind)
+    modules = verified.get("modules")
+    if not expected_modules or not isinstance(modules, list):
+        raise ValueError("Version-bound modules missing")
+    actual = {}
+    for module in modules:
+        if not isinstance(module, dict) or module.get("name") in actual:
+            raise ValueError("Invalid version-bound module")
+        name = module.get("name")
+        if name not in expected_modules:
+            raise ValueError("Unexpected version-bound module")
+        if module.get("content_type") != expected_modules[name][1]:
+            raise ValueError("Version-bound module content type mismatch")
+        try:
+            actual[name] = base64.b64decode(module["content_base64"], validate=True)
+        except (ValueError, TypeError, KeyError):
+            raise ValueError("Invalid version-bound module encoding") from None
+    if actual != {name: value[0] for name, value in expected_modules.items()}:
+        raise ValueError("Version-bound modules differ from artifact")
+    final, _ = read_json(deployment_path, headers)
+    if final != first:
+        raise ValueError("Fixture deployment changed during observation")
+    # Management reads cannot provide an atomic fence against later updates,
+    # and static asset bytes are not verified by the modules response.
+    raise ValueError("Fixture fence and static asset proof unavailable")
 
 
 def sha(raw: bytes) -> str:
