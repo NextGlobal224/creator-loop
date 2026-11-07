@@ -280,6 +280,262 @@ class CloudSourceJobTests(unittest.TestCase):
         asyncio.run(self.api.alarm())
         self.assertEqual(self.calls, 1)
 
+    def test_cancel_at_alarm_await_never_dispatches_source(self):
+        self.grant()
+        self.enqueue()
+
+        async def cancel_during_alarm(_):
+            await self.api.authorized(
+                SimpleNamespace(headers={}), "/api/cancel", "POST", {"job_id": "c" * 32}
+            )
+
+        self.api.ctx.storage.setAlarm = cancel_during_alarm
+        asyncio.run(self.api.alarm())
+        job = self.job()
+        self.assertEqual(job["status"], "CANCELLED")
+        self.assertEqual(self.calls, 0)
+        self.assertEqual(job["calls"], [])
+        grant = json.loads(
+            self.api.rows("SELECT record FROM control WHERE id='grant'")[0]["record"]
+        )
+        self.assertEqual(grant["remaining_calls"], 0)
+        self.assertEqual(grant["reserved_pipeline"], job["id"])
+
+    def test_changed_owner_at_alarm_await_does_not_overwrite_or_dispatch(self):
+        self.grant()
+        self.enqueue()
+
+        async def replace_lease(_):
+            current = self.job()
+            current["lease_until"] += 30
+            self.api.save_job(current)
+
+        self.api.ctx.storage.setAlarm = replace_lease
+        asyncio.run(self.api.alarm())
+        self.assertEqual(self.calls, 0)
+        self.assertEqual(self.job()["status"], "RUNNING")
+        self.assertEqual(self.job()["calls"], [])
+
+    def test_changed_grant_at_alarm_await_does_not_dispatch_or_refund(self):
+        self.grant()
+        self.enqueue()
+
+        async def replace_grant(_):
+            grant = json.loads(
+                self.api.rows("SELECT record FROM control WHERE id='grant'")[0][
+                    "record"
+                ]
+            )
+            grant["reserved_pipeline"] = "d" * 32
+            self.api.sql.exec(
+                "UPDATE control SET record=? WHERE id='grant'", json.dumps(grant)
+            )
+
+        self.api.ctx.storage.setAlarm = replace_grant
+        asyncio.run(self.api.alarm())
+        self.assertEqual(self.calls, 0)
+        self.assertEqual(self.job()["status"], "FAILED")
+        current = json.loads(
+            self.api.rows("SELECT record FROM control WHERE id='grant'")[0]["record"]
+        )
+        self.assertEqual(current["reserved_pipeline"], "d" * 32)
+        self.assertEqual(current["remaining_calls"], 0)
+
+    def test_owner_change_during_native_call_preserves_late_receipt(self):
+        namespace = self.api.authorized.__func__.__globals__
+        image = (
+            self.job_kind_is_image() if hasattr(self, "job_kind_is_image") else False
+        )
+        name = "analyzeSourceImage" if image else "transcribeSource"
+        original = getattr(namespace["import_from_javascript"]("creator_ai.mjs"), name)
+
+        async def changed_owner(binding, packet, deployment):
+            response = await original(binding, packet, deployment)
+            current = self.job()
+            current["lease_until"] += 30
+            self.api.save_job(current)
+            return response
+
+        namespace["import_from_javascript"] = lambda _: SimpleNamespace(
+            **{name: changed_owner}
+        )
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        job = self.job()
+        self.assertEqual((job["status"], self.calls), ("RUNNING", 1))
+        self.assertEqual(job["calls"][0]["outcome"], "UNKNOWN")
+        late = self.api.rows("SELECT record FROM control WHERE id LIKE 'late-source-%'")
+        self.assertEqual(len(late), 1)
+        receipt = json.loads(late[0]["record"])
+        self.assertEqual(receipt["response"]["native_response"], self.response)
+        self.assertEqual(receipt["call"]["outcome"], "RECEIVED")
+        base = "/api/source-receipts/" + job["id"]
+        denied = asyncio.run(
+            self.api.authorized(SimpleNamespace(headers={}), base, "GET", {})
+        )
+        self.assertEqual(denied.status, 403)
+        operator = SimpleNamespace(
+            headers={"X-Operator-Key": "fixture"}, url="https://fixture" + base
+        )
+        listing = asyncio.run(self.api.authorized(operator, base, "GET", {})).value
+        self.assertIsNone(listing["next_cursor"])
+        self.assertEqual(len(listing["ids"]), 1)
+        reopened = asyncio.run(
+            self.api.authorized(operator, base + "/" + listing["ids"][0], "GET", {})
+        ).value
+        self.assertEqual(reopened["response"]["native_response"], self.response)
+        for i in range(51):
+            self.api.sql.exec(
+                "INSERT INTO control VALUES(?,?)",
+                "late-source-" + job["id"] + "-" + format(i, "064x"),
+                "{}",
+            )
+        page = asyncio.run(self.api.authorized(operator, base, "GET", {})).value
+        self.assertEqual(len(page["ids"]), 50)
+        operator.url = "https://fixture" + base + "?after=" + page["next_cursor"]
+        last = asyncio.run(self.api.authorized(operator, base, "GET", {})).value
+        self.assertEqual(len(last["ids"]), 2)
+        self.assertIsNone(last["next_cursor"])
+        self.assertFalse(set(page["ids"]) & set(last["ids"]))
+
+    def test_operator_can_discover_late_receipts_across_unknown_jobs(self):
+        path = "/api/source-receipts"
+        denied = asyncio.run(
+            self.api.authorized(SimpleNamespace(headers={}), path, "GET", {})
+        )
+        self.assertEqual(denied.status, 403)
+        for i in range(51):
+            key = "late-source-" + format(i, "032x") + "-" + format(i, "064x")
+            self.api.sql.exec("INSERT INTO control VALUES(?,?)", key, "{}")
+        operator = SimpleNamespace(
+            headers={"X-Operator-Key": "fixture"}, url="https://fixture" + path
+        )
+        first = asyncio.run(self.api.authorized(operator, path, "GET", {})).value
+        self.assertEqual(len(first["ids"]), 50)
+        operator.url += "?after=" + first["next_cursor"]
+        last = asyncio.run(self.api.authorized(operator, path, "GET", {})).value
+        self.assertEqual(len(last["ids"]), 1)
+        self.assertIsNone(last["next_cursor"])
+        self.assertFalse(set(first["ids"]) & set(last["ids"]))
+        operator.url = "https://fixture" + path + "?after=invalid"
+        invalid = asyncio.run(self.api.authorized(operator, path, "GET", {}))
+        self.assertEqual(invalid.status, 400)
+
+        job_id = "f" * 32
+        self.api.sql.exec(
+            "INSERT INTO control VALUES(?,?)", "late-source-" + job_id + "-bad", "{}"
+        )
+        per_job = path + "/" + job_id
+        operator.url = "https://fixture" + per_job
+        malformed = asyncio.run(self.api.authorized(operator, per_job, "GET", {}))
+        self.assertEqual(malformed.status, 409)
+
+    def test_changed_grant_during_native_error_preserves_current_record(self):
+        namespace = self.api.authorized.__func__.__globals__
+        image = (
+            self.job_kind_is_image() if hasattr(self, "job_kind_is_image") else False
+        )
+        name = "analyzeSourceImage" if image else "transcribeSource"
+
+        async def changed_owner_then_error(*_):
+            self.calls += 1
+            current = self.job()
+            current["grant"]["reserved_pipeline"] = "d" * 32
+            self.api.save_job(current)
+            raise RuntimeError("fixture provider failure")
+
+        namespace["import_from_javascript"] = lambda _: SimpleNamespace(
+            **{name: changed_owner_then_error}
+        )
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        current = self.job()
+        self.assertEqual(current["status"], "RUNNING")
+        self.assertEqual(current["grant"]["reserved_pipeline"], "d" * 32)
+        self.assertEqual(current["calls"][0]["outcome"], "UNKNOWN")
+        self.assertEqual(self.calls, 1)
+
+    def test_metadata_change_during_native_call_keeps_new_record_and_late_receipt(self):
+        namespace = self.api.authorized.__func__.__globals__
+        image = (
+            self.job_kind_is_image() if hasattr(self, "job_kind_is_image") else False
+        )
+        name = "analyzeSourceImage" if image else "transcribeSource"
+        original = getattr(namespace["import_from_javascript"]("creator_ai.mjs"), name)
+
+        async def changed_metadata(binding, packet, deployment):
+            response = await original(binding, packet, deployment)
+            current = self.job()
+            current["operator_note"] = "preserve-new-metadata"
+            self.api.save_job(current)
+            return response
+
+        namespace["import_from_javascript"] = lambda _: SimpleNamespace(
+            **{name: changed_metadata}
+        )
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        self.assertEqual(self.job()["operator_note"], "preserve-new-metadata")
+        self.assertEqual(self.job()["status"], "RUNNING")
+        self.assertEqual(
+            len(self.api.rows("SELECT id FROM control WHERE id LIKE 'late-source-%'")),
+            1,
+        )
+
+    def test_missing_status_during_native_call_keeps_receipt_separately(self):
+        namespace = self.api.authorized.__func__.__globals__
+        image = (
+            self.job_kind_is_image() if hasattr(self, "job_kind_is_image") else False
+        )
+        name = "analyzeSourceImage" if image else "transcribeSource"
+        original = getattr(namespace["import_from_javascript"]("creator_ai.mjs"), name)
+
+        async def malformed_record(binding, packet, deployment):
+            response = await original(binding, packet, deployment)
+            current = self.job()
+            current.pop("status")
+            self.api.sql.exec(
+                "UPDATE jobs SET record=? WHERE id=?",
+                json.dumps(current),
+                current["id"],
+            )
+            return response
+
+        namespace["import_from_javascript"] = lambda _: SimpleNamespace(
+            **{name: malformed_record}
+        )
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        self.assertNotIn("status", self.job())
+        late = self.api.rows("SELECT record FROM control WHERE id LIKE 'late-source-%'")
+        self.assertEqual(
+            json.loads(late[0]["record"])["response"]["native_response"], self.response
+        )
+
+    def test_owner_change_and_projection_failure_does_not_overwrite_new_owner(self):
+        self.grant()
+        self.enqueue()
+
+        async def replace_lease_then_break_projection(_):
+            current = self.job()
+            current["lease_until"] += 30
+            self.api.save_job(current)
+
+            def fail_load():
+                raise RuntimeError("fixture projection failed")
+
+            self.api.load = fail_load
+
+        self.api.ctx.storage.setAlarm = replace_lease_then_break_projection
+        asyncio.run(self.api.alarm())
+        self.assertEqual(self.calls, 0)
+        self.assertEqual(self.job()["status"], "RUNNING")
+        self.assertEqual(self.job()["calls"], [])
+
     def test_cancel_during_call_retains_native_receipt_but_creates_no_evidence(self):
         namespace = self.api.authorized.__func__.__globals__
         original = namespace["import_from_javascript"](
@@ -314,6 +570,37 @@ class CloudSourceJobTests(unittest.TestCase):
         finally:
             self.api.discard_projection(root)
 
+    def test_cancelled_unknown_response_keeps_unknown_and_reservation(self):
+        namespace = self.api.authorized.__func__.__globals__
+        image = (
+            self.job_kind_is_image() if hasattr(self, "job_kind_is_image") else False
+        )
+        name = "analyzeSourceImage" if image else "transcribeSource"
+
+        async def cancelled_unknown(*_):
+            self.calls += 1
+            await self.api.authorized(
+                SimpleNamespace(headers={}), "/api/cancel", "POST", {"job_id": "c" * 32}
+            )
+            return json.dumps(
+                {"unknown_outcome": True, "model_calls": 1, "native_usage": None}
+            )
+
+        namespace["import_from_javascript"] = lambda _: SimpleNamespace(
+            **{name: cancelled_unknown}
+        )
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        job = self.job()
+        self.assertEqual(job["status"], "CANCELLED")
+        self.assertTrue(job["unknown_outcome"])
+        self.assertEqual(job["calls"][0]["outcome"], "UNKNOWN")
+        grant = json.loads(
+            self.api.rows("SELECT record FROM control WHERE id='grant'")[0]["record"]
+        )
+        self.assertEqual(grant["remaining_calls"], 0)
+
     def test_enqueue_idempotency_and_single_active_job(self):
         self.grant()
         self.enqueue()
@@ -345,9 +632,15 @@ class CloudSourceJobTests(unittest.TestCase):
         asyncio.run(self.api.alarm())
         self.assertEqual(self.job()["status"], "FAILED")
         self.assertEqual(self.calls, 1)
-        self.assertEqual(
-            self.job()["stage_outputs"][0]["native_response"], self.response
+        late_records = self.api.rows(
+            "SELECT record FROM control WHERE id LIKE 'late-source-%'"
         )
+        self.assertEqual(len(late_records), 1)
+        self.assertEqual(
+            json.loads(late_records[0]["record"])["response"]["native_response"],
+            self.response,
+        )
+        self.assertTrue(self.job()["unknown_outcome"])
         root, _ = self.api.load()
         try:
             self.assertEqual(

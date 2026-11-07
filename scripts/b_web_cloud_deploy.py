@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
+import ast
+import base64
+import copy
 import hashlib
 import io
 import json
 import math
 import os
 import re
+import sqlite3
 import subprocess
+import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
 import zipfile
+from contextlib import closing
 from datetime import datetime, timedelta
 from email import policy
 from email.parser import BytesParser
@@ -22,13 +29,158 @@ REPO = "NextGlobal224/creator-loop"
 ACCOUNT_SHA = "cb4cbcb99957ea0ea4b795edd35824fe18158d1b0e782945dc09d81d554d9499"
 CHECKS = {"windows-artifact", "security-dependencies-workflow", "fast-schema-domain"}
 MODEL = "@cf/openai/gpt-oss-120b"
-TARGETS = {"production": "creator-loop-b-web", "qa19": "creator-loop-b-web-qa19"}
+TARGETS = {
+    "production": "creator-loop-b-web",
+    "qa19": "creator-loop-b-web-qa19",
+    "qa-fixture": "creator-loop-b-snapshot-qa",
+}
 UUID = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
+
+
+def validate_fixture_config(config: dict) -> None:
+    """Reject all service or cross-worker bindings in the isolated prototype."""
+    if not isinstance(config, dict) or set(config) != {
+        "name",
+        "main",
+        "compatibility_date",
+        "compatibility_flags",
+        "rules",
+        "workers_dev",
+        "observability",
+        "durable_objects",
+        "migrations",
+        "assets",
+        "version_metadata",
+        "vars",
+    }:
+        raise ValueError("Unexpected fixture Worker configuration")
+    if (
+        config["name"] != TARGETS["qa-fixture"]
+        or config["main"] != "src/entry.py"
+        or config["compatibility_date"] != "2026-10-13"
+        or config["compatibility_flags"] != ["python_workers"]
+        or config["rules"] != [{"type": "ESModule", "globs": ["**/*.mjs"]}]
+        or config["workers_dev"] is not True
+        or config["observability"] != {"enabled": False}
+        or config["durable_objects"]
+        != {"bindings": [{"name": "DATABASE", "class_name": "Database"}]}
+        or config["migrations"] != [{"tag": "v1", "new_sqlite_classes": ["Database"]}]
+        or config["assets"]
+        != {"directory": "public", "binding": "ASSETS", "run_worker_first": True}
+        or config["version_metadata"] != {"binding": "CREATOR_VERSION"}
+    ):
+        raise ValueError("Unsafe fixture Worker identity or binding")
+    base = {
+        "B_WEB_OBSERVATION_ONLY": "1",
+        "B_WEB_ISOLATED_RESTORE": "1",
+        "B_WEB_QA_READONLY_LOGIN": "1",
+        "B_WEB_QA_SNAPSHOT_EXPORT": "1",
+        "B_WEB_QA_HOSTNAME": "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev",
+    }
+    patterns = {
+        "B_WEB_QA_RESTORE_OBJECT_NAME": "qa-isolated-restore-[a-f0-9]{32}",
+        "B_WEB_QA_RESTORE_SNAPSHOT_ID": "[a-f0-9]{32}",
+        "B_WEB_QA_RESTORE_MANIFEST_SHA256": "[a-f0-9]{64}",
+        "B_WEB_QA_EXPORT_SNAPSHOT_ID": "[a-f0-9]{32}",
+        "B_WEB_QA_SOURCE_OBJECT_NAME": "qa-isolated-restore-[a-f0-9]{32}",
+        "B_WEB_QA_SOURCE_SNAPSHOT_ID": "[a-f0-9]{32}",
+        "B_WEB_QA_SOURCE_MANIFEST_SHA256": "[a-f0-9]{64}",
+    }
+    values = config["vars"]
+    if not isinstance(values, dict) or any(values.get(k) != v for k, v in base.items()):
+        raise ValueError("Unsafe fixture guard configuration")
+    extra = set(values) - set(base)
+    if extra not in (set(), set(patterns)) or any(
+        not isinstance(values[key], str) or not re.fullmatch(pattern, values[key])
+        for key, pattern in patterns.items()
+        if key in values
+    ):
+        raise ValueError("Invalid fixture snapshot identity")
+    if (
+        extra
+        and values["B_WEB_QA_SOURCE_OBJECT_NAME"]
+        == values["B_WEB_QA_RESTORE_OBJECT_NAME"]
+    ):
+        raise ValueError("Fixture source and target must differ")
+
+
+def validate_fixture_namespace(settings: dict, production_id: str, qa19_id: str) -> str:
+    """Validate observed metadata; this does not prove quiescence or capacity."""
+    if (
+        not isinstance(production_id, str)
+        or not re.fullmatch("[a-f0-9]{32}", production_id)
+        or not isinstance(qa19_id, str)
+        or not re.fullmatch("[a-f0-9]{32}", qa19_id)
+        or production_id == qa19_id
+        or not isinstance(settings, dict)
+        or not isinstance(settings.get("bindings"), list)
+    ):
+        raise ValueError("Existing namespace identities are incomplete")
+    bindings = settings["bindings"]
+    permitted = {
+        "DATABASE": "durable_object_namespace",
+        "ASSETS": "assets",
+        "CREATOR_VERSION": "version_metadata",
+        "OPERATOR_KEY": "secret_text",
+        "LOGIN_PASSWORD_HASH": "secret_text",
+        "B_WEB_OBSERVATION_ONLY": "plain_text",
+        "B_WEB_ISOLATED_RESTORE": "plain_text",
+        "B_WEB_QA_READONLY_LOGIN": "plain_text",
+        "B_WEB_QA_SNAPSHOT_EXPORT": "plain_text",
+        "B_WEB_QA_HOSTNAME": "plain_text",
+        "B_WEB_QA_RESTORE_OBJECT_NAME": "plain_text",
+        "B_WEB_QA_RESTORE_SNAPSHOT_ID": "plain_text",
+        "B_WEB_QA_RESTORE_MANIFEST_SHA256": "plain_text",
+        "B_WEB_QA_EXPORT_SNAPSHOT_ID": "plain_text",
+        "B_WEB_QA_SOURCE_OBJECT_NAME": "plain_text",
+        "B_WEB_QA_SOURCE_SNAPSHOT_ID": "plain_text",
+        "B_WEB_QA_SOURCE_MANIFEST_SHA256": "plain_text",
+    }
+    names = [b.get("name") for b in bindings if isinstance(b, dict)]
+    if len(names) != len(bindings) or any(not isinstance(name, str) for name in names):
+        raise ValueError("Unexpected fixture binding name")
+    if len(set(names)) != len(names) or any(
+        b["name"] not in permitted or permitted[b["name"]] != b.get("type")
+        for b in bindings
+    ):
+        raise ValueError("Unexpected fixture service or duplicate binding")
+    databases = [
+        b for b in bindings if isinstance(b, dict) and b.get("name") == "DATABASE"
+    ]
+    if len(databases) != 1:
+        raise ValueError("Fixture DATABASE binding missing or ambiguous")
+    binding = databases[0]
+    namespace = binding.get("namespace_id")
+    if (
+        binding.get("type") != "durable_object_namespace"
+        or binding.get("class_name") != "Database"
+        or binding.get("script_name") not in (None, TARGETS["qa-fixture"])
+        or not isinstance(namespace, str)
+        or not re.fullmatch("[a-f0-9]{32}", namespace)
+        or namespace in (production_id, qa19_id)
+        or any(
+            isinstance(b, dict) and b.get("type") in ("ai", "browser") for b in bindings
+        )
+    ):
+        raise ValueError("Fixture namespace or service binding unsafe")
+    return namespace
 
 
 def expected_binding_types(
     target: str, previous_version: dict, config: dict | None = None
 ) -> dict[str, str]:
+    if target == "qa-fixture":
+        if config is None:
+            raise ValueError("Exact fixture configuration required")
+        validate_fixture_config(config)
+        return {
+            "DATABASE": "durable_object_namespace",
+            "ASSETS": "assets",
+            "CREATOR_VERSION": "version_metadata",
+            "OPERATOR_KEY": "secret_text",
+            "LOGIN_PASSWORD_HASH": "secret_text",
+            **{name: "plain_text" for name in config["vars"]},
+        }
     types = {
         "AI": "ai",
         "ASSETS": "assets",
@@ -59,8 +211,1650 @@ def expected_binding_types(
     return types
 
 
+def verify_fixture_bindings(
+    settings: dict, config: dict, production_id: str, qa19_id: str
+) -> str:
+    """Verify actual bindings before the first fixture request, not merely the namespace."""
+    namespace = validate_fixture_namespace(settings, production_id, qa19_id)
+    expected = expected_binding_types(
+        "qa-fixture", {"resources": {"bindings": []}}, config
+    )
+    if "B_WEB_QA_SOURCE_OBJECT_NAME" not in config["vars"]:
+        raise ValueError("Fixture snapshot identities are not configured")
+    bindings = {binding["name"]: binding for binding in settings["bindings"]}
+    if set(bindings) != set(expected) or any(
+        bindings[name].get("type") != kind for name, kind in expected.items()
+    ):
+        raise ValueError("Fixture binding set incomplete or unexpected")
+    if any(
+        bindings[name].get("text") != value for name, value in config["vars"].items()
+    ):
+        raise ValueError("Fixture guard values differ from verified configuration")
+    return namespace
+
+
+def verify_fixture_namespace_ownership(
+    settings: dict,
+    config: dict,
+    production_id: str,
+    qa19_id: str,
+    observation: dict,
+) -> str:
+    """Require complete account namespace metadata before any fixture request."""
+    namespace = verify_fixture_bindings(settings, config, production_id, qa19_id)
+    rows = observation.get("result") if isinstance(observation, dict) else None
+    info = observation.get("result_info") if isinstance(observation, dict) else None
+    if (
+        not isinstance(observation, dict)
+        or observation.get("success") is not True
+        or not isinstance(rows, list)
+        or not isinstance(info, dict)
+        or type(info.get("total_count")) is not int
+        or info["total_count"] != len(rows)
+        or info.get("cursor") not in (None, "")
+        or (info.get("has_more") is not None and info.get("has_more") is not False)
+        or (
+            info.get("total_pages") is not None
+            and (type(info["total_pages"]) is not int or info["total_pages"] != 1)
+        )
+        or not all(isinstance(row, dict) for row in rows)
+    ):
+        raise ValueError("Complete namespace metadata required")
+    for identity, script in (
+        (production_id, TARGETS["production"]),
+        (qa19_id, TARGETS["qa19"]),
+        (namespace, TARGETS["qa-fixture"]),
+    ):
+        matches = [row for row in rows if row.get("id") == identity]
+        if len(matches) != 1 or not (
+            matches[0].get("script") == script
+            and matches[0].get("class") == "Database"
+            and matches[0].get("use_sqlite") is True
+        ):
+            raise ValueError("Namespace owner or SQLite backend mismatch")
+    return namespace
+
+
+def fixture_bootstrap_sequence(
+    preflight, create, observe, restore, login, record, config
+):
+    """Order a single isolated first-create; caller must supply trusted I/O adapters.
+
+    Preflight must independently establish identity, permission, artifact and
+    the resource budget before returning the two existing namespace IDs. This
+    sequencer does not itself prove those conditions and is not yet exposed by
+    the live deployment workflow.
+    """
+    validate_fixture_config(config)
+    if "B_WEB_QA_SOURCE_OBJECT_NAME" not in config["vars"]:
+        raise ValueError("Fixture snapshot identities are not configured")
+    observe.precreate(config)
+    production_id, qa19_id = preflight(config)
+    if (
+        not isinstance(production_id, str)
+        or not re.fullmatch("[a-f0-9]{32}", production_id)
+        or not isinstance(qa19_id, str)
+        or not re.fullmatch("[a-f0-9]{32}", qa19_id)
+        or production_id == qa19_id
+    ):
+        raise ValueError("Existing namespace identities are incomplete")
+    record({"state": "creation_attempting", "target": TARGETS["qa-fixture"]})
+    try:
+        observe.precreate(config)
+    except Exception:
+        record({"state": "precreate_refused", "target": TARGETS["qa-fixture"]})
+        raise
+    try:
+        candidate = create(copy.deepcopy(config))
+    except Exception:
+        record({"state": "creation_unknown", "target": TARGETS["qa-fixture"]})
+        raise
+    record({"state": "creation_returned", "target": TARGETS["qa-fixture"]})
+    try:
+        if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+            raise ValueError("Fixture creation version unconfirmed")
+        settings, namespaces, deployment = observe(candidate, production_id, qa19_id)
+        namespace = verify_fixture_namespace_ownership(
+            settings, config, production_id, qa19_id, namespaces
+        )
+        if deployment != [{"version_id": candidate, "percentage": 100}]:
+            raise ValueError("Fixture deployed version or traffic mismatch")
+    except Exception:
+        record({"state": "postcreate_unverified", "target": TARGETS["qa-fixture"]})
+        raise
+    record({"state": "metadata_verified", "target": TARGETS["qa-fixture"]})
+    try:
+        restored = restore(candidate)
+        if (
+            not isinstance(restored, dict)
+            or restored.get("restored") is not True
+            or restored.get("jobs_held") is not True
+            or restored.get("alarm_restored") is not False
+            or restored.get("target") != config["vars"]["B_WEB_QA_RESTORE_OBJECT_NAME"]
+            or restored.get("snapshot_id")
+            != config["vars"]["B_WEB_QA_RESTORE_SNAPSHOT_ID"]
+            or restored.get("manifest_sha256")
+            != config["vars"]["B_WEB_QA_RESTORE_MANIFEST_SHA256"]
+            or restored.get("deployment") != candidate
+        ):
+            raise ValueError("Fixture restore or hold unconfirmed")
+    except Exception:
+        record({"state": "restore_unverified", "target": TARGETS["qa-fixture"]})
+        raise
+    record({"state": "restore_verified", "target": TARGETS["qa-fixture"]})
+    try:
+        receipt = login(candidate)
+        if (
+            not isinstance(receipt, dict)
+            or set(receipt) != {"authenticated", "deployment"}
+            or receipt.get("authenticated") is not True
+            or receipt.get("deployment") != candidate
+        ):
+            raise ValueError("Fixture login or runtime identity unconfirmed")
+    except Exception:
+        record({"state": "login_unverified", "target": TARGETS["qa-fixture"]})
+        raise
+    record({"state": "login_verified", "target": TARGETS["qa-fixture"]})
+    return namespace
+
+
+def fixture_artifact_files(raw, commit, artifact_sha256):
+    """Validate archive identity/closure; caller must authenticate CI and digest."""
+    if (
+        not isinstance(raw, bytes)
+        or not isinstance(commit, str)
+        or not re.fullmatch(r"[a-f0-9]{40}", commit)
+        or not isinstance(artifact_sha256, str)
+        or not re.fullmatch(r"[a-f0-9]{64}", artifact_sha256)
+        or sha(raw) != artifact_sha256
+    ):
+        raise ValueError("Fixture artifact identity mismatch")
+    files = runtime_files(raw, commit)
+    required = {
+        "worker/bundle-manifest.json",
+        "worker/wrangler.snapshot-qa.jsonc",
+        "worker/python_modules/workers/__init__.py",
+        "worker/python_modules/creator_loop/backend/runtime/database.py",
+        "worker/public/login.html",
+        "worker/public/login.js",
+        "worker/public/style.css",
+        "worker/public/_headers",
+        "worker/public/index.html",
+        "worker/public/app.js",
+        "worker/public/pending.mjs",
+        "worker/public/operator-grant.mjs",
+        "worker/public/intake.mjs",
+        "worker/public/source-review.mjs",
+    }
+    if not required <= files.keys():
+        raise ValueError("Fixture artifact missing required files")
+    try:
+        tree = ast.parse(
+            files["worker/python_modules/creator_loop/backend/runtime/database.py"]
+        )
+        declarations = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "MIGRATIONS"
+                for target in node.targets
+            )
+        ]
+        if len(declarations) != 1:
+            raise ValueError()
+        migrations = ast.literal_eval(declarations[0].value)
+        if (
+            not isinstance(migrations, tuple)
+            or not migrations
+            or any(
+                not isinstance(name, str)
+                or not re.fullmatch(r"[0-9]{4}_[a-z0-9_]+", name)
+                for name in migrations
+            )
+            or len(set(migrations)) != len(migrations)
+        ):
+            raise ValueError()
+        expected_migrations = {
+            "worker/src/migrations/" + name + ".sql" for name in migrations
+        }
+        if expected_migrations != {
+            name for name in files if name.startswith("worker/src/migrations/")
+        }:
+            raise ValueError()
+        bundle = json.loads(files["worker/bundle-manifest.json"])
+        items = bundle["files"]
+        if not isinstance(items, list) or not items:
+            raise ValueError()
+        names = set()
+        for item in items:
+            path = item["path"]
+            if not isinstance(path, str) or path in names:
+                raise ValueError()
+            names.add(path)
+            source = (
+                "worker/src/" if path == "creator_ai.mjs" else "worker/python_modules/"
+            ) + path
+            if source not in files or sha(files[source]) != item["sha256"]:
+                raise ValueError()
+        if "creator_ai.mjs" not in names or "workers/__init__.py" not in names:
+            raise ValueError()
+        bundled = {
+            "worker/python_modules/" + name
+            for name in names
+            if name != "creator_ai.mjs"
+        }
+        if bundled != {
+            name for name in files if name.startswith("worker/python_modules/")
+        }:
+            raise ValueError()
+    except (ValueError, TypeError, KeyError, SyntaxError):
+        raise ValueError("Fixture artifact bundle closure mismatch") from None
+    return files
+
+
+def verify_fixture_artifact_config(files, config):
+    validate_fixture_config(config)
+    try:
+        artifact_config = json.loads(files["worker/wrangler.snapshot-qa.jsonc"])
+        validate_fixture_config(artifact_config)
+        if any(
+            artifact_config[key] != config[key]
+            for key in artifact_config
+            if key != "vars"
+        ) or any(
+            config["vars"].get(key) != value
+            for key, value in artifact_config["vars"].items()
+        ):
+            raise ValueError()
+        if set(artifact_config["vars"]) != {
+            "B_WEB_OBSERVATION_ONLY",
+            "B_WEB_ISOLATED_RESTORE",
+            "B_WEB_QA_READONLY_LOGIN",
+            "B_WEB_QA_SNAPSHOT_EXPORT",
+            "B_WEB_QA_HOSTNAME",
+        }:
+            raise ValueError()
+    except (ValueError, TypeError, KeyError):
+        raise ValueError("Fixture artifact configuration mismatch") from None
+
+
+def verify_fixture_ci_artifact(run, jobs, workflow, listing, wrapper, commit, config):
+    """Verify protected-main CI and GitHub artifact bytes from authenticated reads."""
+    verify_ci(run, jobs, workflow, commit)
+    if (
+        not isinstance(listing, dict)
+        or type(listing.get("total_count")) is not int
+        or not isinstance(listing.get("artifacts"), list)
+        or listing["total_count"] != len(listing["artifacts"])
+    ):
+        raise ValueError("Complete CI artifact listing required")
+    matches = [
+        a
+        for a in listing["artifacts"]
+        if isinstance(a, dict)
+        and a.get("name") == "b-web-runtime"
+        and a.get("expired") is False
+    ]
+    if len(matches) != 1 or not isinstance(wrapper, bytes):
+        raise ValueError("One unexpired CI runtime artifact required")
+    item = matches[0]
+    if (
+        not isinstance(run.get("id"), int)
+        or not isinstance(item.get("workflow_run"), dict)
+        or item["workflow_run"].get("id") != run["id"]
+        or item.get("digest") != "sha256:" + sha(wrapper)
+    ):
+        raise ValueError("CI artifact provenance or digest mismatch")
+    try:
+        with zipfile.ZipFile(io.BytesIO(wrapper)) as outer:
+            if (
+                outer.namelist() != ["b-web-runtime.zip"]
+                or outer.getinfo("b-web-runtime.zip").file_size > 64 * 1024**2
+            ):
+                raise ValueError("Unexpected runtime artifact wrapper")
+            raw = outer.read("b-web-runtime.zip")
+    except (zipfile.BadZipFile, KeyError):
+        raise ValueError("Invalid runtime artifact wrapper") from None
+    digest = sha(raw)
+    files = fixture_artifact_files(raw, commit, digest)
+    verify_fixture_artifact_config(files, config)
+    return raw, digest
+
+
+def read_bounded_process(command, limit, timeout):
+    """Read a process with bounded stdout and process-level timeout; discard stderr."""
+    if (
+        type(limit) is not int
+        or limit <= 0
+        or type(timeout) not in (int, float)
+        or timeout <= 0
+    ):
+        raise ValueError("Invalid process limit")
+    try:
+        process = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        )
+    except OSError:
+        raise RuntimeError("Authenticated GitHub CI read failed") from None
+    chunks, total, errors = [], 0, []
+
+    def read():
+        nonlocal total
+        try:
+            while True:
+                chunk = process.stdout.read(min(65536, limit - total + 1))
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > limit:
+                    errors.append("oversized")
+                    process.kill()
+                    break
+                chunks.append(chunk)
+        except (OSError, ValueError):
+            errors.append("read")
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    try:
+        status = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        reader.join(timeout=5)
+        raise RuntimeError("Authenticated GitHub CI read timed out") from None
+    reader.join(timeout=5)
+    if reader.is_alive() or errors or status != 0:
+        raise RuntimeError("Authenticated GitHub CI read failed or exceeded limit")
+    return b"".join(chunks)
+
+
+def fetch_fixture_ci_artifact(run_id, commit, config):
+    """Read the protected-main run and artifact through the authenticated gh CLI."""
+    if (
+        not isinstance(run_id, str)
+        or not re.fullmatch(r"[0-9]{1,20}", run_id)
+        or not isinstance(commit, str)
+        or not re.fullmatch(r"[a-f0-9]{40}", commit)
+    ):
+        raise ValueError("Exact CI run and source commit required")
+
+    def fetch(path):
+        return read_bounded_process(
+            ["gh", "api", "repos/" + REPO + path], 72 * 1024**2, 45
+        )
+
+    def get_json(path):
+        try:
+            return json.loads(fetch(path))
+        except (TypeError, ValueError):
+            raise ValueError("Invalid GitHub CI metadata") from None
+
+    run = get_json("/actions/runs/" + run_id)
+    jobs = get_json("/actions/runs/" + run_id + "/jobs?per_page=100")
+    workflow = get_json("/actions/workflows/ci.yml")
+    listing = get_json("/actions/runs/" + run_id + "/artifacts?per_page=100")
+    if get_json("/commits/main").get("sha") != commit:
+        raise ValueError("Protected main changed; fixture artifact refused")
+    verify_ci(run, jobs, workflow, commit)
+    if (
+        not isinstance(listing, dict)
+        or type(listing.get("total_count")) is not int
+        or not isinstance(listing.get("artifacts"), list)
+        or listing["total_count"] != len(listing["artifacts"])
+    ):
+        raise ValueError("Complete CI artifact listing required")
+    matches = [
+        a
+        for a in listing["artifacts"]
+        if isinstance(a, dict)
+        and a.get("name") == "b-web-runtime"
+        and a.get("expired") is False
+    ]
+    if (
+        len(matches) != 1
+        or type(matches[0].get("id")) is not int
+        or matches[0]["id"] <= 0
+    ):
+        raise ValueError("One unexpired CI runtime artifact required")
+    wrapper = fetch("/actions/artifacts/" + str(matches[0]["id"]) + "/zip")
+    return verify_fixture_ci_artifact(
+        run, jobs, workflow, listing, wrapper, commit, config
+    )
+
+
+def fixture_cloud_observer(account, headers, config, artifact, commit, artifact_sha256):
+    """Bind immutable artifact inputs before any caller may create a Worker.
+
+    This is not permission/resource proof or a deployment fence.
+    """
+    if not isinstance(account, str) or sha(account.encode()) != ACCOUNT_SHA:
+        raise ValueError("Wrong Cloudflare account")
+    files = fixture_artifact_files(artifact, commit, artifact_sha256)
+    verify_fixture_artifact_config(files, config)
+    config = copy.deepcopy(config)
+    headers = dict(headers)
+
+    def precreate(current_config):
+        if current_config != config:
+            raise ValueError("Fixture configuration changed before creation")
+        verify_fixture_artifact_config(
+            fixture_artifact_files(artifact, commit, artifact_sha256), current_config
+        )
+
+    def observe(candidate, production_id, qa19_id):
+        return observe_fixture_cloud(
+            account,
+            headers,
+            config,
+            production_id,
+            qa19_id,
+            artifact,
+            commit,
+            artifact_sha256,
+            candidate,
+        )
+
+    observe.precreate = precreate
+    return observe
+
+
+def fixture_login_adapter(config, operator_key, password):
+    """Return the fixture-only login callback; caller must first establish the fence."""
+    validate_fixture_config(config)
+    if (
+        not isinstance(operator_key, str)
+        or not operator_key
+        or not isinstance(password, str)
+        or not password
+    ):
+        raise ValueError("Fixture credentials required")
+    origin = "https://" + config["vars"]["B_WEB_QA_HOSTNAME"]
+
+    def login(candidate):
+        if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+            raise ValueError("Exact fixture version required")
+        headers = {
+            "Origin": origin,
+            "Content-Type": "application/json",
+            "X-Operator-Key": operator_key,
+            "X-QA-Expected-Version": candidate,
+        }
+        result, response = read_json(
+            origin + "/api/login", headers, {"password": password}
+        )
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            raise ValueError("Fixture login unconfirmed")
+        cookie = response.get("Set-Cookie", "").split(";", 1)[0]
+        if not re.fullmatch(r"__Host-creator=[a-f0-9]{64}", cookie):
+            raise ValueError("Fixture session unconfirmed")
+        runtime, _ = read_json(origin + "/api/runtime", {**headers, "Cookie": cookie})
+        if not isinstance(runtime, dict) or runtime.get("deployment") != candidate:
+            raise ValueError("Fixture runtime version unconfirmed")
+        return {"authenticated": True, "deployment": candidate}
+
+    return login
+
+
+def inspect_fixture_worker_after_ambiguous_create(account, headers):
+    """Read Worker metadata only; no response authorizes a creation retry."""
+    if not isinstance(account, str) or sha(account.encode()) != ACCOUNT_SHA:
+        raise ValueError("Wrong Cloudflare account")
+    url = (
+        "https://api.cloudflare.com/client/v4/accounts/"
+        + account
+        + "/workers/workers/"
+        + TARGETS["qa-fixture"]
+    )
+    try:
+        body, _ = read_json(url, headers)
+    except RuntimeError as error:
+        if str(error) == "HTTPS operation refused: HTTP404":
+            return {"state": "not_found", "retry_permitted": False}
+        raise
+    result = body.get("result") if isinstance(body, dict) else None
+    if (
+        not isinstance(body, dict)
+        or body.get("success") is not True
+        or not isinstance(result, dict)
+        or result.get("name") != TARGETS["qa-fixture"]
+        or not isinstance(result.get("id"), str)
+        or not result["id"]
+    ):
+        raise ValueError("Fixture Worker metadata unconfirmed")
+    return {"state": "present", "worker_id": result["id"], "retry_permitted": False}
+
+
+def create_fixture_worker_metadata(account, headers, config, reserve_once):
+    """Create the fixed QA Worker shell once; this does not upload or deploy.
+
+    The caller must establish the resource/permission gate before calling and
+    provide a durable reservation shared by every attempt. An ambiguous failure
+    never authorizes another POST, even when metadata returns 404.
+    """
+    validate_fixture_config(config)
+    if not isinstance(account, str) or sha(account.encode()) != ACCOUNT_SHA:
+        raise ValueError("Wrong Cloudflare account")
+    headers = {**headers, "Content-Type": "application/json"}
+    if not callable(reserve_once) or reserve_once() is not True:
+        raise ValueError("Fixture creation already attempted or journal unavailable")
+    url = (
+        "https://api.cloudflare.com/client/v4/accounts/" + account + "/workers/workers"
+    )
+    try:
+        body, _ = read_json(url, headers, {"name": TARGETS["qa-fixture"]})
+        result = body.get("result") if isinstance(body, dict) else None
+        if (
+            not isinstance(body, dict)
+            or body.get("success") is not True
+            or not isinstance(result, dict)
+            or result.get("name") != TARGETS["qa-fixture"]
+            or not isinstance(result.get("id"), str)
+            or not result["id"]
+        ):
+            raise ValueError("Unconfirmed response")
+    except Exception:
+        # A read is diagnostic only: neither 404 nor a matching name proves
+        # the outcome of the interrupted POST or permits an automatic retry.
+        observation = "unavailable"
+        try:
+            observation = inspect_fixture_worker_after_ambiguous_create(
+                account, headers
+            )["state"]
+        except Exception:
+            pass
+        raise RuntimeError(
+            "Fixture creation outcome unknown; metadata="
+            + observation
+            + "; do not retry"
+        ) from None
+    return result["id"]
+
+
+def activate_fixture_worker_version(
+    account, headers, config, candidate, final_check, reserve_once
+):
+    """Submit one fixed-fixture activation after externally established safety gates."""
+    validate_fixture_config(config)
+    if not isinstance(account, str) or sha(account.encode()) != ACCOUNT_SHA:
+        raise ValueError("Wrong Cloudflare account")
+    headers = {**headers, "Content-Type": "application/json"}
+    if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+        raise ValueError("Exact fixture version required")
+    if not callable(final_check) or final_check() is not True:
+        raise ValueError("Fixture activation safety checks unconfirmed")
+    if not callable(reserve_once) or reserve_once() is not True:
+        raise ValueError("Fixture activation already attempted or journal unavailable")
+    url = (
+        "https://api.cloudflare.com/client/v4/accounts/"
+        + account
+        + "/workers/scripts/"
+        + TARGETS["qa-fixture"]
+        + "/deployments"
+    )
+    payload = {
+        "strategy": "percentage",
+        "versions": [{"version_id": candidate, "percentage": 100}],
+        "code_update_strategy": {"mode": "immediate"},
+    }
+    try:
+        body, _ = read_json(url, headers, payload)
+        if (
+            not isinstance(body, dict)
+            or body.get("success") is not True
+            or not isinstance(body.get("result"), dict)
+            or body["result"].get("versions") != payload["versions"]
+        ):
+            raise ValueError("Unconfirmed activation response")
+    except Exception:
+        # A subsequent metadata read is diagnostic only; it is not a fence and
+        # must never authorize another activation after an ambiguous outcome.
+        observed = "unavailable"
+        try:
+            info, _ = read_json(url, headers)
+            if not isinstance(info, dict) or info.get("success") is not True:
+                raise ValueError("Deployment metadata unavailable")
+            versions = info["result"]["deployments"][0]["versions"]
+            observed = (
+                "candidate" if versions == payload["versions"] else "other_or_mixed"
+            )
+        except Exception:
+            pass
+        raise RuntimeError(
+            "Fixture activation outcome unknown; metadata="
+            + observed
+            + "; do not retry"
+        ) from None
+    return candidate
+
+
+def upload_fixture_worker_version(
+    account,
+    headers,
+    config,
+    artifact,
+    commit,
+    artifact_sha256,
+    expected_worker_id,
+    final_check,
+    reserve_once,
+):
+    """Upload a version once; artifact provenance and cloud safety remain caller gates."""
+    if not isinstance(account, str) or sha(account.encode()) != ACCOUNT_SHA:
+        raise ValueError("Wrong Cloudflare account")
+    authorization = headers.get("Authorization") if isinstance(headers, dict) else None
+    if not isinstance(authorization, str) or not re.fullmatch(
+        r"Bearer [^\s]+", authorization
+    ):
+        raise ValueError("One explicit Cloudflare bearer credential required")
+    headers = {"Authorization": authorization}
+    files = fixture_artifact_files(artifact, commit, artifact_sha256)
+    verify_fixture_artifact_config(files, config)
+    observed = inspect_fixture_worker_after_ambiguous_create(account, headers)
+    if (
+        not isinstance(expected_worker_id, str)
+        or not expected_worker_id
+        or observed.get("state") != "present"
+        or observed.get("worker_id") != expected_worker_id
+    ):
+        raise ValueError("Fixture Worker shell not confirmed")
+    if not callable(final_check) or final_check() is not True:
+        raise ValueError("Fixture upload safety checks unconfirmed")
+    if not callable(reserve_once) or reserve_once() is not True:
+        raise ValueError("Fixture upload already attempted or journal unavailable")
+    root = Path(__file__).resolve().parents[1]
+    wrangler = root / "cloudflare/creator-ai/node_modules/wrangler/bin/wrangler.js"
+    try:
+        with tempfile.TemporaryDirectory(prefix="creator-loop-fixture-") as temp:
+            destination = Path(temp)
+            for name, value in files.items():
+                path = destination / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(value)
+            config_path = destination / "worker/wrangler.snapshot-qa.jsonc"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    "node",
+                    str(wrangler),
+                    "versions",
+                    "upload",
+                    "--config",
+                    str(config_path),
+                    "--outdir",
+                    str(destination / "uploaded"),
+                ],
+                cwd=destination / "worker",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=180,
+                env={
+                    **{
+                        key: value
+                        for key, value in os.environ.items()
+                        if not key.upper().startswith(("CLOUDFLARE_", "CF_"))
+                    },
+                    "CLOUDFLARE_ACCOUNT_ID": account,
+                    "CLOUDFLARE_API_TOKEN": authorization[7:],
+                    "WRANGLER_SEND_METRICS": "false",
+                    "WRANGLER_WRITE_LOGS": "false",
+                },
+            )
+            output = result.stdout.decode("utf-8", errors="replace")
+            matches = re.findall(r"Worker Version ID:\s*(" + UUID + r")", output)
+            if result.returncode or len(matches) != 1:
+                raise ValueError("Unconfirmed upload")
+            return matches[0]
+    except Exception:
+        # A list is only diagnostic: concurrent versions cannot establish which
+        # version belongs to this ambiguous attempt or justify automatic retry.
+        observation = "unavailable"
+        try:
+            url = (
+                "https://api.cloudflare.com/client/v4/accounts/"
+                + account
+                + "/workers/scripts/"
+                + TARGETS["qa-fixture"]
+                + "/versions"
+            )
+            value, _ = read_json(url, headers)
+            if isinstance(value, dict) and value.get("success") is True:
+                observation = "available"
+        except Exception:
+            pass
+        raise RuntimeError(
+            "Fixture upload outcome unknown; metadata=" + observation + "; do not retry"
+        ) from None
+
+
+def fixture_upload_reservation(path):
+    """Reserve one fixture upload; no retries across a shared journal."""
+    path = Path(path)
+    if not path.is_absolute() or not path.parent.is_dir():
+        raise ValueError("An absolute durable reservation path is required")
+
+    def reserve():
+        with closing(sqlite3.connect(str(path), timeout=5)) as db, db:
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_upload_attempts (target TEXT PRIMARY KEY NOT NULL)"
+            )
+            try:
+                db.execute(
+                    "INSERT INTO fixture_upload_attempts VALUES (?)",
+                    (TARGETS["qa-fixture"],),
+                )
+            except sqlite3.IntegrityError:
+                return False
+        return True
+
+    return reserve
+
+
+def fixture_activation_reservation(path):
+    """Reserve one fixture activation, independent of create and restore."""
+    path = Path(path)
+    if not path.is_absolute() or not path.parent.is_dir():
+        raise ValueError("An absolute durable reservation path is required")
+
+    def reserve():
+        with closing(sqlite3.connect(str(path), timeout=5)) as db, db:
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_activation_attempts (target TEXT PRIMARY KEY NOT NULL)"
+            )
+            try:
+                db.execute(
+                    "INSERT INTO fixture_activation_attempts VALUES (?)",
+                    (TARGETS["qa-fixture"],),
+                )
+            except sqlite3.IntegrityError:
+                return False
+        return True
+
+    return reserve
+
+
+def fixture_create_reservation(path):
+    """Reserve the one fixture Worker creation in a shared local journal."""
+    path = Path(path)
+    if not path.is_absolute() or not path.parent.is_dir():
+        raise ValueError("An absolute durable reservation path is required")
+
+    def reserve():
+        with closing(sqlite3.connect(str(path), timeout=5)) as db, db:
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_create_attempts (target TEXT PRIMARY KEY NOT NULL)"
+            )
+            try:
+                db.execute(
+                    "INSERT INTO fixture_create_attempts VALUES (?)",
+                    (TARGETS["qa-fixture"],),
+                )
+            except sqlite3.IntegrityError:
+                return False
+        return True
+
+    return reserve
+
+
+def fixture_restore_reservation(path):
+    """Reserve fixture restore attempts across processes sharing this SQLite file.
+
+    The caller must keep this file on durable storage and use the same path for
+    every run. This is not a Cloudflare resource reservation or distributed lock.
+    """
+    path = Path(path)
+    if not path.is_absolute() or not path.parent.is_dir():
+        raise ValueError("An absolute durable reservation path is required")
+
+    def reserve(candidate, target, snapshot, manifest_sha256):
+        if not all(
+            isinstance(value, str) and re.fullmatch(pattern, value)
+            for value, pattern in (
+                (candidate, UUID),
+                (target, r"qa-isolated-restore-[a-f0-9]{32}"),
+                (snapshot, r"[a-f0-9]{32}"),
+                (manifest_sha256, r"[a-f0-9]{64}"),
+            )
+        ):
+            raise ValueError("Invalid fixture reservation identity")
+        # Never store credentials, source materials or user data in this journal.
+        key = sha(json.dumps([target, snapshot], separators=(",", ":")).encode())
+        with closing(sqlite3.connect(str(path), timeout=5)) as db, db:
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_restore_attempts "
+                "(identity TEXT PRIMARY KEY NOT NULL, metadata TEXT NOT NULL)"
+            )
+            try:
+                db.execute(
+                    "INSERT INTO fixture_restore_attempts VALUES (?, ?)",
+                    (key, sha((candidate + manifest_sha256).encode())),
+                )
+            except sqlite3.IntegrityError:
+                return False
+        return True
+
+    return reserve
+
+
+def fixture_restore_adapter(config, operator_key, manifest, reserve_once):
+    """Return a single-attempt fixture restore callback, not a fence or budget proof.
+
+    reserve_once must durably reject prior or ambiguous attempts across runs.
+    The caller must verify deployment/namespace/resource gates before invocation.
+    """
+    validate_fixture_config(config)
+    if (
+        not isinstance(operator_key, str)
+        or not operator_key
+        or not callable(reserve_once)
+    ):
+        raise ValueError("Fixture operator and durable reservation required")
+    config = copy.deepcopy(config)
+    manifest = copy.deepcopy(manifest)
+    identity = config["vars"]
+    encoded = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    if not isinstance(manifest, dict) or sha(encoded) != identity.get(
+        "B_WEB_QA_RESTORE_MANIFEST_SHA256"
+    ):
+        raise ValueError("Fixture restore manifest mismatch")
+    parts = manifest.get("parts")
+    if not isinstance(parts, list) or not 0 < len(parts) <= 384:
+        raise ValueError("Fixture restore parts missing")
+    origin = "https://" + identity["B_WEB_QA_HOSTNAME"]
+    target = identity["B_WEB_QA_RESTORE_OBJECT_NAME"]
+    snapshot = identity["B_WEB_QA_RESTORE_SNAPSHOT_ID"]
+    restore_payload = {
+        "operation": "restore",
+        "snapshot_id": snapshot,
+        "manifest": manifest,
+    }
+    if len(json.dumps(restore_payload).encode()) > 512 * 1024:
+        raise ValueError("Fixture restore request exceeds body limit")
+    attempted = False
+
+    def restore(candidate):
+        nonlocal attempted
+        if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+            raise ValueError("Exact fixture version required")
+        headers = {
+            "Origin": origin,
+            "Content-Type": "application/json",
+            "X-Operator-Key": operator_key,
+            "X-QA-Expected-Version": candidate,
+            "X-QA-Object": "target",
+        }
+
+        def request(payload):
+            result, _ = read_json(origin + "/api/qa-snapshot-staging", headers, payload)
+            if (
+                not isinstance(result, dict)
+                or result.get("qa_object") != target
+                or result.get("qa_deployment") != candidate
+            ):
+                raise ValueError("Fixture object identity unconfirmed")
+            return result
+
+        result = request({"operation": "status", "snapshot_id": snapshot})
+        if result.get("restored") is not True:
+            if (
+                result.get("restored") is not False
+                or type(result.get("staged_parts")) is not int
+                or result["staged_parts"] != len(parts)
+            ):
+                raise ValueError("Fixture staged parts incomplete or status unknown")
+            if attempted:
+                raise ValueError("Prior restore outcome unknown; no retry")
+            attempted = True
+            if (
+                reserve_once(
+                    candidate,
+                    target,
+                    snapshot,
+                    identity["B_WEB_QA_RESTORE_MANIFEST_SHA256"],
+                )
+                is not True
+            ):
+                raise ValueError("Fixture restore reservation unconfirmed")
+            result = request(restore_payload)
+        if (
+            result.get("restored") is not True
+            or result.get("jobs_held") is not True
+            or result.get("alarm_restored") is not False
+        ):
+            raise ValueError("Fixture held restore unconfirmed")
+        return {
+            "restored": True,
+            "jobs_held": True,
+            "alarm_restored": False,
+            "target": target,
+            "snapshot_id": snapshot,
+            "manifest_sha256": identity["B_WEB_QA_RESTORE_MANIFEST_SHA256"],
+            "deployment": candidate,
+        }
+
+    return restore
+
+
+def fixture_capture_reservation(path, snapshot):
+    path = Path(path)
+    if (
+        not path.is_absolute()
+        or not path.parent.is_dir()
+        or not isinstance(snapshot, str)
+        or not re.fullmatch(r"[a-f0-9]{32}", snapshot)
+    ):
+        raise ValueError("Invalid fixture capture journal identity")
+
+    def reserve():
+        with closing(sqlite3.connect(str(path), timeout=5)) as db, db:
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_capture_attempts (snapshot TEXT PRIMARY KEY NOT NULL)"
+            )
+            try:
+                db.execute(
+                    "INSERT INTO fixture_capture_attempts VALUES (?)", (snapshot,)
+                )
+            except sqlite3.IntegrityError:
+                return False
+        return True
+
+    return reserve
+
+
+def fixture_seed_capture_adapter(
+    config,
+    operator_key,
+    seed_manifest,
+    seed_parts,
+    revision,
+    checkpoint_sha256,
+    reserve_restore,
+    reserve_capture,
+):
+    """Seed a fixed fixture source and capture once; caller must establish QA safety."""
+    validate_fixture_config(config)
+    if (
+        not isinstance(operator_key, str)
+        or not operator_key
+        or not isinstance(seed_manifest, dict)
+        or not isinstance(seed_parts, (list, tuple))
+        or type(revision) is not int
+        or revision < 0
+        or not isinstance(checkpoint_sha256, str)
+        or not re.fullmatch(r"[a-f0-9]{64}", checkpoint_sha256)
+        or not callable(reserve_restore)
+        or not callable(reserve_capture)
+    ):
+        raise ValueError("Invalid fixture seed inputs")
+    config, seed_manifest, seed_parts = (
+        copy.deepcopy(config),
+        copy.deepcopy(seed_manifest),
+        tuple(seed_parts),
+    )
+    values = config["vars"]
+    digest = sha(
+        json.dumps(
+            seed_manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()
+    )
+    parts = seed_manifest.get("parts")
+    if (
+        digest != values.get("B_WEB_QA_SOURCE_MANIFEST_SHA256")
+        or not isinstance(parts, list)
+        or not 0 < len(parts) == len(seed_parts) <= 384
+    ):
+        raise ValueError("Fixture seed manifest mismatch")
+    for metadata, raw in zip(parts, seed_parts):
+        if (
+            not isinstance(metadata, dict)
+            or not isinstance(raw, bytes)
+            or not 0 < len(raw) <= 262144
+            or type(metadata.get("bytes")) is not int
+            or metadata["bytes"] != len(raw)
+            or metadata.get("sha256") != sha(raw)
+        ):
+            raise ValueError("Fixture seed part mismatch")
+    origin = "https://" + values["B_WEB_QA_HOSTNAME"]
+    source = values["B_WEB_QA_SOURCE_OBJECT_NAME"]
+    snapshot = values["B_WEB_QA_SOURCE_SNAPSHOT_ID"]
+    export = values["B_WEB_QA_EXPORT_SNAPSHOT_ID"]
+
+    def seed(candidate):
+        if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+            raise ValueError("Exact fixture version required")
+        headers = {
+            "Origin": origin,
+            "Content-Type": "application/json",
+            "X-Operator-Key": operator_key,
+            "X-QA-Expected-Version": candidate,
+            "X-QA-Object": "source",
+        }
+
+        def request(route, payload):
+            result, _ = read_json(origin + route, headers, payload)
+            if (
+                not isinstance(result, dict)
+                or result.get("qa_object") != source
+                or result.get("qa_deployment") != candidate
+            ):
+                raise ValueError("Fixture source identity unconfirmed")
+            return result
+
+        def pinned_manifest():
+            result = request(
+                "/api/qa-snapshot-export",
+                {"operation": "manifest", "snapshot_id": export},
+            )
+            manifest = result.get("manifest")
+            if (
+                not isinstance(manifest, dict)
+                or sha(
+                    json.dumps(
+                        manifest,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                    ).encode()
+                )
+                != values["B_WEB_QA_RESTORE_MANIFEST_SHA256"]
+            ):
+                raise ValueError("Captured fixture manifest mismatch")
+            return manifest
+
+        state = request(
+            "/api/qa-snapshot-staging", {"operation": "status", "snapshot_id": snapshot}
+        )
+        if state.get("restored") is False:
+            for position, raw in enumerate(seed_parts):
+                response = request(
+                    "/api/qa-snapshot-staging",
+                    {
+                        "operation": "put",
+                        "snapshot_id": snapshot,
+                        "position": position,
+                        "sha256": sha(raw),
+                        "content_base64": base64.b64encode(raw).decode(),
+                    },
+                )
+                if (
+                    response.get("stored") is not True
+                    or type(response.get("duplicate")) is not bool
+                ):
+                    raise ValueError("Fixture seed part unconfirmed")
+            if reserve_restore(candidate, source, snapshot, digest) is not True:
+                raise ValueError(
+                    "Fixture seed restore already attempted; inspect status"
+                )
+            state = request(
+                "/api/qa-snapshot-staging",
+                {
+                    "operation": "restore",
+                    "snapshot_id": snapshot,
+                    "manifest": seed_manifest,
+                },
+            )
+        if (
+            state.get("restored") is not True
+            or state.get("jobs_held") is not True
+            or state.get("alarm_restored") is not False
+        ):
+            raise ValueError("Fixture source restore unconfirmed")
+        if reserve_capture() is not True:
+            return pinned_manifest()
+        try:
+            result = request(
+                "/api/qa-snapshot-export",
+                {
+                    "operation": "capture",
+                    "snapshot_id": export,
+                    "revision": revision,
+                    "checkpoint_sha256": checkpoint_sha256,
+                },
+            )
+        except Exception:
+            try:
+                return pinned_manifest()
+            except Exception:
+                raise RuntimeError(
+                    "Fixture capture outcome unknown; do not retry"
+                ) from None
+        captured = result.get("manifest")
+        if (
+            not isinstance(captured, dict)
+            or sha(
+                json.dumps(
+                    captured, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                ).encode()
+            )
+            != values["B_WEB_QA_RESTORE_MANIFEST_SHA256"]
+        ):
+            raise ValueError("Captured fixture manifest mismatch")
+        return captured
+
+    return seed
+
+
+def fixture_transfer_adapter(config, operator_key, manifest):
+    """Transfer verified pinned fixture parts; caller must establish the cloud fence."""
+    validate_fixture_config(config)
+    if (
+        not isinstance(operator_key, str)
+        or not operator_key
+        or not isinstance(manifest, dict)
+    ):
+        raise ValueError("Fixture transfer inputs missing")
+    config, manifest = copy.deepcopy(config), copy.deepcopy(manifest)
+    values = config["vars"]
+    encoded = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    if sha(encoded) != values.get("B_WEB_QA_RESTORE_MANIFEST_SHA256"):
+        raise ValueError("Fixture transfer manifest mismatch")
+    parts = manifest.get("parts")
+    if not isinstance(parts, list) or not 0 < len(parts) <= 384:
+        raise ValueError("Fixture transfer parts missing")
+    origin = "https://" + values["B_WEB_QA_HOSTNAME"]
+
+    def transfer(candidate):
+        if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+            raise ValueError("Exact fixture version required")
+
+        def request(role, route, payload):
+            headers = {
+                "Origin": origin,
+                "Content-Type": "application/json",
+                "X-Operator-Key": operator_key,
+                "X-QA-Expected-Version": candidate,
+                "X-QA-Object": role,
+            }
+            result, _ = read_json(origin + route, headers, payload)
+            name = values[
+                "B_WEB_QA_SOURCE_OBJECT_NAME"
+                if role == "source"
+                else "B_WEB_QA_RESTORE_OBJECT_NAME"
+            ]
+            if (
+                not isinstance(result, dict)
+                or result.get("qa_object") != name
+                or result.get("qa_deployment") != candidate
+            ):
+                raise ValueError("Fixture transfer object identity unconfirmed")
+            return result
+
+        state = request(
+            "target",
+            "/api/qa-snapshot-staging",
+            {
+                "operation": "status",
+                "snapshot_id": values["B_WEB_QA_RESTORE_SNAPSHOT_ID"],
+            },
+        )
+        if state.get("restored") is True:
+            return 0  # restore adapter independently checks the receipt and hold
+        if state.get("restored") is not False:
+            raise ValueError("Fixture target restore status unknown")
+        source_id = values["B_WEB_QA_EXPORT_SNAPSHOT_ID"]
+        remote = request(
+            "source",
+            "/api/qa-snapshot-export",
+            {"operation": "manifest", "snapshot_id": source_id},
+        )
+        if remote.get("manifest") != manifest:
+            raise ValueError("Fixture export manifest differs")
+        for position, item in enumerate(parts):
+            if (
+                not isinstance(item, dict)
+                or type(item.get("bytes")) is not int
+                or not 0 < item["bytes"] <= 262144
+                or not isinstance(item.get("sha256"), str)
+                or not re.fullmatch(r"[a-f0-9]{64}", item["sha256"])
+            ):
+                raise ValueError("Invalid fixture part metadata")
+            part = request(
+                "source",
+                "/api/qa-snapshot-export",
+                {"operation": "part", "snapshot_id": source_id, "position": position},
+            )
+            try:
+                content = part["content_base64"]
+                if not isinstance(content, str) or len(content) > 349528:
+                    raise ValueError()
+                raw = base64.b64decode(content, validate=True)
+                if (
+                    part.get("position") != position
+                    or part.get("sha256") != item["sha256"]
+                    or len(raw) != item["bytes"]
+                    or sha(raw) != item["sha256"]
+                ):
+                    raise ValueError()
+            except (KeyError, TypeError, ValueError):
+                raise ValueError("Fixture export part mismatch") from None
+            stored = request(
+                "target",
+                "/api/qa-snapshot-staging",
+                {
+                    "operation": "put",
+                    "snapshot_id": values["B_WEB_QA_RESTORE_SNAPSHOT_ID"],
+                    "position": position,
+                    "sha256": item["sha256"],
+                    "content_base64": content,
+                },
+            )
+            if (
+                stored.get("stored") is not True
+                or type(stored.get("duplicate")) is not bool
+            ):
+                raise ValueError("Fixture staging receipt unconfirmed")
+        return len(parts)
+
+    return transfer
+
+
+def fixture_bootstrap_with_adapters(
+    preflight,
+    create,
+    observe,
+    record,
+    config,
+    operator_key,
+    password,
+    manifest,
+    journal,
+):
+    """Wire the fixture restore/login adapters; callers still establish all gates.
+
+    This does not supply a real create adapter or make the bootstrap cloud-safe.
+    The journal must be the same protected durable file across all attempts.
+    """
+    reserve_create = fixture_create_reservation(journal)
+    restore = fixture_restore_adapter(
+        config, operator_key, manifest, fixture_restore_reservation(journal)
+    )
+    transfer = fixture_transfer_adapter(config, operator_key, manifest)
+    login = fixture_login_adapter(config, operator_key, password)
+
+    def create_once(current_config):
+        if reserve_create() is not True:
+            raise ValueError(
+                "Prior fixture creation attempt; inspect metadata, do not retry"
+            )
+        return create(current_config)
+
+    def transfer_restore(candidate):
+        transfer(candidate)
+        return restore(candidate)
+
+    return fixture_bootstrap_sequence(
+        preflight, create_once, observe, transfer_restore, login, record, config
+    )
+
+
+def fixture_phase_journal(path, binding):
+    """Persist confirmed fixture identifiers; ambiguous mutations remain reserved."""
+    path = Path(path)
+    if (
+        not path.is_absolute()
+        or not path.parent.is_dir()
+        or not isinstance(binding, str)
+        or not re.fullmatch(r"[a-f0-9]{64}", binding)
+    ):
+        raise ValueError("A bound durable fixture journal is required")
+
+    def access(phase, value=None):
+        if phase not in ("worker", "candidate", "activation"):
+            raise ValueError("Unknown fixture phase")
+        if value is not None and (
+            not isinstance(value, str)
+            or not value
+            or len(value) > 128
+            or (phase != "worker" and not re.fullmatch(UUID, value))
+        ):
+            raise ValueError("Invalid confirmed fixture identifier")
+        with closing(sqlite3.connect(str(path), timeout=5)) as db, db:
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_phase_binding (id INTEGER PRIMARY KEY CHECK(id=1), digest TEXT NOT NULL)"
+            )
+            db.execute(
+                "INSERT OR IGNORE INTO fixture_phase_binding VALUES(1,?)", (binding,)
+            )
+            if db.execute(
+                "SELECT digest FROM fixture_phase_binding WHERE id=1"
+            ).fetchone() != (binding,):
+                raise ValueError("Fixture journal belongs to another configuration")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_phases (phase TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)"
+            )
+            if value is not None:
+                db.execute(
+                    "INSERT OR IGNORE INTO fixture_phases VALUES(?,?)", (phase, value)
+                )
+            row = db.execute(
+                "SELECT value FROM fixture_phases WHERE phase=?", (phase,)
+            ).fetchone()
+            if value is not None and row != (value,):
+                raise ValueError("Fixture phase result changed")
+            return row[0] if row else None
+
+    return access
+
+
+def fixture_bootstrap_cloud(
+    account,
+    headers,
+    config,
+    artifact,
+    commit,
+    artifact_sha256,
+    journal,
+    preflight,
+    upload_check,
+    activation_check,
+    record,
+    operator_key,
+    password,
+    manifest,
+    seed_spec=None,
+):
+    """Compose real adapters; callers must supply independent, current safety gates.
+
+    This helper is not exposed by main. Observer still fails closed until a
+    deployment fence and relevant asset proof exist. The same protected journal
+    is mandatory for every process; retries after ambiguous mutations are refused.
+    """
+    authorization = headers.get("Authorization") if isinstance(headers, dict) else None
+    if not isinstance(authorization, str) or not re.fullmatch(
+        r"Bearer [^\s]+", authorization
+    ):
+        raise ValueError("One explicit Cloudflare bearer credential required")
+    headers = {"Authorization": authorization}
+    journal_binding = sha(
+        json.dumps(
+            {
+                "account": ACCOUNT_SHA,
+                "config": config,
+                "commit": commit,
+                "artifact": artifact_sha256,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode()
+    )
+    phase = fixture_phase_journal(journal, journal_binding)
+    observer = fixture_cloud_observer(
+        account, headers, config, artifact, commit, artifact_sha256
+    )
+    frozen = copy.deepcopy(config)
+    restore = fixture_restore_adapter(
+        frozen, operator_key, manifest, fixture_restore_reservation(journal)
+    )
+    transfer = fixture_transfer_adapter(frozen, operator_key, manifest)
+    login = fixture_login_adapter(frozen, operator_key, password)
+    seed = None
+    if seed_spec is not None:
+        if not isinstance(seed_spec, dict) or set(seed_spec) != {
+            "manifest",
+            "parts",
+            "revision",
+            "checkpoint_sha256",
+        }:
+            raise ValueError("Invalid fixture seed specification")
+        seed = fixture_seed_capture_adapter(
+            frozen,
+            operator_key,
+            seed_spec["manifest"],
+            seed_spec["parts"],
+            seed_spec["revision"],
+            seed_spec["checkpoint_sha256"],
+            fixture_restore_reservation(journal),
+            fixture_capture_reservation(
+                journal, frozen["vars"]["B_WEB_QA_EXPORT_SNAPSHOT_ID"]
+            ),
+        )
+
+    def create(current_config):
+        if current_config != frozen:
+            raise ValueError("Fixture configuration changed")
+        worker_id = phase("worker")
+        if worker_id is None:
+            worker_id = create_fixture_worker_metadata(
+                account, headers, frozen, fixture_create_reservation(journal)
+            )
+            phase("worker", worker_id)
+        else:
+            observed = inspect_fixture_worker_after_ambiguous_create(account, headers)
+            if (
+                observed.get("state") != "present"
+                or observed.get("worker_id") != worker_id
+            ):
+                raise ValueError("Saved fixture Worker identity unconfirmed")
+        candidate = phase("candidate")
+        if candidate is None:
+            candidate = upload_fixture_worker_version(
+                account,
+                headers,
+                frozen,
+                artifact,
+                commit,
+                artifact_sha256,
+                worker_id,
+                upload_check,
+                fixture_upload_reservation(journal),
+            )
+            phase("candidate", candidate)
+        if not callable(activation_check):
+            raise ValueError("Fixture candidate verification missing")
+        active = phase("activation")
+        if active is not None:
+            if active != candidate or activation_check(candidate) is not True:
+                raise ValueError("Saved fixture activation unconfirmed")
+            url = (
+                "https://api.cloudflare.com/client/v4/accounts/"
+                + account
+                + "/workers/scripts/"
+                + TARGETS["qa-fixture"]
+                + "/deployments"
+            )
+            info, _ = read_json(url, headers)
+            if (
+                not isinstance(info, dict)
+                or info.get("success") is not True
+                or info.get("result", {}).get("deployments", [{}])[0].get("versions")
+                != [{"version_id": candidate, "percentage": 100}]
+            ):
+                raise ValueError("Saved fixture deployment changed")
+            return candidate
+        active = activate_fixture_worker_version(
+            account,
+            headers,
+            frozen,
+            candidate,
+            lambda: activation_check(candidate),
+            fixture_activation_reservation(journal),
+        )
+        phase("activation", active)
+        return active
+
+    def transfer_restore(candidate):
+        if seed is not None and seed(candidate) != manifest:
+            raise ValueError("Captured fixture differs from pinned target")
+        transfer(candidate)
+        return restore(candidate)
+
+    return fixture_bootstrap_sequence(
+        preflight, create, observer, transfer_restore, login, record, frozen
+    )
+
+
+def fixture_bootstrap_from_ci(
+    account,
+    headers,
+    config,
+    ci_run,
+    commit,
+    journal,
+    preflight,
+    upload_check,
+    activation_check,
+    record,
+    operator_key,
+    password,
+    manifest,
+    seed_spec=None,
+):
+    """Bind the bootstrap to authenticated protected-main CI before any mutation.
+
+    Other gates are independently required and main remains fail-closed.
+    """
+    artifact, digest = fetch_fixture_ci_artifact(ci_run, commit, config)
+    return fixture_bootstrap_cloud(
+        account,
+        headers,
+        config,
+        artifact,
+        commit,
+        digest,
+        journal,
+        preflight,
+        upload_check,
+        activation_check,
+        record,
+        operator_key,
+        password,
+        manifest,
+        seed_spec,
+    )
+
+
+def observe_fixture_cloud(
+    account,
+    headers,
+    config,
+    production_id,
+    qa19_id,
+    artifact,
+    commit,
+    artifact_sha256,
+    candidate,
+):
+    """Read management metadata and module bytes; never call the Worker or DO."""
+    if not isinstance(account, str) or sha(account.encode()) != ACCOUNT_SHA:
+        raise ValueError("Wrong Cloudflare account")
+    if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+        raise ValueError("Exact fixture version required")
+    files = fixture_artifact_files(artifact, commit, artifact_sha256)
+    verify_fixture_artifact_config(files, config)
+    api = "https://api.cloudflare.com/client/v4/accounts/" + account
+    script = "/workers/scripts/" + TARGETS["qa-fixture"]
+    deployment_path = api + script + "/deployments"
+    first, _ = read_json(deployment_path, headers)
+    expected = [{"version_id": candidate, "percentage": 100}]
+    if (
+        not isinstance(first, dict)
+        or first.get("success") is not True
+        or not isinstance(first.get("result"), dict)
+        or not first["result"].get("deployments")
+        or first["result"]["deployments"][0].get("versions") != expected
+    ):
+        raise ValueError("Fixture candidate is not receiving all traffic")
+    version, _ = read_json(
+        api
+        + "/workers/workers/"
+        + TARGETS["qa-fixture"]
+        + "/versions/"
+        + candidate
+        + "?include=modules",
+        headers,
+    )
+    namespaces, _ = read_json(
+        api + "/workers/durable_objects/namespaces?per_page=100&page=1", headers
+    )
+    if (
+        not isinstance(version, dict)
+        or version.get("success") is not True
+        or not isinstance(version.get("result"), dict)
+        or version["result"].get("id") != candidate
+    ):
+        raise ValueError("Fixture version metadata unavailable")
+    verified = version["result"]
+    verify_fixture_namespace_ownership(
+        verified, config, production_id, qa19_id, namespaces
+    )
+    if verified.get("compatibility_date") != config["compatibility_date"] or sorted(
+        verified.get("compatibility_flags", [])
+    ) != sorted(config["compatibility_flags"]):
+        raise ValueError("Fixture runtime compatibility mismatch")
+    expected_modules = {}
+    for name, body in files.items():
+        if name.startswith("worker/python_modules/"):
+            module_name = name[len("worker/") :]
+        elif name.startswith("worker/src/"):
+            module_name = name[len("worker/src/") :]
+        else:
+            continue
+        if module_name in expected_modules or not isinstance(body, bytes):
+            raise ValueError("Ambiguous or invalid artifact module")
+        # Wrangler 4.150.0 findAdditionalModules: vendored files are Data,
+        # except JS in workers/; the Python entry and configured ESModule /
+        # default SQL Text rules have distinct content types.
+        if module_name.startswith("python_modules/"):
+            vendor = module_name[len("python_modules/") :]
+            kind = (
+                "application/javascript+module"
+                if vendor.startswith("workers/") and vendor.endswith((".js", ".mjs"))
+                else "application/octet-stream"
+            )
+        elif module_name == "entry.py":
+            kind = "text/x-python"
+        elif module_name.endswith(".mjs"):
+            kind = "application/javascript+module"
+        elif module_name.endswith(".sql"):
+            kind = "text/plain"
+        else:
+            raise ValueError("Unsupported fixture module type")
+        expected_modules[module_name] = (body, kind)
+    modules = verified.get("modules")
+    if not expected_modules or not isinstance(modules, list):
+        raise ValueError("Version-bound modules missing")
+    actual = {}
+    for module in modules:
+        if not isinstance(module, dict) or module.get("name") in actual:
+            raise ValueError("Invalid version-bound module")
+        name = module.get("name")
+        if name not in expected_modules:
+            raise ValueError("Unexpected version-bound module")
+        if module.get("content_type") != expected_modules[name][1]:
+            raise ValueError("Version-bound module content type mismatch")
+        try:
+            actual[name] = base64.b64decode(module["content_base64"], validate=True)
+        except (ValueError, TypeError, KeyError):
+            raise ValueError("Invalid version-bound module encoding") from None
+    if actual != {name: value[0] for name, value in expected_modules.items()}:
+        raise ValueError("Version-bound modules differ from artifact")
+    final, _ = read_json(deployment_path, headers)
+    if final != first:
+        raise ValueError("Fixture deployment changed during observation")
+    # Management reads cannot provide an atomic fence against later updates,
+    # and static asset bytes are not verified by the modules response.
+    raise ValueError("Fixture fence and static asset proof unavailable")
+
+
 def sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
+
+
+def require_legacy_qa_fence() -> None:
+    """No external fence for the old QA19 constructor/alarm is proven yet."""
+    raise ValueError("QA19 preflight unavailable: old runtime quiescence unproven")
 
 
 def read_included_usage(account: str, headers: dict, start: str, end: str) -> dict:
@@ -318,6 +2112,16 @@ def static_header_policy(files):
     return headers
 
 
+def require_idle_jobs(state):
+    # The UI list is capped and excludes diagnostic jobs. Never infer global
+    # quiescence from it; older runtimes lack this exhaustive count and fail closed.
+    count = state.get("active_job_count")
+    if type(count) is not int or count != 0:
+        raise ValueError(
+            "Complete active job count unavailable or nonzero; no deployment"
+        )
+
+
 def activate_once(final_check, create_deployment, current_id, version, record_attempt):
     state = final_check()
     record_attempt(version)
@@ -451,6 +2255,24 @@ def main():
         UUID, expected
     ):
         raise ValueError("Explicit operation and current deployment needed")
+    if target == "production":
+        # The installed production DO can rearm work upon any cold request.
+        # Its capped state response also cannot prove a queue fence. Refuse
+        # before login/state until a reviewed non-activating observation and
+        # quiescence mechanism are available; do not bypass via a flag.
+        raise ValueError(
+            "Production preflight unavailable: non-activating job observation and quiescence required"
+        )
+    if target == "qa19":
+        # The currently deployed QA19 runtime can rearm old work on login.
+        # Resource totals, an empty recent-jobs page, or a config flag cannot
+        # establish that its old alarms and in-flight invocations are fenced.
+        require_legacy_qa_fence()
+    if target == "qa-fixture":
+        # This target is deliberately distinct, but the bootstrap path must
+        # establish fresh namespace ownership, resource proof and credentials
+        # before it can create a Worker. Never reuse QA19's bootstrap route.
+        raise ValueError("Isolated QA bootstrap is not yet verified")
 
     def gh(*args):
         return subprocess.check_output(["gh", *args], timeout=180)
@@ -574,43 +2396,6 @@ def main():
     compatible_bindings(previous_version, previous_version)
     if cloud("/workers/account-settings")["default_usage_model"] != "standard":
         raise ValueError("Purchased standard plan configuration changed")
-    origin = "https://" + worker + ".creator-loop-ai-beta.workers.dev"
-    password = os.environ[
-        "B_WEB_QA19_PASSWORD" if target == "qa19" else "B_WEB_QA_PASSWORD"
-    ]
-    if not password:
-        raise ValueError(
-            "Target-specific login credential missing; never fall back to another target"
-        )
-    _, response_headers = read_json(
-        origin + "/api/login",
-        {"Origin": origin, "Content-Type": "application/json"},
-        {"password": password},
-    )
-    cookie = response_headers["Set-Cookie"].split(";", 1)[0]
-    if not cookie.startswith("__Host-creator="):
-        raise ValueError("Expected private session")
-
-    def app(path):
-        return read_json(origin + path, {"Cookie": cookie})[0]
-
-    before = app("/api/state")
-    if any(j["status"] in ("QUEUED", "RUNNING") for j in before["jobs"]):
-        raise ValueError("Active job; no deployment")
-
-    def final_preconditions():
-        # Upload/build can take minutes. No traffic mutation occurs until these
-        # fresh reads. CF activation has no CAS; this is not atomic quiescence.
-        if github("/commits/main")["sha"] != commit or current_id() != expected:
-            raise ValueError(
-                "Main/deployment changed; inactive candidate not activated"
-            )
-        compatible_bindings(previous_version, cloud(script + "/versions/" + expected))
-        state = app("/api/state")
-        if any(j["status"] in ("QUEUED", "RUNNING") for j in state["jobs"]):
-            raise ValueError("Active job before activation; no traffic mutation")
-        return state
-
     # The operator supplies only an already-observed included-resource proof.
     # Re-read relevant account usage here; never rely on its age/value alone.
     from datetime import datetime, timedelta, timezone
@@ -637,6 +2422,41 @@ def main():
         and sum(s["max"]["storedBytes"] for s in storage) + 512 * 1024**2 < 5 * 1024**3
     ):
         raise ValueError("Included-resource guard closed")
+    origin = "https://" + worker + ".creator-loop-ai-beta.workers.dev"
+    password = os.environ[
+        "B_WEB_QA19_PASSWORD" if target == "qa19" else "B_WEB_QA_PASSWORD"
+    ]
+    if not password:
+        raise ValueError(
+            "Target-specific login credential missing; never fall back to another target"
+        )
+    _, response_headers = read_json(
+        origin + "/api/login",
+        {"Origin": origin, "Content-Type": "application/json"},
+        {"password": password},
+    )
+    cookie = response_headers["Set-Cookie"].split(";", 1)[0]
+    if not cookie.startswith("__Host-creator="):
+        raise ValueError("Expected private session")
+
+    def app(path):
+        return read_json(origin + path, {"Cookie": cookie})[0]
+
+    before = app("/api/state")
+    require_idle_jobs(before)
+
+    def final_preconditions():
+        # Upload/build can take minutes. No traffic mutation occurs until these
+        # fresh reads. CF activation has no CAS; this is not atomic quiescence.
+        if github("/commits/main")["sha"] != commit or current_id() != expected:
+            raise ValueError(
+                "Main/deployment changed; inactive candidate not activated"
+            )
+        compatible_bindings(previous_version, cloud(script + "/versions/" + expected))
+        state = app("/api/state")
+        require_idle_jobs(state)
+        return state
+
     record = {
         "execution": "live",
         "provider": "cloudflare",
