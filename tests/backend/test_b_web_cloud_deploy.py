@@ -36,6 +36,193 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_fixture_bootstrap_from_ci_refuses_before_cloud_when_artifact_invalid(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_from_ci
+
+        args = (
+            "account",
+            {},
+            {},
+            "42",
+            "a" * 40,
+            Path("journal.sqlite"),
+            lambda _: None,
+            lambda: True,
+            lambda _: True,
+            lambda _: None,
+            "operator",
+            "password",
+            {},
+        )
+        with (
+            patch(
+                "scripts.b_web_cloud_deploy.fetch_fixture_ci_artifact",
+                side_effect=ValueError("bad artifact"),
+            ),
+            patch("scripts.b_web_cloud_deploy.fixture_bootstrap_cloud") as cloud,
+        ):
+            with self.assertRaisesRegex(ValueError, "bad artifact"):
+                fixture_bootstrap_from_ci(*args)
+            cloud.assert_not_called()
+        with (
+            patch(
+                "scripts.b_web_cloud_deploy.fetch_fixture_ci_artifact",
+                return_value=(b"artifact", "digest"),
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_bootstrap_cloud",
+                return_value="namespace",
+            ) as cloud,
+        ):
+            self.assertEqual(fixture_bootstrap_from_ci(*args), "namespace")
+            self.assertEqual(
+                cloud.call_args.args[3:6], (b"artifact", "a" * 40, "digest")
+            )
+
+    def test_fetch_fixture_ci_artifact_uses_authenticated_run_and_current_main(self):
+        from scripts.b_web_cloud_deploy import fetch_fixture_ci_artifact
+
+        commit = "a" * 40
+        run = {
+            "id": 42,
+            "head_sha": commit,
+            "head_branch": "main",
+            "event": "push",
+            "workflow_id": 9,
+            "status": "completed",
+            "conclusion": "success",
+            "repository": {"full_name": REPO},
+        }
+        jobs = {
+            "total_count": len(CHECKS),
+            "jobs": [{"name": name, "conclusion": "success"} for name in CHECKS],
+        }
+        listing = {
+            "total_count": 1,
+            "artifacts": [{"id": 13, "name": "b-web-runtime", "expired": False}],
+        }
+        responses = [run, jobs, {"id": 9}, listing, {"sha": commit}]
+
+        def transport(command, limit, timeout):
+            self.assertEqual(command[:2], ["gh", "api"])
+            self.assertEqual((limit, timeout), (72 * 1024**2, 45))
+            path = command[2]
+            if path.endswith("/actions/artifacts/13/zip"):
+                return b"wrapper"
+            return json.dumps(responses.pop(0)).encode()
+
+        with (
+            patch(
+                "scripts.b_web_cloud_deploy.read_bounded_process", side_effect=transport
+            ) as call,
+            patch(
+                "scripts.b_web_cloud_deploy.verify_fixture_ci_artifact",
+                return_value=(b"runtime", "digest"),
+            ) as verify,
+        ):
+            self.assertEqual(
+                fetch_fixture_ci_artifact("42", commit, {}), (b"runtime", "digest")
+            )
+            self.assertEqual(call.call_count, 6)
+            self.assertEqual(
+                verify.call_args.args[:5], (run, jobs, {"id": 9}, listing, b"wrapper")
+            )
+        with (
+            patch("scripts.b_web_cloud_deploy.read_bounded_process") as call,
+            self.assertRaises(ValueError),
+        ):
+            fetch_fixture_ci_artifact("../../bad", commit, {})
+        call.assert_not_called()
+
+    def test_bounded_process_limits_output_and_timeout(self):
+        from scripts.b_web_cloud_deploy import read_bounded_process
+
+        self.assertEqual(
+            read_bounded_process(
+                [sys.executable, "-c", "print('ok')"], 128, 10
+            ).strip(),
+            b"ok",
+        )
+        with self.assertRaisesRegex(RuntimeError, "exceeded limit"):
+            read_bounded_process([sys.executable, "-c", "print('x'*10000)"], 100, 10)
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            read_bounded_process(
+                [sys.executable, "-c", "import time; time.sleep(10)"], 100, 0.3
+            )
+
+    def test_fixture_ci_artifact_requires_main_run_and_matching_digest(self):
+        from scripts.b_web_cloud_deploy import verify_fixture_ci_artifact
+
+        commit = "a" * 40
+        run = {
+            "id": 42,
+            "head_sha": commit,
+            "head_branch": "main",
+            "event": "push",
+            "workflow_id": 9,
+            "status": "completed",
+            "conclusion": "success",
+            "repository": {"full_name": REPO},
+        }
+        jobs = {
+            "total_count": len(CHECKS),
+            "jobs": [{"name": name, "conclusion": "success"} for name in CHECKS],
+        }
+        workflow = {"id": 9}
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("b-web-runtime.zip", b"trusted-runtime")
+        wrapper = buffer.getvalue()
+        listing = {
+            "total_count": 1,
+            "artifacts": [
+                {
+                    "name": "b-web-runtime",
+                    "expired": False,
+                    "workflow_run": {"id": 42},
+                    "digest": "sha256:" + hashlib.sha256(wrapper).hexdigest(),
+                }
+            ],
+        }
+        with (
+            patch("scripts.b_web_cloud_deploy.fixture_artifact_files", return_value={}),
+            patch("scripts.b_web_cloud_deploy.verify_fixture_artifact_config"),
+        ):
+            raw, digest = verify_fixture_ci_artifact(
+                run, jobs, workflow, listing, wrapper, commit, {}
+            )
+            self.assertEqual(raw, b"trusted-runtime")
+            self.assertEqual(digest, hashlib.sha256(raw).hexdigest())
+            for changed in (
+                {**listing, "total_count": 2},
+                {
+                    "total_count": 1,
+                    "artifacts": [
+                        {**listing["artifacts"][0], "workflow_run": {"id": 43}}
+                    ],
+                },
+                {
+                    "total_count": 1,
+                    "artifacts": [
+                        {**listing["artifacts"][0], "digest": "sha256:" + "0" * 64}
+                    ],
+                },
+            ):
+                with self.assertRaises(ValueError):
+                    verify_fixture_ci_artifact(
+                        run, jobs, workflow, changed, wrapper, commit, {}
+                    )
+            with self.assertRaises(ValueError):
+                verify_fixture_ci_artifact(
+                    {**run, "head_branch": "feature"},
+                    jobs,
+                    workflow,
+                    listing,
+                    wrapper,
+                    commit,
+                    {},
+                )
+
     def test_fixture_unknown_phase_keeps_reservation_after_restart(self):
         from scripts.b_web_cloud_deploy import (
             fixture_activation_reservation,

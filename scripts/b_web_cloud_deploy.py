@@ -14,6 +14,7 @@ import re
 import sqlite3
 import subprocess
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -476,6 +477,151 @@ def verify_fixture_artifact_config(files, config):
             raise ValueError()
     except (ValueError, TypeError, KeyError):
         raise ValueError("Fixture artifact configuration mismatch") from None
+
+
+def verify_fixture_ci_artifact(run, jobs, workflow, listing, wrapper, commit, config):
+    """Verify protected-main CI and GitHub artifact bytes from authenticated reads."""
+    verify_ci(run, jobs, workflow, commit)
+    if (
+        not isinstance(listing, dict)
+        or type(listing.get("total_count")) is not int
+        or not isinstance(listing.get("artifacts"), list)
+        or listing["total_count"] != len(listing["artifacts"])
+    ):
+        raise ValueError("Complete CI artifact listing required")
+    matches = [
+        a
+        for a in listing["artifacts"]
+        if isinstance(a, dict)
+        and a.get("name") == "b-web-runtime"
+        and a.get("expired") is False
+    ]
+    if len(matches) != 1 or not isinstance(wrapper, bytes):
+        raise ValueError("One unexpired CI runtime artifact required")
+    item = matches[0]
+    if (
+        not isinstance(run.get("id"), int)
+        or not isinstance(item.get("workflow_run"), dict)
+        or item["workflow_run"].get("id") != run["id"]
+        or item.get("digest") != "sha256:" + sha(wrapper)
+    ):
+        raise ValueError("CI artifact provenance or digest mismatch")
+    try:
+        with zipfile.ZipFile(io.BytesIO(wrapper)) as outer:
+            if (
+                outer.namelist() != ["b-web-runtime.zip"]
+                or outer.getinfo("b-web-runtime.zip").file_size > 64 * 1024**2
+            ):
+                raise ValueError("Unexpected runtime artifact wrapper")
+            raw = outer.read("b-web-runtime.zip")
+    except (zipfile.BadZipFile, KeyError):
+        raise ValueError("Invalid runtime artifact wrapper") from None
+    digest = sha(raw)
+    files = fixture_artifact_files(raw, commit, digest)
+    verify_fixture_artifact_config(files, config)
+    return raw, digest
+
+
+def read_bounded_process(command, limit, timeout):
+    """Read a process with bounded stdout and process-level timeout; discard stderr."""
+    if (
+        type(limit) is not int
+        or limit <= 0
+        or type(timeout) not in (int, float)
+        or timeout <= 0
+    ):
+        raise ValueError("Invalid process limit")
+    try:
+        process = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        )
+    except OSError:
+        raise RuntimeError("Authenticated GitHub CI read failed") from None
+    chunks, total, errors = [], 0, []
+
+    def read():
+        nonlocal total
+        try:
+            while True:
+                chunk = process.stdout.read(min(65536, limit - total + 1))
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > limit:
+                    errors.append("oversized")
+                    process.kill()
+                    break
+                chunks.append(chunk)
+        except (OSError, ValueError):
+            errors.append("read")
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    try:
+        status = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        reader.join(timeout=5)
+        raise RuntimeError("Authenticated GitHub CI read timed out") from None
+    reader.join(timeout=5)
+    if reader.is_alive() or errors or status != 0:
+        raise RuntimeError("Authenticated GitHub CI read failed or exceeded limit")
+    return b"".join(chunks)
+
+
+def fetch_fixture_ci_artifact(run_id, commit, config):
+    """Read the protected-main run and artifact through the authenticated gh CLI."""
+    if (
+        not isinstance(run_id, str)
+        or not re.fullmatch(r"[0-9]{1,20}", run_id)
+        or not isinstance(commit, str)
+        or not re.fullmatch(r"[a-f0-9]{40}", commit)
+    ):
+        raise ValueError("Exact CI run and source commit required")
+
+    def fetch(path):
+        return read_bounded_process(
+            ["gh", "api", "repos/" + REPO + path], 72 * 1024**2, 45
+        )
+
+    def get_json(path):
+        try:
+            return json.loads(fetch(path))
+        except (TypeError, ValueError):
+            raise ValueError("Invalid GitHub CI metadata") from None
+
+    run = get_json("/actions/runs/" + run_id)
+    jobs = get_json("/actions/runs/" + run_id + "/jobs?per_page=100")
+    workflow = get_json("/actions/workflows/ci.yml")
+    listing = get_json("/actions/runs/" + run_id + "/artifacts?per_page=100")
+    if get_json("/commits/main").get("sha") != commit:
+        raise ValueError("Protected main changed; fixture artifact refused")
+    verify_ci(run, jobs, workflow, commit)
+    if (
+        not isinstance(listing, dict)
+        or type(listing.get("total_count")) is not int
+        or not isinstance(listing.get("artifacts"), list)
+        or listing["total_count"] != len(listing["artifacts"])
+    ):
+        raise ValueError("Complete CI artifact listing required")
+    matches = [
+        a
+        for a in listing["artifacts"]
+        if isinstance(a, dict)
+        and a.get("name") == "b-web-runtime"
+        and a.get("expired") is False
+    ]
+    if (
+        len(matches) != 1
+        or type(matches[0].get("id")) is not int
+        or matches[0]["id"] <= 0
+    ):
+        raise ValueError("One unexpired CI runtime artifact required")
+    wrapper = fetch("/actions/artifacts/" + str(matches[0]["id"]) + "/zip")
+    return verify_fixture_ci_artifact(
+        run, jobs, workflow, listing, wrapper, commit, config
+    )
 
 
 def fixture_cloud_observer(account, headers, config, artifact, commit, artifact_sha256):
@@ -1546,6 +1692,46 @@ def fixture_bootstrap_cloud(
 
     return fixture_bootstrap_sequence(
         preflight, create, observer, transfer_restore, login, record, frozen
+    )
+
+
+def fixture_bootstrap_from_ci(
+    account,
+    headers,
+    config,
+    ci_run,
+    commit,
+    journal,
+    preflight,
+    upload_check,
+    activation_check,
+    record,
+    operator_key,
+    password,
+    manifest,
+    seed_spec=None,
+):
+    """Bind the bootstrap to authenticated protected-main CI before any mutation.
+
+    Other gates are independently required and main remains fail-closed.
+    """
+    artifact, digest = fetch_fixture_ci_artifact(ci_run, commit, config)
+    return fixture_bootstrap_cloud(
+        account,
+        headers,
+        config,
+        artifact,
+        commit,
+        digest,
+        journal,
+        preflight,
+        upload_check,
+        activation_check,
+        record,
+        operator_key,
+        password,
+        manifest,
+        seed_spec,
     )
 
 
