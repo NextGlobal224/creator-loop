@@ -579,6 +579,30 @@ def inspect_fixture_worker_after_ambiguous_create(account, headers):
     return {"state": "present", "worker_id": result["id"], "retry_permitted": False}
 
 
+def fixture_create_reservation(path):
+    """Reserve the one fixture Worker creation in a shared local journal."""
+    path = Path(path)
+    if not path.is_absolute() or not path.parent.is_dir():
+        raise ValueError("An absolute durable reservation path is required")
+
+    def reserve():
+        with closing(sqlite3.connect(str(path), timeout=5)) as db, db:
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_create_attempts (target TEXT PRIMARY KEY NOT NULL)"
+            )
+            try:
+                db.execute(
+                    "INSERT INTO fixture_create_attempts VALUES (?)",
+                    (TARGETS["qa-fixture"],),
+                )
+            except sqlite3.IntegrityError:
+                return False
+        return True
+
+    return reserve
+
+
 def fixture_restore_reservation(path):
     """Reserve fixture restore attempts across processes sharing this SQLite file.
 
@@ -719,6 +743,40 @@ def fixture_restore_adapter(config, operator_key, manifest, reserve_once):
         }
 
     return restore
+
+
+def fixture_bootstrap_with_adapters(
+    preflight,
+    create,
+    observe,
+    record,
+    config,
+    operator_key,
+    password,
+    manifest,
+    journal,
+):
+    """Wire the fixture restore/login adapters; callers still establish all gates.
+
+    This does not supply a real create adapter or make the bootstrap cloud-safe.
+    The journal must be the same protected durable file across all attempts.
+    """
+    reserve_create = fixture_create_reservation(journal)
+    restore = fixture_restore_adapter(
+        config, operator_key, manifest, fixture_restore_reservation(journal)
+    )
+    login = fixture_login_adapter(config, operator_key, password)
+
+    def create_once(current_config):
+        if reserve_create() is not True:
+            raise ValueError(
+                "Prior fixture creation attempt; inspect metadata, do not retry"
+            )
+        return create(current_config)
+
+    return fixture_bootstrap_sequence(
+        preflight, create_once, observe, restore, login, record, config
+    )
 
 
 def observe_fixture_cloud(

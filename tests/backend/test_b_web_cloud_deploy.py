@@ -5,6 +5,8 @@ import hashlib
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -34,6 +36,175 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_fixture_creation_reservation_across_processes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = str(Path(temp) / "create.sqlite")
+            code = (
+                "import sys; from scripts.b_web_cloud_deploy import fixture_create_reservation; "
+                "print(fixture_create_reservation(sys.argv[1])())"
+            )
+            processes = [
+                subprocess.Popen(
+                    [sys.executable, "-c", code, path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                for _ in range(2)
+            ]
+            outcomes = []
+            for process in processes:
+                try:
+                    stdout, stderr = process.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                    self.fail("fixture creation reservation process timed out")
+                self.assertEqual(process.returncode, 0, stderr)
+                outcomes.append(stdout.strip())
+            self.assertCountEqual(outcomes, ["True", "False"])
+            replay = subprocess.run(
+                [sys.executable, "-c", code, path],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+            self.assertEqual(replay.stdout.strip(), "False")
+
+    def test_fixture_reservation_is_shared_across_processes_and_restart(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = str(Path(temp) / "journal.sqlite")
+            code = (
+                "import sys; from scripts.b_web_cloud_deploy import fixture_restore_reservation; "
+                "print(fixture_restore_reservation(sys.argv[1])("
+                "'11111111-1111-1111-1111-111111111111', "
+                "'qa-isolated-restore-'+'a'*32, 'b'*32, 'c'*64))"
+            )
+            processes = [
+                subprocess.Popen(
+                    [sys.executable, "-c", code, path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                for _ in range(2)
+            ]
+            outcomes = []
+            for process in processes:
+                try:
+                    stdout, stderr = process.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                    self.fail("fixture reservation process timed out")
+                self.assertEqual(process.returncode, 0, stderr)
+                outcomes.append(stdout.strip())
+            self.assertCountEqual(outcomes, ["True", "False"])
+            replay = subprocess.run(
+                [sys.executable, "-c", code, path],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+            self.assertEqual(replay.stdout.strip(), "False")
+
+    def test_bootstrap_wires_restore_and_login_adapters(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_with_adapters
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        manifest = {"parts": [{"bytes": 1, "sha256": "a" * 64}], "bytes": 1}
+        digest = hashlib.sha256(
+            json.dumps(
+                manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
+        target = "qa-isolated-restore-" + "a" * 32
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        config["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": target,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "qa-isolated-restore-" + "b" * 32,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": digest,
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "d" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "e" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": "f" * 64,
+            }
+        )
+        calls = []
+
+        def request(url, headers, payload=None):
+            calls.append((url.rsplit("/", 1)[-1], payload and payload.get("operation")))
+            if url.endswith("/api/qa-snapshot-staging"):
+                body = {"qa_object": target, "qa_deployment": candidate}
+                if payload["operation"] == "status":
+                    body.update(restored=False, staged_parts=1)
+                else:
+                    body.update(restored=True, jobs_held=True, alarm_restored=False)
+                return body, {}
+            if url.endswith("/api/login"):
+                return {"ok": True}, {
+                    "Set-Cookie": "__Host-creator=" + "a" * 64 + "; Secure"
+                }
+            return {"deployment": candidate}, {}
+
+        observe = MagicMock(
+            return_value=({}, {}, [{"version_id": candidate, "percentage": 100}])
+        )
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch("scripts.b_web_cloud_deploy.read_json", side_effect=request),
+            patch(
+                "scripts.b_web_cloud_deploy.verify_fixture_namespace_ownership",
+                return_value="c" * 32,
+            ),
+        ):
+            result = fixture_bootstrap_with_adapters(
+                lambda _: ("a" * 32, "b" * 32),
+                lambda _: candidate,
+                observe,
+                lambda _: None,
+                config,
+                "operator",
+                "password",
+                manifest,
+                Path(temp) / "journal.sqlite",
+            )
+            create = MagicMock(side_effect=TimeoutError("unknown creation outcome"))
+            args = (
+                lambda _: ("a" * 32, "b" * 32),
+                create,
+                observe,
+                lambda _: None,
+                config,
+                "operator",
+                "password",
+                manifest,
+                Path(temp) / "unknown.sqlite",
+            )
+            with self.assertRaises(TimeoutError):
+                fixture_bootstrap_with_adapters(*args)
+            with self.assertRaisesRegex(ValueError, "Prior fixture creation attempt"):
+                fixture_bootstrap_with_adapters(*args)
+            create.assert_called_once()
+        self.assertEqual(result, "c" * 32)
+        self.assertEqual(
+            calls,
+            [
+                ("qa-snapshot-staging", "status"),
+                ("qa-snapshot-staging", "restore"),
+                ("login", None),
+                ("runtime", None),
+            ],
+        )
+
     def test_fixture_restore_reservation_survives_restart_and_race(self):
         from scripts.b_web_cloud_deploy import fixture_restore_reservation
 
