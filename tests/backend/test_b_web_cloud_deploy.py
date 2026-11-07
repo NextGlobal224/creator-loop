@@ -5,6 +5,8 @@ import hashlib
 import io
 import json
 import os
+import tempfile
+import threading
 import unittest
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -32,6 +34,40 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_fixture_restore_reservation_survives_restart_and_race(self):
+        from scripts.b_web_cloud_deploy import fixture_restore_reservation
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "restore-journal.sqlite"
+            identity = (
+                "11111111-1111-1111-1111-111111111111",
+                "qa-isolated-restore-" + "a" * 32,
+                "b" * 32,
+                "c" * 64,
+            )
+            barrier = threading.Barrier(2)
+            outcomes = []
+
+            def attempt():
+                reserve = fixture_restore_reservation(path)
+                barrier.wait()
+                outcomes.append(reserve(*identity))
+
+            workers = [threading.Thread(target=attempt) for _ in range(2)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(timeout=10)
+                self.assertFalse(worker.is_alive())
+            self.assertCountEqual(outcomes, [True, False])
+            reserve = fixture_restore_reservation(path)
+            self.assertFalse(reserve(*identity))
+            self.assertFalse(reserve(identity[0], identity[1], identity[2], "d" * 64))
+            with self.assertRaises(ValueError):
+                reserve(identity[0], "production", identity[2], identity[3])
+        with self.assertRaises(ValueError):
+            fixture_restore_reservation(Path("relative.sqlite"))
+
     def test_ambiguous_fixture_create_metadata_never_authorizes_retry(self):
         from scripts.b_web_cloud_deploy import (
             inspect_fixture_worker_after_ambiguous_create,

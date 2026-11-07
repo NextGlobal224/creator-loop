@@ -11,11 +11,13 @@ import json
 import math
 import os
 import re
+import sqlite3
 import subprocess
 import time
 import urllib.error
 import urllib.request
 import zipfile
+from contextlib import closing
 from datetime import datetime, timedelta
 from email import policy
 from email.parser import BytesParser
@@ -575,6 +577,47 @@ def inspect_fixture_worker_after_ambiguous_create(account, headers):
     ):
         raise ValueError("Fixture Worker metadata unconfirmed")
     return {"state": "present", "worker_id": result["id"], "retry_permitted": False}
+
+
+def fixture_restore_reservation(path):
+    """Reserve fixture restore attempts across processes sharing this SQLite file.
+
+    The caller must keep this file on durable storage and use the same path for
+    every run. This is not a Cloudflare resource reservation or distributed lock.
+    """
+    path = Path(path)
+    if not path.is_absolute() or not path.parent.is_dir():
+        raise ValueError("An absolute durable reservation path is required")
+
+    def reserve(candidate, target, snapshot, manifest_sha256):
+        if not all(
+            isinstance(value, str) and re.fullmatch(pattern, value)
+            for value, pattern in (
+                (candidate, UUID),
+                (target, r"qa-isolated-restore-[a-f0-9]{32}"),
+                (snapshot, r"[a-f0-9]{32}"),
+                (manifest_sha256, r"[a-f0-9]{64}"),
+            )
+        ):
+            raise ValueError("Invalid fixture reservation identity")
+        # Never store credentials, source materials or user data in this journal.
+        key = sha(json.dumps([target, snapshot], separators=(",", ":")).encode())
+        with closing(sqlite3.connect(str(path), timeout=5)) as db, db:
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_restore_attempts "
+                "(identity TEXT PRIMARY KEY NOT NULL, metadata TEXT NOT NULL)"
+            )
+            try:
+                db.execute(
+                    "INSERT INTO fixture_restore_attempts VALUES (?, ?)",
+                    (key, sha((candidate + manifest_sha256).encode())),
+                )
+            except sqlite3.IntegrityError:
+                return False
+        return True
+
+    return reserve
 
 
 def fixture_restore_adapter(config, operator_key, manifest, reserve_once):
