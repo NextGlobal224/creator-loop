@@ -36,6 +36,309 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_fixture_cloud_bootstrap_real_adapters_with_mock_transport(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_cloud
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        content = hashlib.sha256(b"x").hexdigest()
+        manifest = {"parts": [{"bytes": 1, "sha256": content}], "bytes": 1}
+        digest = hashlib.sha256(
+            json.dumps(
+                manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
+        target = "qa-isolated-restore-" + "a" * 32
+        source = "qa-isolated-restore-" + "b" * 32
+        config["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": target,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": source,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": digest,
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "d" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "e" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": "f" * 64,
+            }
+        )
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        files = {
+            "worker/wrangler.snapshot-qa.jsonc": b"{}",
+            "worker/src/entry.py": b"pass",
+        }
+        observe = MagicMock(
+            return_value=({}, {}, [{"version_id": candidate, "percentage": 100}])
+        )
+        events = []
+
+        def request(url, headers, payload=None):
+            operation = (payload or {}).get("operation")
+            if url.endswith("/workers/workers"):
+                events.append("create")
+                return {
+                    "success": True,
+                    "result": {"name": "creator-loop-b-snapshot-qa", "id": "id"},
+                }, {}
+            if url.endswith("/workers/workers/creator-loop-b-snapshot-qa"):
+                return {
+                    "success": True,
+                    "result": {"name": "creator-loop-b-snapshot-qa", "id": "id"},
+                }, {}
+            if url.endswith("/deployments"):
+                events.append("activate")
+                return {
+                    "success": True,
+                    "result": {
+                        "versions": [{"version_id": candidate, "percentage": 100}]
+                    },
+                }, {}
+            if url.endswith("/api/qa-snapshot-export"):
+                body = {"qa_object": source, "qa_deployment": candidate}
+                body.update(
+                    {"manifest": manifest}
+                    if operation == "manifest"
+                    else {"position": 0, "sha256": content, "content_base64": "eA=="}
+                )
+                return body, {}
+            if url.endswith("/api/qa-snapshot-staging"):
+                events.append(operation)
+                body = {"qa_object": target, "qa_deployment": candidate}
+                body.update(
+                    {"restored": False, "staged_parts": 1}
+                    if operation == "status"
+                    else {"stored": True, "duplicate": False}
+                    if operation == "put"
+                    else {"restored": True, "jobs_held": True, "alarm_restored": False}
+                )
+                return body, {}
+            if url.endswith("/api/login"):
+                events.append("login")
+                return {"ok": True}, {"Set-Cookie": "__Host-creator=" + "a" * 64}
+            return {"deployment": candidate}, {}
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch(
+                "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+                hashlib.sha256(b"fixture").hexdigest(),
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_artifact_files", return_value=files
+            ),
+            patch("scripts.b_web_cloud_deploy.verify_fixture_artifact_config"),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_cloud_observer",
+                return_value=observe,
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.verify_fixture_namespace_ownership",
+                return_value="c" * 32,
+            ),
+            patch("scripts.b_web_cloud_deploy.read_json", side_effect=request),
+            patch(
+                "scripts.b_web_cloud_deploy.subprocess.run",
+                return_value=MagicMock(
+                    returncode=0, stdout=("Worker Version ID: " + candidate).encode()
+                ),
+            ),
+        ):
+            args = (
+                "fixture",
+                {"Authorization": "Bearer fake-test-credential"},
+                config,
+                b"artifact",
+                "a" * 40,
+                "b" * 64,
+                Path(temp) / "journal.sqlite",
+                lambda _: ("a" * 32, "b" * 32),
+                lambda: True,
+                lambda _: True,
+                lambda _: None,
+                "operator",
+                "password",
+                manifest,
+            )
+            self.assertEqual(fixture_bootstrap_cloud(*args), "c" * 32)
+            with self.assertRaisesRegex(ValueError, "already attempted"):
+                fixture_bootstrap_cloud(*args)
+        self.assertEqual(
+            events,
+            ["create", "activate", "status", "put", "status", "restore", "login"],
+        )
+
+    def test_fixture_cloud_bootstrap_composes_management_adapters_in_order(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_cloud
+
+        config = {
+            "vars": {
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "source",
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "target",
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "snapshot",
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": "manifest",
+            }
+        }
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        steps = []
+        observe = MagicMock(
+            return_value=({}, {}, [{"version_id": candidate, "percentage": 100}])
+        )
+
+        def restore(version):
+            return {
+                "restored": True,
+                "jobs_held": True,
+                "alarm_restored": False,
+                "target": "target",
+                "snapshot_id": "snapshot",
+                "manifest_sha256": "manifest",
+                "deployment": version,
+            }
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_cloud_observer",
+                return_value=observe,
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.verify_fixture_namespace_ownership",
+                return_value="c" * 32,
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_transfer_adapter",
+                return_value=lambda _: steps.append("transfer"),
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_restore_adapter",
+                return_value=restore,
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_login_adapter",
+                return_value=lambda version: {
+                    "authenticated": True,
+                    "deployment": version,
+                },
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.create_fixture_worker_metadata",
+                side_effect=lambda *args: steps.append("create") or "worker",
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.upload_fixture_worker_version",
+                side_effect=lambda *args: steps.append("upload") or candidate,
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.activate_fixture_worker_version",
+                side_effect=lambda *args: steps.append("activate") or candidate,
+            ),
+        ):
+            result = fixture_bootstrap_cloud(
+                "account",
+                {},
+                config,
+                b"artifact",
+                "a" * 40,
+                "b" * 64,
+                Path(temp) / "journal.sqlite",
+                lambda _: ("a" * 32, "b" * 32),
+                lambda: True,
+                lambda _: True,
+                lambda _: None,
+                "operator",
+                "password",
+                {},
+            )
+        self.assertEqual(result, "c" * 32)
+        self.assertEqual(steps, ["create", "upload", "activate", "transfer"])
+
+    def test_fixture_upload_checks_gates_and_unknown_result(self):
+        from scripts.b_web_cloud_deploy import upload_fixture_worker_version
+
+        account = "fixture"
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        files = {
+            "worker/wrangler.snapshot-qa.jsonc": b"{}",
+            "worker/src/entry.py": b"pass",
+        }
+        args = (
+            account,
+            {"Authorization": "Bearer fake-test-credential"},
+            {},
+            b"artifact",
+            "a" * 40,
+            "b" * 64,
+            "worker-id",
+            lambda: True,
+            lambda: True,
+        )
+        with (
+            patch(
+                "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+                hashlib.sha256(account.encode()).hexdigest(),
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_artifact_files", return_value=files
+            ),
+            patch("scripts.b_web_cloud_deploy.verify_fixture_artifact_config"),
+            patch.dict(
+                os.environ,
+                {"CLOUDFLARE_API_KEY": "fake-conflict", "CF_FAKE": "fake-conflict"},
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.inspect_fixture_worker_after_ambiguous_create",
+                return_value={"state": "present", "worker_id": "worker-id"},
+            ),
+        ):
+            with patch(
+                "scripts.b_web_cloud_deploy.subprocess.run",
+                return_value=MagicMock(
+                    returncode=0, stdout=("Worker Version ID: " + candidate).encode()
+                ),
+            ) as run:
+                self.assertEqual(upload_fixture_worker_version(*args), candidate)
+                self.assertIn("upload", run.call_args.args[0])
+                self.assertEqual(
+                    run.call_args.kwargs["env"]["CLOUDFLARE_API_TOKEN"],
+                    "fake-test-credential",
+                )
+                self.assertNotIn("CLOUDFLARE_API_KEY", run.call_args.kwargs["env"])
+                self.assertNotIn("CF_FAKE", run.call_args.kwargs["env"])
+            with (
+                patch(
+                    "scripts.b_web_cloud_deploy.subprocess.run",
+                    side_effect=TimeoutError(),
+                ),
+                patch(
+                    "scripts.b_web_cloud_deploy.read_json",
+                    return_value=({"success": True}, {}),
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError, "metadata=available; do not retry"
+                ):
+                    upload_fixture_worker_version(*args)
+            with patch("scripts.b_web_cloud_deploy.subprocess.run") as run:
+                with self.assertRaisesRegex(ValueError, "safety checks"):
+                    upload_fixture_worker_version(
+                        *args[:-2], lambda: False, lambda: True
+                    )
+                run.assert_not_called()
+            with patch("scripts.b_web_cloud_deploy.subprocess.run") as run:
+                with self.assertRaisesRegex(ValueError, "bearer credential"):
+                    upload_fixture_worker_version(account, {}, *args[2:])
+                run.assert_not_called()
+            with patch("scripts.b_web_cloud_deploy.subprocess.run") as run:
+                with self.assertRaisesRegex(ValueError, "shell not confirmed"):
+                    upload_fixture_worker_version(
+                        *args[:6], "other-worker-id", *args[7:]
+                    )
+                run.assert_not_called()
+
     def test_real_fixture_worker_metadata_create_never_retries_unknown(self):
         from scripts.b_web_cloud_deploy import create_fixture_worker_metadata
 

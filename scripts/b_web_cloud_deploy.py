@@ -13,6 +13,7 @@ import os
 import re
 import sqlite3
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -682,6 +683,129 @@ def activate_fixture_worker_version(
     return candidate
 
 
+def upload_fixture_worker_version(
+    account,
+    headers,
+    config,
+    artifact,
+    commit,
+    artifact_sha256,
+    expected_worker_id,
+    final_check,
+    reserve_once,
+):
+    """Upload a version once; artifact provenance and cloud safety remain caller gates."""
+    if not isinstance(account, str) or sha(account.encode()) != ACCOUNT_SHA:
+        raise ValueError("Wrong Cloudflare account")
+    authorization = headers.get("Authorization") if isinstance(headers, dict) else None
+    if not isinstance(authorization, str) or not re.fullmatch(
+        r"Bearer [^\s]+", authorization
+    ):
+        raise ValueError("One explicit Cloudflare bearer credential required")
+    headers = {"Authorization": authorization}
+    files = fixture_artifact_files(artifact, commit, artifact_sha256)
+    verify_fixture_artifact_config(files, config)
+    observed = inspect_fixture_worker_after_ambiguous_create(account, headers)
+    if (
+        not isinstance(expected_worker_id, str)
+        or not expected_worker_id
+        or observed.get("state") != "present"
+        or observed.get("worker_id") != expected_worker_id
+    ):
+        raise ValueError("Fixture Worker shell not confirmed")
+    if not callable(final_check) or final_check() is not True:
+        raise ValueError("Fixture upload safety checks unconfirmed")
+    if not callable(reserve_once) or reserve_once() is not True:
+        raise ValueError("Fixture upload already attempted or journal unavailable")
+    root = Path(__file__).resolve().parents[1]
+    wrangler = root / "cloudflare/creator-ai/node_modules/wrangler/bin/wrangler.js"
+    try:
+        with tempfile.TemporaryDirectory(prefix="creator-loop-fixture-") as temp:
+            destination = Path(temp)
+            for name, value in files.items():
+                path = destination / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(value)
+            config_path = destination / "worker/wrangler.snapshot-qa.jsonc"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    "node",
+                    str(wrangler),
+                    "versions",
+                    "upload",
+                    "--config",
+                    str(config_path),
+                    "--outdir",
+                    str(destination / "uploaded"),
+                ],
+                cwd=destination / "worker",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=180,
+                env={
+                    **{
+                        key: value
+                        for key, value in os.environ.items()
+                        if not key.upper().startswith(("CLOUDFLARE_", "CF_"))
+                    },
+                    "CLOUDFLARE_ACCOUNT_ID": account,
+                    "CLOUDFLARE_API_TOKEN": authorization[7:],
+                    "WRANGLER_SEND_METRICS": "false",
+                    "WRANGLER_WRITE_LOGS": "false",
+                },
+            )
+            output = result.stdout.decode("utf-8", errors="replace")
+            matches = re.findall(r"Worker Version ID:\s*(" + UUID + r")", output)
+            if result.returncode or len(matches) != 1:
+                raise ValueError("Unconfirmed upload")
+            return matches[0]
+    except Exception:
+        # A list is only diagnostic: concurrent versions cannot establish which
+        # version belongs to this ambiguous attempt or justify automatic retry.
+        observation = "unavailable"
+        try:
+            url = (
+                "https://api.cloudflare.com/client/v4/accounts/"
+                + account
+                + "/workers/scripts/"
+                + TARGETS["qa-fixture"]
+                + "/versions"
+            )
+            value, _ = read_json(url, headers)
+            if isinstance(value, dict) and value.get("success") is True:
+                observation = "available"
+        except Exception:
+            pass
+        raise RuntimeError(
+            "Fixture upload outcome unknown; metadata=" + observation + "; do not retry"
+        ) from None
+
+
+def fixture_upload_reservation(path):
+    """Reserve one fixture upload; no retries across a shared journal."""
+    path = Path(path)
+    if not path.is_absolute() or not path.parent.is_dir():
+        raise ValueError("An absolute durable reservation path is required")
+
+    def reserve():
+        with closing(sqlite3.connect(str(path), timeout=5)) as db, db:
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_upload_attempts (target TEXT PRIMARY KEY NOT NULL)"
+            )
+            try:
+                db.execute(
+                    "INSERT INTO fixture_upload_attempts VALUES (?)",
+                    (TARGETS["qa-fixture"],),
+                )
+            except sqlite3.IntegrityError:
+                return False
+        return True
+
+    return reserve
+
+
 def fixture_activation_reservation(path):
     """Reserve one fixture activation, independent of create and restore."""
     path = Path(path)
@@ -1024,6 +1148,75 @@ def fixture_bootstrap_with_adapters(
 
     return fixture_bootstrap_sequence(
         preflight, create_once, observe, transfer_restore, login, record, config
+    )
+
+
+def fixture_bootstrap_cloud(
+    account,
+    headers,
+    config,
+    artifact,
+    commit,
+    artifact_sha256,
+    journal,
+    preflight,
+    upload_check,
+    activation_check,
+    record,
+    operator_key,
+    password,
+    manifest,
+):
+    """Compose real adapters; callers must supply independent, current safety gates.
+
+    This helper is not exposed by main. Observer still fails closed until a
+    deployment fence and relevant asset proof exist. The same protected journal
+    is mandatory for every process; retries after ambiguous mutations are refused.
+    """
+    observer = fixture_cloud_observer(
+        account, headers, config, artifact, commit, artifact_sha256
+    )
+    frozen = copy.deepcopy(config)
+    restore = fixture_restore_adapter(
+        frozen, operator_key, manifest, fixture_restore_reservation(journal)
+    )
+    transfer = fixture_transfer_adapter(frozen, operator_key, manifest)
+    login = fixture_login_adapter(frozen, operator_key, password)
+
+    def create(current_config):
+        if current_config != frozen:
+            raise ValueError("Fixture configuration changed")
+        worker_id = create_fixture_worker_metadata(
+            account, headers, frozen, fixture_create_reservation(journal)
+        )
+        candidate = upload_fixture_worker_version(
+            account,
+            headers,
+            frozen,
+            artifact,
+            commit,
+            artifact_sha256,
+            worker_id,
+            upload_check,
+            fixture_upload_reservation(journal),
+        )
+        if not callable(activation_check):
+            raise ValueError("Fixture candidate verification missing")
+        return activate_fixture_worker_version(
+            account,
+            headers,
+            frozen,
+            candidate,
+            lambda: activation_check(candidate),
+            fixture_activation_reservation(journal),
+        )
+
+    def transfer_restore(candidate):
+        transfer(candidate)
+        return restore(candidate)
+
+    return fixture_bootstrap_sequence(
+        preflight, create, observer, transfer_restore, login, record, frozen
     )
 
 
