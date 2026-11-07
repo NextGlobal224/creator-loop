@@ -119,7 +119,8 @@ class CloudDeploymentTests(unittest.TestCase):
                 / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
             ).read_text(encoding="utf-8")
         )
-        manifest = {"parts": [{"bytes": 1, "sha256": "a" * 64}], "bytes": 1}
+        part_hash = hashlib.sha256(b"x").hexdigest()
+        manifest = {"parts": [{"bytes": 1, "sha256": part_hash}], "bytes": 1}
         digest = hashlib.sha256(
             json.dumps(
                 manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
@@ -142,10 +143,22 @@ class CloudDeploymentTests(unittest.TestCase):
 
         def request(url, headers, payload=None):
             calls.append((url.rsplit("/", 1)[-1], payload and payload.get("operation")))
+            if url.endswith("/api/qa-snapshot-export"):
+                body = {
+                    "qa_object": config["vars"]["B_WEB_QA_SOURCE_OBJECT_NAME"],
+                    "qa_deployment": candidate,
+                }
+                if payload["operation"] == "manifest":
+                    body["manifest"] = manifest
+                else:
+                    body.update(position=0, sha256=part_hash, content_base64="eA==")
+                return body, {}
             if url.endswith("/api/qa-snapshot-staging"):
                 body = {"qa_object": target, "qa_deployment": candidate}
                 if payload["operation"] == "status":
                     body.update(restored=False, staged_parts=1)
+                elif payload["operation"] == "put":
+                    body.update(stored=True, duplicate=False)
                 else:
                     body.update(restored=True, jobs_held=True, alarm_restored=False)
                 return body, {}
@@ -194,10 +207,40 @@ class CloudDeploymentTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Prior fixture creation attempt"):
                 fixture_bootstrap_with_adapters(*args)
             create.assert_called_once()
+            from scripts.b_web_cloud_deploy import (
+                fixture_restore_adapter,
+                fixture_transfer_adapter,
+            )
+
+            restored = {
+                "qa_object": target,
+                "qa_deployment": candidate,
+                "restored": True,
+                "jobs_held": True,
+                "alarm_restored": False,
+            }
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json", return_value=(restored, {})
+            ) as read:
+                self.assertEqual(
+                    fixture_transfer_adapter(config, "operator", manifest)(candidate), 0
+                )
+                receipt = fixture_restore_adapter(
+                    config,
+                    "operator",
+                    manifest,
+                    lambda *_: self.fail("must not reserve again"),
+                )(candidate)
+                self.assertTrue(receipt["restored"])
+                self.assertEqual(read.call_count, 2)
         self.assertEqual(result, "c" * 32)
         self.assertEqual(
             calls,
             [
+                ("qa-snapshot-staging", "status"),
+                ("qa-snapshot-export", "manifest"),
+                ("qa-snapshot-export", "part"),
+                ("qa-snapshot-staging", "put"),
                 ("qa-snapshot-staging", "status"),
                 ("qa-snapshot-staging", "restore"),
                 ("login", None),

@@ -745,6 +745,122 @@ def fixture_restore_adapter(config, operator_key, manifest, reserve_once):
     return restore
 
 
+def fixture_transfer_adapter(config, operator_key, manifest):
+    """Transfer verified pinned fixture parts; caller must establish the cloud fence."""
+    validate_fixture_config(config)
+    if (
+        not isinstance(operator_key, str)
+        or not operator_key
+        or not isinstance(manifest, dict)
+    ):
+        raise ValueError("Fixture transfer inputs missing")
+    config, manifest = copy.deepcopy(config), copy.deepcopy(manifest)
+    values = config["vars"]
+    encoded = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    if sha(encoded) != values.get("B_WEB_QA_RESTORE_MANIFEST_SHA256"):
+        raise ValueError("Fixture transfer manifest mismatch")
+    parts = manifest.get("parts")
+    if not isinstance(parts, list) or not 0 < len(parts) <= 384:
+        raise ValueError("Fixture transfer parts missing")
+    origin = "https://" + values["B_WEB_QA_HOSTNAME"]
+
+    def transfer(candidate):
+        if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+            raise ValueError("Exact fixture version required")
+
+        def request(role, route, payload):
+            headers = {
+                "Origin": origin,
+                "Content-Type": "application/json",
+                "X-Operator-Key": operator_key,
+                "X-QA-Expected-Version": candidate,
+                "X-QA-Object": role,
+            }
+            result, _ = read_json(origin + route, headers, payload)
+            name = values[
+                "B_WEB_QA_SOURCE_OBJECT_NAME"
+                if role == "source"
+                else "B_WEB_QA_RESTORE_OBJECT_NAME"
+            ]
+            if (
+                not isinstance(result, dict)
+                or result.get("qa_object") != name
+                or result.get("qa_deployment") != candidate
+            ):
+                raise ValueError("Fixture transfer object identity unconfirmed")
+            return result
+
+        state = request(
+            "target",
+            "/api/qa-snapshot-staging",
+            {
+                "operation": "status",
+                "snapshot_id": values["B_WEB_QA_RESTORE_SNAPSHOT_ID"],
+            },
+        )
+        if state.get("restored") is True:
+            return 0  # restore adapter independently checks the receipt and hold
+        if state.get("restored") is not False:
+            raise ValueError("Fixture target restore status unknown")
+        source_id = values["B_WEB_QA_EXPORT_SNAPSHOT_ID"]
+        remote = request(
+            "source",
+            "/api/qa-snapshot-export",
+            {"operation": "manifest", "snapshot_id": source_id},
+        )
+        if remote.get("manifest") != manifest:
+            raise ValueError("Fixture export manifest differs")
+        for position, item in enumerate(parts):
+            if (
+                not isinstance(item, dict)
+                or type(item.get("bytes")) is not int
+                or not 0 < item["bytes"] <= 262144
+                or not isinstance(item.get("sha256"), str)
+                or not re.fullmatch(r"[a-f0-9]{64}", item["sha256"])
+            ):
+                raise ValueError("Invalid fixture part metadata")
+            part = request(
+                "source",
+                "/api/qa-snapshot-export",
+                {"operation": "part", "snapshot_id": source_id, "position": position},
+            )
+            try:
+                content = part["content_base64"]
+                if not isinstance(content, str) or len(content) > 349528:
+                    raise ValueError()
+                raw = base64.b64decode(content, validate=True)
+                if (
+                    part.get("position") != position
+                    or part.get("sha256") != item["sha256"]
+                    or len(raw) != item["bytes"]
+                    or sha(raw) != item["sha256"]
+                ):
+                    raise ValueError()
+            except (KeyError, TypeError, ValueError):
+                raise ValueError("Fixture export part mismatch") from None
+            stored = request(
+                "target",
+                "/api/qa-snapshot-staging",
+                {
+                    "operation": "put",
+                    "snapshot_id": values["B_WEB_QA_RESTORE_SNAPSHOT_ID"],
+                    "position": position,
+                    "sha256": item["sha256"],
+                    "content_base64": content,
+                },
+            )
+            if (
+                stored.get("stored") is not True
+                or type(stored.get("duplicate")) is not bool
+            ):
+                raise ValueError("Fixture staging receipt unconfirmed")
+        return len(parts)
+
+    return transfer
+
+
 def fixture_bootstrap_with_adapters(
     preflight,
     create,
@@ -765,6 +881,7 @@ def fixture_bootstrap_with_adapters(
     restore = fixture_restore_adapter(
         config, operator_key, manifest, fixture_restore_reservation(journal)
     )
+    transfer = fixture_transfer_adapter(config, operator_key, manifest)
     login = fixture_login_adapter(config, operator_key, password)
 
     def create_once(current_config):
@@ -774,8 +891,12 @@ def fixture_bootstrap_with_adapters(
             )
         return create(current_config)
 
+    def transfer_restore(candidate):
+        transfer(candidate)
+        return restore(candidate)
+
     return fixture_bootstrap_sequence(
-        preflight, create_once, observe, restore, login, record, config
+        preflight, create_once, observe, transfer_restore, login, record, config
     )
 
 
