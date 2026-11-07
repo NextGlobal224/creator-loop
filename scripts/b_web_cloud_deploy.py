@@ -996,6 +996,206 @@ def fixture_restore_adapter(config, operator_key, manifest, reserve_once):
     return restore
 
 
+def fixture_capture_reservation(path, snapshot):
+    path = Path(path)
+    if (
+        not path.is_absolute()
+        or not path.parent.is_dir()
+        or not isinstance(snapshot, str)
+        or not re.fullmatch(r"[a-f0-9]{32}", snapshot)
+    ):
+        raise ValueError("Invalid fixture capture journal identity")
+
+    def reserve():
+        with closing(sqlite3.connect(str(path), timeout=5)) as db, db:
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_capture_attempts (snapshot TEXT PRIMARY KEY NOT NULL)"
+            )
+            try:
+                db.execute(
+                    "INSERT INTO fixture_capture_attempts VALUES (?)", (snapshot,)
+                )
+            except sqlite3.IntegrityError:
+                return False
+        return True
+
+    return reserve
+
+
+def fixture_seed_capture_adapter(
+    config,
+    operator_key,
+    seed_manifest,
+    seed_parts,
+    revision,
+    checkpoint_sha256,
+    reserve_restore,
+    reserve_capture,
+):
+    """Seed a fixed fixture source and capture once; caller must establish QA safety."""
+    validate_fixture_config(config)
+    if (
+        not isinstance(operator_key, str)
+        or not operator_key
+        or not isinstance(seed_manifest, dict)
+        or not isinstance(seed_parts, (list, tuple))
+        or type(revision) is not int
+        or revision < 0
+        or not isinstance(checkpoint_sha256, str)
+        or not re.fullmatch(r"[a-f0-9]{64}", checkpoint_sha256)
+        or not callable(reserve_restore)
+        or not callable(reserve_capture)
+    ):
+        raise ValueError("Invalid fixture seed inputs")
+    config, seed_manifest, seed_parts = (
+        copy.deepcopy(config),
+        copy.deepcopy(seed_manifest),
+        tuple(seed_parts),
+    )
+    values = config["vars"]
+    digest = sha(
+        json.dumps(
+            seed_manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()
+    )
+    parts = seed_manifest.get("parts")
+    if (
+        digest != values.get("B_WEB_QA_SOURCE_MANIFEST_SHA256")
+        or not isinstance(parts, list)
+        or not 0 < len(parts) == len(seed_parts) <= 384
+    ):
+        raise ValueError("Fixture seed manifest mismatch")
+    for metadata, raw in zip(parts, seed_parts):
+        if (
+            not isinstance(metadata, dict)
+            or not isinstance(raw, bytes)
+            or not 0 < len(raw) <= 262144
+            or type(metadata.get("bytes")) is not int
+            or metadata["bytes"] != len(raw)
+            or metadata.get("sha256") != sha(raw)
+        ):
+            raise ValueError("Fixture seed part mismatch")
+    origin = "https://" + values["B_WEB_QA_HOSTNAME"]
+    source = values["B_WEB_QA_SOURCE_OBJECT_NAME"]
+    snapshot = values["B_WEB_QA_SOURCE_SNAPSHOT_ID"]
+    export = values["B_WEB_QA_EXPORT_SNAPSHOT_ID"]
+
+    def seed(candidate):
+        if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+            raise ValueError("Exact fixture version required")
+        headers = {
+            "Origin": origin,
+            "Content-Type": "application/json",
+            "X-Operator-Key": operator_key,
+            "X-QA-Expected-Version": candidate,
+            "X-QA-Object": "source",
+        }
+
+        def request(route, payload):
+            result, _ = read_json(origin + route, headers, payload)
+            if (
+                not isinstance(result, dict)
+                or result.get("qa_object") != source
+                or result.get("qa_deployment") != candidate
+            ):
+                raise ValueError("Fixture source identity unconfirmed")
+            return result
+
+        def pinned_manifest():
+            result = request(
+                "/api/qa-snapshot-export",
+                {"operation": "manifest", "snapshot_id": export},
+            )
+            manifest = result.get("manifest")
+            if (
+                not isinstance(manifest, dict)
+                or sha(
+                    json.dumps(
+                        manifest,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                    ).encode()
+                )
+                != values["B_WEB_QA_RESTORE_MANIFEST_SHA256"]
+            ):
+                raise ValueError("Captured fixture manifest mismatch")
+            return manifest
+
+        state = request(
+            "/api/qa-snapshot-staging", {"operation": "status", "snapshot_id": snapshot}
+        )
+        if state.get("restored") is False:
+            for position, raw in enumerate(seed_parts):
+                response = request(
+                    "/api/qa-snapshot-staging",
+                    {
+                        "operation": "put",
+                        "snapshot_id": snapshot,
+                        "position": position,
+                        "sha256": sha(raw),
+                        "content_base64": base64.b64encode(raw).decode(),
+                    },
+                )
+                if (
+                    response.get("stored") is not True
+                    or type(response.get("duplicate")) is not bool
+                ):
+                    raise ValueError("Fixture seed part unconfirmed")
+            if reserve_restore(candidate, source, snapshot, digest) is not True:
+                raise ValueError(
+                    "Fixture seed restore already attempted; inspect status"
+                )
+            state = request(
+                "/api/qa-snapshot-staging",
+                {
+                    "operation": "restore",
+                    "snapshot_id": snapshot,
+                    "manifest": seed_manifest,
+                },
+            )
+        if (
+            state.get("restored") is not True
+            or state.get("jobs_held") is not True
+            or state.get("alarm_restored") is not False
+        ):
+            raise ValueError("Fixture source restore unconfirmed")
+        if reserve_capture() is not True:
+            return pinned_manifest()
+        try:
+            result = request(
+                "/api/qa-snapshot-export",
+                {
+                    "operation": "capture",
+                    "snapshot_id": export,
+                    "revision": revision,
+                    "checkpoint_sha256": checkpoint_sha256,
+                },
+            )
+        except Exception:
+            try:
+                return pinned_manifest()
+            except Exception:
+                raise RuntimeError(
+                    "Fixture capture outcome unknown; do not retry"
+                ) from None
+        captured = result.get("manifest")
+        if (
+            not isinstance(captured, dict)
+            or sha(
+                json.dumps(
+                    captured, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                ).encode()
+            )
+            != values["B_WEB_QA_RESTORE_MANIFEST_SHA256"]
+        ):
+            raise ValueError("Captured fixture manifest mismatch")
+        return captured
+
+    return seed
+
+
 def fixture_transfer_adapter(config, operator_key, manifest):
     """Transfer verified pinned fixture parts; caller must establish the cloud fence."""
     validate_fixture_config(config)
@@ -1151,6 +1351,56 @@ def fixture_bootstrap_with_adapters(
     )
 
 
+def fixture_phase_journal(path, binding):
+    """Persist confirmed fixture identifiers; ambiguous mutations remain reserved."""
+    path = Path(path)
+    if (
+        not path.is_absolute()
+        or not path.parent.is_dir()
+        or not isinstance(binding, str)
+        or not re.fullmatch(r"[a-f0-9]{64}", binding)
+    ):
+        raise ValueError("A bound durable fixture journal is required")
+
+    def access(phase, value=None):
+        if phase not in ("worker", "candidate", "activation"):
+            raise ValueError("Unknown fixture phase")
+        if value is not None and (
+            not isinstance(value, str)
+            or not value
+            or len(value) > 128
+            or (phase != "worker" and not re.fullmatch(UUID, value))
+        ):
+            raise ValueError("Invalid confirmed fixture identifier")
+        with closing(sqlite3.connect(str(path), timeout=5)) as db, db:
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_phase_binding (id INTEGER PRIMARY KEY CHECK(id=1), digest TEXT NOT NULL)"
+            )
+            db.execute(
+                "INSERT OR IGNORE INTO fixture_phase_binding VALUES(1,?)", (binding,)
+            )
+            if db.execute(
+                "SELECT digest FROM fixture_phase_binding WHERE id=1"
+            ).fetchone() != (binding,):
+                raise ValueError("Fixture journal belongs to another configuration")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_phases (phase TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)"
+            )
+            if value is not None:
+                db.execute(
+                    "INSERT OR IGNORE INTO fixture_phases VALUES(?,?)", (phase, value)
+                )
+            row = db.execute(
+                "SELECT value FROM fixture_phases WHERE phase=?", (phase,)
+            ).fetchone()
+            if value is not None and row != (value,):
+                raise ValueError("Fixture phase result changed")
+            return row[0] if row else None
+
+    return access
+
+
 def fixture_bootstrap_cloud(
     account,
     headers,
@@ -1166,6 +1416,7 @@ def fixture_bootstrap_cloud(
     operator_key,
     password,
     manifest,
+    seed_spec=None,
 ):
     """Compose real adapters; callers must supply independent, current safety gates.
 
@@ -1179,6 +1430,20 @@ def fixture_bootstrap_cloud(
     ):
         raise ValueError("One explicit Cloudflare bearer credential required")
     headers = {"Authorization": authorization}
+    journal_binding = sha(
+        json.dumps(
+            {
+                "account": ACCOUNT_SHA,
+                "config": config,
+                "commit": commit,
+                "artifact": artifact_sha256,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode()
+    )
+    phase = fixture_phase_journal(journal, journal_binding)
     observer = fixture_cloud_observer(
         account, headers, config, artifact, commit, artifact_sha256
     )
@@ -1188,27 +1453,81 @@ def fixture_bootstrap_cloud(
     )
     transfer = fixture_transfer_adapter(frozen, operator_key, manifest)
     login = fixture_login_adapter(frozen, operator_key, password)
+    seed = None
+    if seed_spec is not None:
+        if not isinstance(seed_spec, dict) or set(seed_spec) != {
+            "manifest",
+            "parts",
+            "revision",
+            "checkpoint_sha256",
+        }:
+            raise ValueError("Invalid fixture seed specification")
+        seed = fixture_seed_capture_adapter(
+            frozen,
+            operator_key,
+            seed_spec["manifest"],
+            seed_spec["parts"],
+            seed_spec["revision"],
+            seed_spec["checkpoint_sha256"],
+            fixture_restore_reservation(journal),
+            fixture_capture_reservation(
+                journal, frozen["vars"]["B_WEB_QA_EXPORT_SNAPSHOT_ID"]
+            ),
+        )
 
     def create(current_config):
         if current_config != frozen:
             raise ValueError("Fixture configuration changed")
-        worker_id = create_fixture_worker_metadata(
-            account, headers, frozen, fixture_create_reservation(journal)
-        )
-        candidate = upload_fixture_worker_version(
-            account,
-            headers,
-            frozen,
-            artifact,
-            commit,
-            artifact_sha256,
-            worker_id,
-            upload_check,
-            fixture_upload_reservation(journal),
-        )
+        worker_id = phase("worker")
+        if worker_id is None:
+            worker_id = create_fixture_worker_metadata(
+                account, headers, frozen, fixture_create_reservation(journal)
+            )
+            phase("worker", worker_id)
+        else:
+            observed = inspect_fixture_worker_after_ambiguous_create(account, headers)
+            if (
+                observed.get("state") != "present"
+                or observed.get("worker_id") != worker_id
+            ):
+                raise ValueError("Saved fixture Worker identity unconfirmed")
+        candidate = phase("candidate")
+        if candidate is None:
+            candidate = upload_fixture_worker_version(
+                account,
+                headers,
+                frozen,
+                artifact,
+                commit,
+                artifact_sha256,
+                worker_id,
+                upload_check,
+                fixture_upload_reservation(journal),
+            )
+            phase("candidate", candidate)
         if not callable(activation_check):
             raise ValueError("Fixture candidate verification missing")
-        return activate_fixture_worker_version(
+        active = phase("activation")
+        if active is not None:
+            if active != candidate or activation_check(candidate) is not True:
+                raise ValueError("Saved fixture activation unconfirmed")
+            url = (
+                "https://api.cloudflare.com/client/v4/accounts/"
+                + account
+                + "/workers/scripts/"
+                + TARGETS["qa-fixture"]
+                + "/deployments"
+            )
+            info, _ = read_json(url, headers)
+            if (
+                not isinstance(info, dict)
+                or info.get("success") is not True
+                or info.get("result", {}).get("deployments", [{}])[0].get("versions")
+                != [{"version_id": candidate, "percentage": 100}]
+            ):
+                raise ValueError("Saved fixture deployment changed")
+            return candidate
+        active = activate_fixture_worker_version(
             account,
             headers,
             frozen,
@@ -1216,8 +1535,12 @@ def fixture_bootstrap_cloud(
             lambda: activation_check(candidate),
             fixture_activation_reservation(journal),
         )
+        phase("activation", active)
+        return active
 
     def transfer_restore(candidate):
+        if seed is not None and seed(candidate) != manifest:
+            raise ValueError("Captured fixture differs from pinned target")
         transfer(candidate)
         return restore(candidate)
 

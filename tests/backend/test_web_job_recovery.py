@@ -806,6 +806,35 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((body["restored"], status), (True, 200))
             body, status = await submit({"operation": "status", "snapshot_id": key})
             self.assertEqual((body["jobs_held"], status), (True, 200))
+            export_id = "b" * 32
+            self.app.env.B_WEB_QA_SNAPSHOT_EXPORT = "1"
+            self.app.env.B_WEB_QA_EXPORT_SNAPSHOT_ID = export_id
+            revision, checkpoint_hash = target.execute(
+                "SELECT revision,sha256 FROM checkpoint WHERE id=1"
+            ).fetchone()
+            request.url = host + "/api/qa-snapshot-export"
+            body, status = await submit(
+                {
+                    "operation": "capture",
+                    "snapshot_id": export_id,
+                    "revision": revision,
+                    "checkpoint_sha256": checkpoint_hash,
+                }
+            )
+            self.assertEqual(status, 200)
+            captured = body["manifest"]
+            body, status = await submit(
+                {"operation": "manifest", "snapshot_id": export_id}
+            )
+            self.assertEqual((body["manifest"], status), (captured, 200))
+            body, status = await submit(
+                {"operation": "part", "snapshot_id": export_id, "position": 0}
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(
+                hashlib.sha256(base64.b64decode(body["content_base64"])).hexdigest(),
+                captured["parts"][0]["sha256"],
+            )
             body, status = await endpoint.fetch(login_request)
             self.assertEqual((body["ok"], status), (True, 200))
         self.assertEqual(target.execute("SELECT count(*) FROM jobs").fetchone()[0], 2)

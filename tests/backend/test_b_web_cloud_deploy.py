@@ -36,6 +36,120 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_fixture_unknown_phase_keeps_reservation_after_restart(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_activation_reservation,
+            fixture_create_reservation,
+            fixture_phase_journal,
+            fixture_upload_reservation,
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "journal.sqlite"
+            for phase_name, factory in (
+                ("worker", fixture_create_reservation),
+                ("candidate", fixture_upload_reservation),
+                ("activation", fixture_activation_reservation),
+            ):
+                self.assertTrue(factory(path)())
+                # Simulate interruption after mutation but before a phase result is saved.
+                self.assertIsNone(fixture_phase_journal(path, "a" * 64)(phase_name))
+                self.assertFalse(factory(path)())
+
+    def test_fixture_seed_capture_reconciles_timeout_without_repeating(self):
+        from scripts.b_web_cloud_deploy import fixture_seed_capture_adapter
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        manifest = {
+            "parts": [{"bytes": 1, "sha256": hashlib.sha256(b"x").hexdigest()}],
+            "bytes": 1,
+        }
+        digest = hashlib.sha256(
+            json.dumps(
+                manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
+        source = "qa-isolated-restore-" + "b" * 32
+        config["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "qa-isolated-restore-" + "a" * 32,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": source,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": digest,
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "d" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "e" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": digest,
+            }
+        )
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        events = []
+        restored = False
+
+        def request(url, headers, payload):
+            nonlocal restored
+            operation = payload["operation"]
+            events.append(operation)
+            body = {"qa_object": source, "qa_deployment": candidate}
+            if operation == "status":
+                body.update(
+                    {"restored": True, "jobs_held": True, "alarm_restored": False}
+                    if restored
+                    else {"restored": False}
+                )
+            elif operation == "put":
+                body.update(stored=True, duplicate=False)
+            elif operation == "restore":
+                restored = True
+                body.update(restored=True, jobs_held=True, alarm_restored=False)
+            elif operation == "capture":
+                raise TimeoutError()
+            else:
+                body["manifest"] = manifest
+            return body, {}
+
+        with patch("scripts.b_web_cloud_deploy.read_json", side_effect=request):
+            seed = fixture_seed_capture_adapter(
+                config,
+                "operator",
+                manifest,
+                [b"x"],
+                1,
+                "a" * 64,
+                lambda *_: True,
+                MagicMock(side_effect=[True, False]),
+            )
+            self.assertEqual(seed(candidate), manifest)
+            self.assertEqual(seed(candidate), manifest)
+        self.assertEqual(
+            events,
+            ["status", "put", "restore", "capture", "manifest", "status", "manifest"],
+        )
+
+    def test_fixture_phase_journal_binds_identity_and_preserves_results(self):
+        from scripts.b_web_cloud_deploy import fixture_phase_journal
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "journal.sqlite"
+            phase = fixture_phase_journal(path, "a" * 64)
+            candidate = "12345678-1234-1234-1234-123456789abc"
+            self.assertIsNone(phase("worker"))
+            self.assertEqual(phase("worker", "worker-id"), "worker-id")
+            self.assertEqual(phase("candidate", candidate), candidate)
+            self.assertEqual(
+                fixture_phase_journal(path, "a" * 64)("worker"), "worker-id"
+            )
+            with self.assertRaisesRegex(ValueError, "result changed"):
+                phase("worker", "other-id")
+            with self.assertRaisesRegex(ValueError, "another configuration"):
+                fixture_phase_journal(path, "b" * 64)("worker")
+            with self.assertRaisesRegex(ValueError, "Invalid confirmed"):
+                phase("activation", "bad-version")
+
     def test_fixture_cloud_bootstrap_real_adapters_with_mock_transport(self):
         from scripts.b_web_cloud_deploy import fixture_bootstrap_cloud
 
@@ -74,8 +188,10 @@ class CloudDeploymentTests(unittest.TestCase):
             return_value=({}, {}, [{"version_id": candidate, "percentage": 100}])
         )
         events = []
+        restored = False
 
         def request(url, headers, payload=None):
+            nonlocal restored
             operation = (payload or {}).get("operation")
             if url.startswith("https://api.cloudflare.com/"):
                 self.assertNotIn("X-Auth-Key", headers)
@@ -91,6 +207,19 @@ class CloudDeploymentTests(unittest.TestCase):
                     "result": {"name": "creator-loop-b-snapshot-qa", "id": "id"},
                 }, {}
             if url.endswith("/deployments"):
+                if payload is None:
+                    return {
+                        "success": True,
+                        "result": {
+                            "deployments": [
+                                {
+                                    "versions": [
+                                        {"version_id": candidate, "percentage": 100}
+                                    ]
+                                }
+                            ]
+                        },
+                    }, {}
                 events.append("activate")
                 return {
                     "success": True,
@@ -109,8 +238,14 @@ class CloudDeploymentTests(unittest.TestCase):
             if url.endswith("/api/qa-snapshot-staging"):
                 events.append(operation)
                 body = {"qa_object": target, "qa_deployment": candidate}
+                if operation == "restore":
+                    restored = True
                 body.update(
-                    {"restored": False, "staged_parts": 1}
+                    (
+                        {"restored": True, "jobs_held": True, "alarm_restored": False}
+                        if restored
+                        else {"restored": False, "staged_parts": 1}
+                    )
                     if operation == "status"
                     else {"stored": True, "duplicate": False}
                     if operation == "put"
@@ -168,11 +303,21 @@ class CloudDeploymentTests(unittest.TestCase):
                 manifest,
             )
             self.assertEqual(fixture_bootstrap_cloud(*args), "c" * 32)
-            with self.assertRaisesRegex(ValueError, "already attempted"):
-                fixture_bootstrap_cloud(*args)
+            self.assertEqual(fixture_bootstrap_cloud(*args), "c" * 32)
         self.assertEqual(
             events,
-            ["create", "activate", "status", "put", "status", "restore", "login"],
+            [
+                "create",
+                "activate",
+                "status",
+                "put",
+                "status",
+                "restore",
+                "login",
+                "status",
+                "status",
+                "login",
+            ],
         )
 
     def test_fixture_cloud_bootstrap_composes_management_adapters_in_order(self):
