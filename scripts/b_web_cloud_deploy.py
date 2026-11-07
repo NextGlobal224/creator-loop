@@ -1173,6 +1173,12 @@ def fixture_bootstrap_cloud(
     deployment fence and relevant asset proof exist. The same protected journal
     is mandatory for every process; retries after ambiguous mutations are refused.
     """
+    authorization = headers.get("Authorization") if isinstance(headers, dict) else None
+    if not isinstance(authorization, str) or not re.fullmatch(
+        r"Bearer [^\s]+", authorization
+    ):
+        raise ValueError("One explicit Cloudflare bearer credential required")
+    headers = {"Authorization": authorization}
     observer = fixture_cloud_observer(
         account, headers, config, artifact, commit, artifact_sha256
     )

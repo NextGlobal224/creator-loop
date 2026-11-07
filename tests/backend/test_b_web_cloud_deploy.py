@@ -77,6 +77,8 @@ class CloudDeploymentTests(unittest.TestCase):
 
         def request(url, headers, payload=None):
             operation = (payload or {}).get("operation")
+            if url.startswith("https://api.cloudflare.com/"):
+                self.assertNotIn("X-Auth-Key", headers)
             if url.endswith("/workers/workers"):
                 events.append("create")
                 return {
@@ -148,7 +150,10 @@ class CloudDeploymentTests(unittest.TestCase):
         ):
             args = (
                 "fixture",
-                {"Authorization": "Bearer fake-test-credential"},
+                {
+                    "Authorization": "Bearer fake-test-credential",
+                    "X-Auth-Key": "fake-conflict",
+                },
                 config,
                 b"artifact",
                 "a" * 40,
@@ -239,7 +244,10 @@ class CloudDeploymentTests(unittest.TestCase):
         ):
             result = fixture_bootstrap_cloud(
                 "account",
-                {},
+                {
+                    "Authorization": "Bearer fake-test-credential",
+                    "X-Auth-Key": "fake-conflict",
+                },
                 config,
                 b"artifact",
                 "a" * 40,
