@@ -36,6 +36,142 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def test_real_fixture_worker_metadata_create_never_retries_unknown(self):
+        from scripts.b_web_cloud_deploy import create_fixture_worker_metadata
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        account = "fixture-account"
+        account_hash = hashlib.sha256(account.encode()).hexdigest()
+        with patch("scripts.b_web_cloud_deploy.ACCOUNT_SHA", account_hash):
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                return_value=(
+                    {
+                        "success": True,
+                        "result": {
+                            "name": "creator-loop-b-snapshot-qa",
+                            "id": "worker-id",
+                        },
+                    },
+                    {},
+                ),
+            ) as read:
+                self.assertEqual(
+                    create_fixture_worker_metadata(account, {}, config, lambda: True),
+                    "worker-id",
+                )
+                self.assertEqual(
+                    read.call_args.args[2], {"name": "creator-loop-b-snapshot-qa"}
+                )
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                side_effect=[
+                    TimeoutError(),
+                    RuntimeError("HTTPS operation refused: HTTP404"),
+                ],
+            ) as read:
+                with self.assertRaisesRegex(
+                    RuntimeError, "metadata=not_found; do not retry"
+                ):
+                    create_fixture_worker_metadata(account, {}, config, lambda: True)
+                self.assertEqual(read.call_count, 2)
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                side_effect=[
+                    ({"success": False}, {}),
+                    RuntimeError("HTTPS operation refused: HTTP404"),
+                ],
+            ) as read:
+                with self.assertRaisesRegex(
+                    RuntimeError, "metadata=not_found; do not retry"
+                ):
+                    create_fixture_worker_metadata(account, {}, config, lambda: True)
+                self.assertEqual(read.call_count, 2)
+            with patch("scripts.b_web_cloud_deploy.read_json") as read:
+                with self.assertRaisesRegex(ValueError, "already attempted"):
+                    create_fixture_worker_metadata(account, {}, config, lambda: False)
+                read.assert_not_called()
+
+    def test_fixture_activation_requires_checks_and_never_retries_timeout(self):
+        from scripts.b_web_cloud_deploy import activate_fixture_worker_version
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        versions = [{"version_id": candidate, "percentage": 100}]
+        with patch(
+            "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+            hashlib.sha256(b"fixture").hexdigest(),
+        ):
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                return_value=({"success": True, "result": {"versions": versions}}, {}),
+            ) as read:
+                self.assertEqual(
+                    activate_fixture_worker_version(
+                        "fixture", {}, config, candidate, lambda: True, lambda: True
+                    ),
+                    candidate,
+                )
+                self.assertEqual(
+                    read.call_args.args[2]["code_update_strategy"],
+                    {"mode": "immediate"},
+                )
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                side_effect=[
+                    TimeoutError(),
+                    (
+                        {
+                            "success": True,
+                            "result": {"deployments": [{"versions": versions}]},
+                        },
+                        {},
+                    ),
+                ],
+            ) as read:
+                with self.assertRaisesRegex(
+                    RuntimeError, "metadata=candidate; do not retry"
+                ):
+                    activate_fixture_worker_version(
+                        "fixture", {}, config, candidate, lambda: True, lambda: True
+                    )
+                self.assertEqual(read.call_count, 2)
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                side_effect=[TimeoutError(), TimeoutError()],
+            ) as read:
+                with self.assertRaisesRegex(
+                    RuntimeError, "metadata=unavailable; do not retry"
+                ):
+                    activate_fixture_worker_version(
+                        "fixture", {}, config, candidate, lambda: True, lambda: True
+                    )
+                self.assertEqual(read.call_count, 2)
+            with patch("scripts.b_web_cloud_deploy.read_json") as read:
+                with self.assertRaisesRegex(ValueError, "safety checks"):
+                    activate_fixture_worker_version(
+                        "fixture", {}, config, candidate, lambda: False, lambda: True
+                    )
+                read.assert_not_called()
+
+    def test_fixture_activation_reservation_persists(self):
+        from scripts.b_web_cloud_deploy import fixture_activation_reservation
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "journal.sqlite"
+            self.assertTrue(fixture_activation_reservation(path)())
+            self.assertFalse(fixture_activation_reservation(path)())
+
     def test_fixture_creation_reservation_across_processes(self):
         with tempfile.TemporaryDirectory() as temp:
             path = str(Path(temp) / "create.sqlite")

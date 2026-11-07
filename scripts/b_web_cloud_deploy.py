@@ -579,6 +579,133 @@ def inspect_fixture_worker_after_ambiguous_create(account, headers):
     return {"state": "present", "worker_id": result["id"], "retry_permitted": False}
 
 
+def create_fixture_worker_metadata(account, headers, config, reserve_once):
+    """Create the fixed QA Worker shell once; this does not upload or deploy.
+
+    The caller must establish the resource/permission gate before calling and
+    provide a durable reservation shared by every attempt. An ambiguous failure
+    never authorizes another POST, even when metadata returns 404.
+    """
+    validate_fixture_config(config)
+    if not isinstance(account, str) or sha(account.encode()) != ACCOUNT_SHA:
+        raise ValueError("Wrong Cloudflare account")
+    headers = {**headers, "Content-Type": "application/json"}
+    if not callable(reserve_once) or reserve_once() is not True:
+        raise ValueError("Fixture creation already attempted or journal unavailable")
+    url = (
+        "https://api.cloudflare.com/client/v4/accounts/" + account + "/workers/workers"
+    )
+    try:
+        body, _ = read_json(url, headers, {"name": TARGETS["qa-fixture"]})
+        result = body.get("result") if isinstance(body, dict) else None
+        if (
+            not isinstance(body, dict)
+            or body.get("success") is not True
+            or not isinstance(result, dict)
+            or result.get("name") != TARGETS["qa-fixture"]
+            or not isinstance(result.get("id"), str)
+            or not result["id"]
+        ):
+            raise ValueError("Unconfirmed response")
+    except Exception:
+        # A read is diagnostic only: neither 404 nor a matching name proves
+        # the outcome of the interrupted POST or permits an automatic retry.
+        observation = "unavailable"
+        try:
+            observation = inspect_fixture_worker_after_ambiguous_create(
+                account, headers
+            )["state"]
+        except Exception:
+            pass
+        raise RuntimeError(
+            "Fixture creation outcome unknown; metadata="
+            + observation
+            + "; do not retry"
+        ) from None
+    return result["id"]
+
+
+def activate_fixture_worker_version(
+    account, headers, config, candidate, final_check, reserve_once
+):
+    """Submit one fixed-fixture activation after externally established safety gates."""
+    validate_fixture_config(config)
+    if not isinstance(account, str) or sha(account.encode()) != ACCOUNT_SHA:
+        raise ValueError("Wrong Cloudflare account")
+    headers = {**headers, "Content-Type": "application/json"}
+    if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+        raise ValueError("Exact fixture version required")
+    if not callable(final_check) or final_check() is not True:
+        raise ValueError("Fixture activation safety checks unconfirmed")
+    if not callable(reserve_once) or reserve_once() is not True:
+        raise ValueError("Fixture activation already attempted or journal unavailable")
+    url = (
+        "https://api.cloudflare.com/client/v4/accounts/"
+        + account
+        + "/workers/scripts/"
+        + TARGETS["qa-fixture"]
+        + "/deployments"
+    )
+    payload = {
+        "strategy": "percentage",
+        "versions": [{"version_id": candidate, "percentage": 100}],
+        "code_update_strategy": {"mode": "immediate"},
+    }
+    try:
+        body, _ = read_json(url, headers, payload)
+        if (
+            not isinstance(body, dict)
+            or body.get("success") is not True
+            or not isinstance(body.get("result"), dict)
+            or body["result"].get("versions") != payload["versions"]
+        ):
+            raise ValueError("Unconfirmed activation response")
+    except Exception:
+        # A subsequent metadata read is diagnostic only; it is not a fence and
+        # must never authorize another activation after an ambiguous outcome.
+        observed = "unavailable"
+        try:
+            info, _ = read_json(url, headers)
+            if not isinstance(info, dict) or info.get("success") is not True:
+                raise ValueError("Deployment metadata unavailable")
+            versions = info["result"]["deployments"][0]["versions"]
+            observed = (
+                "candidate" if versions == payload["versions"] else "other_or_mixed"
+            )
+        except Exception:
+            pass
+        raise RuntimeError(
+            "Fixture activation outcome unknown; metadata="
+            + observed
+            + "; do not retry"
+        ) from None
+    return candidate
+
+
+def fixture_activation_reservation(path):
+    """Reserve one fixture activation, independent of create and restore."""
+    path = Path(path)
+    if not path.is_absolute() or not path.parent.is_dir():
+        raise ValueError("An absolute durable reservation path is required")
+
+    def reserve():
+        with closing(sqlite3.connect(str(path), timeout=5)) as db, db:
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_activation_attempts (target TEXT PRIMARY KEY NOT NULL)"
+            )
+            try:
+                db.execute(
+                    "INSERT INTO fixture_activation_attempts VALUES (?)",
+                    (TARGETS["qa-fixture"],),
+                )
+            except sqlite3.IntegrityError:
+                return False
+        return True
+
+    return reserve
+
+
 def fixture_create_reservation(path):
     """Reserve the one fixture Worker creation in a shared local journal."""
     path = Path(path)
