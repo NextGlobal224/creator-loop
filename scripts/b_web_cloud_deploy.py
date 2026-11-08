@@ -1885,6 +1885,9 @@ def read_included_usage(account: str, headers: dict, start: str, end: str) -> di
     started = time.monotonic()
     previous = None
     completed_reads = 0
+    # Keep only already-validated account-wide aggregates for diagnostics.
+    # They never make an incomplete observation eligible for the guard.
+    usage = {}
     # Apply this official read policy only to GraphQL, not caller REST headers.
     headers = {**headers, "X-Rate-Limit-Type": "account-based"}
 
@@ -1938,6 +1941,12 @@ def read_included_usage(account: str, headers: dict, start: str, end: str) -> di
                             k: variables[k] for k in ("s", "e") if k in variables
                         },
                         "model_calls": 0,
+                        "guard_pass": False,
+                        "completed_aggregates": {
+                            name: dict(rows[0]["sum"])
+                            for name, rows in usage.items()
+                            if name in sum_fields
+                        },
                     }
                 )
             )
@@ -1971,7 +1980,6 @@ def read_included_usage(account: str, headers: dict, start: str, end: str) -> di
             > limits["notOlderThan"]
         ):
             raise ValueError("Included-resource dataset window unavailable: " + node)
-    usage = {}
     for node, selection in selections.items():
         selection = selection.replace(
             "){", ",filter:{datetime_geq:$s,datetime_leq:$e}){", 1

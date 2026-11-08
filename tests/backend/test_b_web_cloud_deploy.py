@@ -2182,6 +2182,36 @@ class CloudDeploymentTests(unittest.TestCase):
             sum(r["max"]["storedBytes"] for r in result[self.NODES[-1]]), 130
         )
 
+    def test_storage_error_records_only_validated_aggregates_and_stays_closed(self):
+        def read(url, headers, data):
+            if self.NODES[-1] + "(" in data["query"]:
+                return {
+                    "errors": [
+                        {"message": "rate limiter", "extensions": {"code": "budget"}}
+                    ]
+                }, {}
+            return self.fixture_read(url, headers, data)
+
+        first = datetime.now(timezone.utc) - timedelta(days=31)
+        last = first + timedelta(days=31)
+        with (
+            patch("scripts.b_web_cloud_deploy.read_json", side_effect=read) as query,
+            patch("scripts.b_web_cloud_deploy.time.sleep"),
+            patch("scripts.b_web_cloud_deploy.Path.write_text") as write,
+        ):
+            with self.assertRaisesRegex(ValueError, "durableObjectsSqlStorageGroups"):
+                read_included_usage(
+                    "private-account", {}, first.isoformat(), last.isoformat()
+                )
+        packet = json.loads(write.call_args.args[0])
+        self.assertFalse(packet["guard_pass"])
+        self.assertEqual(packet["attempt"], 5)
+        self.assertEqual(query.call_count, 5)
+        self.assertEqual(set(packet["completed_aggregates"]), set(self.NODES[:-1]))
+        self.assertEqual(packet["completed_aggregates"][self.NODES[0]]["requests"], 7)
+        self.assertNotIn("private-account", write.call_args.args[0])
+        self.assertNotIn(self.NODES[-1], packet["completed_aggregates"])
+
     def test_full_window_keeps_historical_and_current_namespace_peaks(self):
         storage = self.NODES[-1]
         rows = [
@@ -2449,6 +2479,8 @@ class CloudDeploymentTests(unittest.TestCase):
                 "mode": "account-based",
                 "window": {},
                 "model_calls": 0,
+                "guard_pass": False,
+                "completed_aggregates": {},
             },
         )
 
