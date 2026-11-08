@@ -1361,6 +1361,18 @@ def fixture_transfer_adapter(config, operator_key, manifest):
     parts = manifest.get("parts")
     if not isinstance(parts, list) or not 0 < len(parts) <= 384:
         raise ValueError("Fixture transfer parts missing")
+    # Validate the complete pinned manifest before the first network request.
+    # Otherwise an invalid later part can leave earlier parts staged and spend
+    # requests/SQL writes despite the transfer being certain to fail.
+    for item in parts:
+        if (
+            not isinstance(item, dict)
+            or type(item.get("bytes")) is not int
+            or not 0 < item["bytes"] <= 262144
+            or not isinstance(item.get("sha256"), str)
+            or not re.fullmatch(r"[a-f0-9]{64}", item["sha256"])
+        ):
+            raise ValueError("Invalid fixture part metadata")
     origin = "https://" + values["B_WEB_QA_HOSTNAME"]
 
     def transfer(candidate):
@@ -1410,14 +1422,6 @@ def fixture_transfer_adapter(config, operator_key, manifest):
         if remote.get("manifest") != manifest:
             raise ValueError("Fixture export manifest differs")
         for position, item in enumerate(parts):
-            if (
-                not isinstance(item, dict)
-                or type(item.get("bytes")) is not int
-                or not 0 < item["bytes"] <= 262144
-                or not isinstance(item.get("sha256"), str)
-                or not re.fullmatch(r"[a-f0-9]{64}", item["sha256"])
-            ):
-                raise ValueError("Invalid fixture part metadata")
             part = request(
                 "source",
                 "/api/qa-snapshot-export",

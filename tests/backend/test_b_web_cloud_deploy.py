@@ -889,6 +889,42 @@ class CloudDeploymentTests(unittest.TestCase):
             )
             self.assertEqual(replay.stdout.strip(), "False")
 
+    def test_transfer_rejects_invalid_late_part_before_any_network(self):
+        from scripts.b_web_cloud_deploy import fixture_transfer_adapter
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        manifest = {
+            "parts": [
+                {"bytes": 1, "sha256": hashlib.sha256(b"x").hexdigest()},
+                {"bytes": 262145, "sha256": "a" * 64},
+            ]
+        }
+        digest = hashlib.sha256(
+            json.dumps(
+                manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
+        config["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "qa-isolated-restore-" + "a" * 32,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "qa-isolated-restore-" + "b" * 32,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": digest,
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "d" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "e" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": "f" * 64,
+            }
+        )
+        with patch("scripts.b_web_cloud_deploy.read_json") as cloud:
+            with self.assertRaisesRegex(ValueError, "Invalid fixture part metadata"):
+                fixture_transfer_adapter(config, "operator", manifest)
+            cloud.assert_not_called()
+
     def test_bootstrap_wires_restore_and_login_adapters(self):
         from scripts.b_web_cloud_deploy import fixture_bootstrap_with_adapters
 
