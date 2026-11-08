@@ -276,7 +276,15 @@ def verify_fixture_namespace_ownership(
 
 
 def fixture_bootstrap_sequence(
-    preflight, create, observe, restore, login, record, config, cleanup=None
+    preflight,
+    create,
+    observe,
+    restore,
+    login,
+    record,
+    config,
+    cleanup=None,
+    body_limit_probe=None,
 ):
     """Order a single isolated first-create; caller must supply trusted I/O adapters.
 
@@ -355,6 +363,14 @@ def fixture_bootstrap_sequence(
         record({"state": "login_unverified", "target": TARGETS["qa-fixture"]})
         raise
     record({"state": "login_verified", "target": TARGETS["qa-fixture"]})
+    if body_limit_probe is not None:
+        try:
+            if body_limit_probe(candidate) != 413:
+                raise ValueError("Fixture oversized body rejection unconfirmed")
+        except Exception:
+            record({"state": "body_limit_unverified", "target": TARGETS["qa-fixture"]})
+            raise
+        record({"state": "body_limit_http_413", "target": TARGETS["qa-fixture"]})
     if cleanup is not None:
         try:
             result = cleanup(candidate)
@@ -1782,7 +1798,29 @@ def fixture_request_budget(path, binding, origin, plan):
         reserve("request")
         return read_json(url, headers, data)
 
+    def raw_body_limit_probe(url, headers, body):
+        if url != origin + "/api/qa-snapshot-staging":
+            raise ValueError("Unexpected fixture body-limit target")
+        if not isinstance(body, bytes) or len(body) != 512 * 1024 + 1:
+            raise ValueError("Exact oversized fixture body required")
+        reserve("request")
+        return fixture_raw_body_limit_request(url, headers, body)
+
+    request.raw_body_limit_probe = raw_body_limit_probe
     return lambda: reserve("attempt"), request
+
+
+def fixture_raw_body_limit_request(url, headers, body):
+    """Single no-redirect request; HTTP 413 alone does not prove handler identity."""
+    request = urllib.request.Request(url, headers=headers, data=body, method="POST")
+    try:
+        with urllib.request.build_opener(NoRedirect()).open(
+            request, timeout=45
+        ) as response:
+            return response.status
+    except urllib.error.HTTPError as error:
+        with error:
+            return error.code
 
 
 def fixture_bootstrap_cloud(
@@ -1843,10 +1881,10 @@ def fixture_bootstrap_cloud(
         ):
             raise ValueError("Fixture seed part list required")
         seed_parts = len(seed_spec["parts"])
-    # API-only sequence: cleanup once per attempt. Browser and oversized-body
-    # probes remain disabled until their complete request paths are bounded.
+    # API-only sequence: cleanup and bounded oversized-body probe per attempt.
+    # Browser remains disabled until every transport is bounded.
     plan = fixture_full_request_forecast(
-        len(target_parts), seed_parts, body_limit=0, cleanup=2, browser=0
+        len(target_parts), seed_parts, body_limit=2, cleanup=2, browser=0
     )
     start_attempt, request_json = fixture_request_budget(
         journal, journal_binding, "https://" + frozen["vars"]["B_WEB_QA_HOSTNAME"], plan
@@ -1861,6 +1899,24 @@ def fixture_bootstrap_cloud(
     transfer = fixture_transfer_adapter(frozen, operator_key, manifest, request_json)
     login = fixture_login_adapter(frozen, operator_key, password, request_json)
     cleanup = fixture_cleanup_adapter(frozen, operator_key, manifest, request_json)
+
+    def body_limit_probe(candidate):
+        if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+            raise ValueError("Exact fixture version required")
+        origin = "https://" + frozen["vars"]["B_WEB_QA_HOSTNAME"]
+        headers = {
+            "Origin": origin,
+            "Content-Type": "application/json",
+            "X-Operator-Key": operator_key,
+            "X-QA-Expected-Version": candidate,
+            "X-QA-Object": "target",
+        }
+        return request_json.raw_body_limit_probe(
+            origin + "/api/qa-snapshot-staging",
+            headers,
+            b"{}" + b" " * (512 * 1024 - 1),
+        )
+
     seed = None
     if seed_spec is not None:
         if not isinstance(seed_spec, dict) or set(seed_spec) != {
@@ -1982,6 +2038,7 @@ def fixture_bootstrap_cloud(
         record,
         frozen,
         cleanup,
+        body_limit_probe,
     )
 
 

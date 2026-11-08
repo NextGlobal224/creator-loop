@@ -676,6 +676,10 @@ class CloudDeploymentTests(unittest.TestCase):
             ),
             patch("scripts.b_web_cloud_deploy.read_json", side_effect=request),
             patch(
+                "scripts.b_web_cloud_deploy.fixture_raw_body_limit_request",
+                return_value=413,
+            ),
+            patch(
                 "scripts.b_web_cloud_deploy.subprocess.run",
                 return_value=MagicMock(
                     returncode=0, stdout=("Worker Version ID: " + candidate).encode()
@@ -720,7 +724,7 @@ class CloudDeploymentTests(unittest.TestCase):
                     db.execute(
                         "SELECT maximum, attempts, used FROM fixture_request_budget"
                     ).fetchone(),
-                    (18, 2, 14),
+                    (20, 2, 16),
                 )
             with self.assertRaisesRegex(ValueError, "attempt budget exhausted"):
                 fixture_bootstrap_cloud(*args)
@@ -774,6 +778,10 @@ class CloudDeploymentTests(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as temp,
             patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_raw_body_limit_request",
+                return_value=413,
+            ),
             patch(
                 "scripts.b_web_cloud_deploy.fixture_cloud_observer",
                 return_value=observe,
