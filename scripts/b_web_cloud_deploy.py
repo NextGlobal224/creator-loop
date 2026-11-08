@@ -2230,6 +2230,27 @@ def compatible_bindings(current: dict, target: dict):
         raise ValueError("Rollback database/model bindings incompatible")
 
 
+def fixture_first_create_preflight(run, commit):
+    """Read authenticated main CI artifact; never create or contact an object.
+
+    Presence of credentials is not proof of their scope or of resource budget.
+    Callers must still establish those facts and a deployment fence before use.
+    """
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads(
+        (root / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc").read_text(
+            encoding="utf-8"
+        )
+    )
+    validate_fixture_config(config)
+    account = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+    if sha(account.encode()) != ACCOUNT_SHA:
+        raise ValueError("Wrong or missing Cloudflare account")
+    if not os.environ.get("CLOUDFLARE_API_TOKEN", "").strip():
+        raise ValueError("Cloudflare credential missing")
+    fetch_fixture_ci_artifact(run, commit, config)
+
+
 def main():
     if (
         os.environ["GITHUB_REPOSITORY"] != REPO
@@ -2250,10 +2271,17 @@ def main():
         raise ValueError("Exact commit/run needed")
     target = os.environ["B_TARGET"]
     worker = TARGETS[target]
-    expected = os.environ["B_EXPECTED_DEPLOYMENT"]
-    if operation not in ("deploy", "rollback", "verify") or not re.fullmatch(
-        UUID, expected
-    ):
+    if operation not in ("deploy", "rollback", "verify"):
+        raise ValueError("Explicit operation needed")
+    if target == "qa-fixture":
+        if operation != "deploy":
+            raise ValueError("Fixture first-create requires deploy operation")
+        fixture_first_create_preflight(run, commit)
+        raise ValueError(
+            "Fixture bootstrap unavailable: resource, permission and deployment fence proofs required"
+        )
+    expected = os.environ.get("B_EXPECTED_DEPLOYMENT", "")
+    if not re.fullmatch(UUID, expected):
         raise ValueError("Explicit operation and current deployment needed")
     if target == "production":
         # The installed production DO can rearm work upon any cold request.
@@ -2268,11 +2296,6 @@ def main():
         # Resource totals, an empty recent-jobs page, or a config flag cannot
         # establish that its old alarms and in-flight invocations are fenced.
         require_legacy_qa_fence()
-    if target == "qa-fixture":
-        # This target is deliberately distinct, but the bootstrap path must
-        # establish fresh namespace ownership, resource proof and credentials
-        # before it can create a Worker. Never reuse QA19's bootstrap route.
-        raise ValueError("Isolated QA bootstrap is not yet verified")
 
     def gh(*args):
         return subprocess.check_output(["gh", *args], timeout=180)

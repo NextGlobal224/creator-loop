@@ -1273,7 +1273,7 @@ class CloudDeploymentTests(unittest.TestCase):
             "B_OPERATION": "deploy",
             "B_EXPECTED_DEPLOYMENT": "12345678-1234-1234-1234-123456789abc",
         }
-        for target, reason in (("qa19", "quiescence"), ("qa-fixture", "bootstrap")):
+        for target, reason in (("qa19", "quiescence"),):
             with (
                 self.subTest(target=target),
                 patch.dict(os.environ, {**env, "B_TARGET": target}),
@@ -1284,6 +1284,52 @@ class CloudDeploymentTests(unittest.TestCase):
                     main()
                 http.assert_not_called()
                 gh.assert_not_called()
+
+    def test_fixture_first_create_needs_no_previous_deployment_but_stays_closed(self):
+        env = {
+            "GITHUB_REPOSITORY": REPO,
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_SHA": "a" * 40,
+            "B_CI_RUN": "8",
+            "B_OPERATION": "deploy",
+            "B_TARGET": "qa-fixture",
+            "CLOUDFLARE_ACCOUNT_ID": "fixture-account",
+            "CLOUDFLARE_API_TOKEN": "fixture-token",
+        }
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch(
+                "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+                hashlib.sha256(b"fixture-account").hexdigest(),
+            ),
+            patch("scripts.b_web_cloud_deploy.fetch_fixture_ci_artifact") as artifact,
+            patch("scripts.b_web_cloud_deploy.read_json") as cloud,
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "resource, permission and deployment fence"
+            ):
+                main()
+            artifact.assert_called_once()
+            cloud.assert_not_called()
+
+        for changed in (
+            {"CLOUDFLARE_ACCOUNT_ID": "wrong"},
+            {"CLOUDFLARE_API_TOKEN": ""},
+            {"B_OPERATION": "rollback"},
+        ):
+            with (
+                patch.dict(os.environ, {**env, **changed}, clear=True),
+                patch(
+                    "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+                    hashlib.sha256(b"fixture-account").hexdigest(),
+                ),
+                patch(
+                    "scripts.b_web_cloud_deploy.fetch_fixture_ci_artifact"
+                ) as artifact,
+            ):
+                with self.assertRaises(ValueError):
+                    main()
+                artifact.assert_not_called()
 
     def test_fixture_configuration_cannot_bind_production_or_ai(self):
         from pathlib import Path
