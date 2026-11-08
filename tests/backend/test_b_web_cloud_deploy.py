@@ -48,6 +48,80 @@ class CloudDeploymentTests(unittest.TestCase):
             guard.start()
             self.addCleanup(guard.stop)
 
+    def test_fixture_full_request_forecast_and_screen_fail_closed(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_full_request_forecast,
+            fixture_request_usage_screen,
+        )
+
+        plan = fixture_full_request_forecast(
+            384, 384, body_limit=4, cleanup=6, browser=20
+        )
+        self.assertEqual(
+            plan,
+            {"core": 2324, "body_limit": 4, "cleanup": 6, "browser": 20, "total": 2354},
+        )
+        self.assertTrue(fixture_request_usage_screen(plan, 100, 100, 50, 50, 100, 100))
+        self.assertFalse(fixture_request_usage_screen(plan, 100, 997_646, 0, 0, 0, 0))
+        with self.assertRaisesRegex(ValueError, "Unknown"):
+            fixture_request_usage_screen(plan, 0, 0, None, 0, 0, 0)
+        with self.assertRaisesRegex(ValueError, "Inconsistent"):
+            fixture_request_usage_screen({**plan, "total": 1}, 0, 0, 0, 0, 0, 0)
+        for missing in (None, -1, True):
+            with self.assertRaisesRegex(ValueError, "finite integer"):
+                fixture_full_request_forecast(
+                    1, 1, body_limit=1, cleanup=1, browser=missing
+                )
+
+    def test_fixture_cleanup_uses_shared_budget_and_checks_identity(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_cleanup_adapter,
+            fixture_full_request_forecast,
+            fixture_request_budget,
+        )
+
+        manifest = {"parts": [{"bytes": 1, "sha256": "a" * 64}], "bytes": 1}
+        digest = hashlib.sha256(
+            json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        config = {
+            "vars": {
+                "B_WEB_QA_HOSTNAME": "fixture.invalid",
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "target",
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "snapshot",
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": digest,
+            }
+        }
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+            patch("scripts.b_web_cloud_deploy.read_json") as network,
+        ):
+            plan = fixture_full_request_forecast(
+                1, None, body_limit=2, cleanup=2, browser=0
+            )
+            start, request = fixture_request_budget(
+                Path(temp) / "budget.sqlite", "a" * 64, "https://fixture.invalid", plan
+            )
+            start()
+            cleanup = fixture_cleanup_adapter(config, "operator", manifest, request)
+            network.return_value = (
+                {"cleaned": True, "qa_object": "wrong", "qa_deployment": candidate},
+                {},
+            )
+            with self.assertRaisesRegex(ValueError, "identity"):
+                cleanup(candidate)
+            network.return_value = (
+                {"cleaned": True, "qa_object": "target", "qa_deployment": candidate},
+                {},
+            )
+            for _ in range(plan["total"] - 1):
+                self.assertTrue(cleanup(candidate)["cleaned"])
+            with self.assertRaisesRegex(ValueError, "budget exhausted"):
+                cleanup(candidate)
+            self.assertEqual(network.call_count, plan["total"])
+
     def test_fixture_request_budget_survives_restart_and_refuses_unknown_calls(self):
         from scripts.b_web_cloud_deploy import (
             fixture_core_request_plan,
@@ -563,6 +637,8 @@ class CloudDeploymentTests(unittest.TestCase):
                 body = {"qa_object": target, "qa_deployment": candidate}
                 if operation == "restore":
                     restored = True
+                if operation == "cleanup":
+                    body["cleaned"] = True
                 body.update(
                     (
                         {"restored": True, "jobs_held": True, "alarm_restored": False}
@@ -624,6 +700,18 @@ class CloudDeploymentTests(unittest.TestCase):
                 "operator",
                 "password",
                 manifest,
+                None,
+                lambda: dict.fromkeys(
+                    (
+                        "observed_workers",
+                        "observed_do",
+                        "pending_workers",
+                        "pending_do",
+                        "reserve_workers",
+                        "reserve_do",
+                    ),
+                    1,
+                ),
             )
             self.assertEqual(fixture_bootstrap_cloud(*args), "c" * 32)
             self.assertEqual(fixture_bootstrap_cloud(*args), "c" * 32)
@@ -632,7 +720,7 @@ class CloudDeploymentTests(unittest.TestCase):
                     db.execute(
                         "SELECT maximum, attempts, used FROM fixture_request_budget"
                     ).fetchone(),
-                    (16, 2, 12),
+                    (18, 2, 14),
                 )
             with self.assertRaisesRegex(ValueError, "attempt budget exhausted"):
                 fixture_bootstrap_cloud(*args)
@@ -646,9 +734,11 @@ class CloudDeploymentTests(unittest.TestCase):
                 "status",
                 "restore",
                 "login",
+                "cleanup",
                 "status",
                 "status",
                 "login",
+                "cleanup",
             ],
         )
 
@@ -708,6 +798,10 @@ class CloudDeploymentTests(unittest.TestCase):
                 },
             ),
             patch(
+                "scripts.b_web_cloud_deploy.fixture_cleanup_adapter",
+                return_value=lambda _: {"cleaned": True},
+            ),
+            patch(
                 "scripts.b_web_cloud_deploy.create_fixture_worker_metadata",
                 side_effect=lambda *args: steps.append("create") or "worker",
             ),
@@ -738,9 +832,68 @@ class CloudDeploymentTests(unittest.TestCase):
                 "operator",
                 "password",
                 {"parts": [{"bytes": 1, "sha256": "a" * 64}]},
+                None,
+                lambda: dict.fromkeys(
+                    (
+                        "observed_workers",
+                        "observed_do",
+                        "pending_workers",
+                        "pending_do",
+                        "reserve_workers",
+                        "reserve_do",
+                    ),
+                    1,
+                ),
             )
         self.assertEqual(result, "c" * 32)
         self.assertEqual(steps, ["create", "upload", "activate", "transfer"])
+
+    def test_fixture_missing_request_usage_fails_before_creation(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_cloud
+
+        config = {
+            "vars": {
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "source",
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "target",
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "snapshot",
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": "manifest",
+                "B_WEB_QA_HOSTNAME": "fixture.invalid",
+            }
+        }
+        observe = MagicMock()
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_cloud_observer",
+                return_value=observe,
+            ),
+            patch("scripts.b_web_cloud_deploy.fixture_restore_adapter"),
+            patch("scripts.b_web_cloud_deploy.fixture_transfer_adapter"),
+            patch("scripts.b_web_cloud_deploy.fixture_login_adapter"),
+            patch("scripts.b_web_cloud_deploy.fixture_cleanup_adapter"),
+            patch(
+                "scripts.b_web_cloud_deploy.create_fixture_worker_metadata"
+            ) as create,
+        ):
+            with self.assertRaisesRegex(ValueError, "usage evidence missing"):
+                fixture_bootstrap_cloud(
+                    "account",
+                    {"Authorization": "Bearer fake"},
+                    config,
+                    b"artifact",
+                    "a" * 40,
+                    "b" * 64,
+                    Path(temp) / "journal.sqlite",
+                    lambda _: ("a" * 32, "b" * 32),
+                    lambda: True,
+                    lambda _: True,
+                    lambda _: None,
+                    "operator",
+                    "password",
+                    {"parts": [{"bytes": 1, "sha256": "a" * 64}]},
+                )
+            create.assert_not_called()
 
     def test_fixture_upload_checks_gates_and_unknown_result(self):
         from scripts.b_web_cloud_deploy import upload_fixture_worker_version

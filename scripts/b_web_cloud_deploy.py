@@ -276,7 +276,7 @@ def verify_fixture_namespace_ownership(
 
 
 def fixture_bootstrap_sequence(
-    preflight, create, observe, restore, login, record, config
+    preflight, create, observe, restore, login, record, config, cleanup=None
 ):
     """Order a single isolated first-create; caller must supply trusted I/O adapters.
 
@@ -355,6 +355,15 @@ def fixture_bootstrap_sequence(
         record({"state": "login_unverified", "target": TARGETS["qa-fixture"]})
         raise
     record({"state": "login_verified", "target": TARGETS["qa-fixture"]})
+    if cleanup is not None:
+        try:
+            result = cleanup(candidate)
+            if not isinstance(result, dict) or result.get("cleaned") is not True:
+                raise ValueError("Fixture cleanup unconfirmed")
+        except Exception:
+            record({"state": "cleanup_unverified", "target": TARGETS["qa-fixture"]})
+            raise
+        record({"state": "cleanup_verified", "target": TARGETS["qa-fixture"]})
     return namespace
 
 
@@ -1044,6 +1053,55 @@ def fixture_restore_reservation(path):
     return reserve
 
 
+def fixture_cleanup_adapter(config, operator_key, manifest, request_json):
+    """Clean only a verified QA staging snapshot using the caller's request budget."""
+    validate_fixture_config(config)
+    if (
+        not isinstance(operator_key, str)
+        or not operator_key
+        or not callable(request_json)
+    ):
+        raise ValueError("Fixture operator and budgeted request adapter required")
+    identity = copy.deepcopy(config["vars"])
+    manifest = copy.deepcopy(manifest)
+    encoded = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    if not isinstance(manifest, dict) or sha(encoded) != identity.get(
+        "B_WEB_QA_RESTORE_MANIFEST_SHA256"
+    ):
+        raise ValueError("Fixture cleanup manifest mismatch")
+    origin = "https://" + identity["B_WEB_QA_HOSTNAME"]
+    target = identity["B_WEB_QA_RESTORE_OBJECT_NAME"]
+    snapshot = identity["B_WEB_QA_RESTORE_SNAPSHOT_ID"]
+
+    def cleanup(candidate):
+        if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
+            raise ValueError("Exact fixture version required")
+        headers = {
+            "Origin": origin,
+            "Content-Type": "application/json",
+            "X-Operator-Key": operator_key,
+            "X-QA-Expected-Version": candidate,
+            "X-QA-Object": "target",
+        }
+        result, _ = request_json(
+            origin + "/api/qa-snapshot-staging",
+            headers,
+            {"operation": "cleanup", "snapshot_id": snapshot, "manifest": manifest},
+        )
+        if (
+            not isinstance(result, dict)
+            or result.get("qa_object") != target
+            or result.get("qa_deployment") != candidate
+            or result.get("cleaned") is not True
+        ):
+            raise ValueError("Fixture cleanup or object identity unconfirmed")
+        return result
+
+    return cleanup
+
+
 def fixture_restore_adapter(
     config, operator_key, manifest, reserve_once, request_json=None
 ):
@@ -1581,12 +1639,90 @@ def fixture_core_request_plan(target_parts, seed_parts=None):
     return {"per_attempt": core, "max_attempts": 2, "total": 2 * core}
 
 
+def fixture_full_request_forecast(
+    target_parts, seed_parts, *, body_limit, cleanup, browser
+):
+    """Calculate a declared whole-QA upper bound, without claiming enforcement.
+
+    Each supplemental value is the total allowed requests, including retries.
+    Browser traffic must include assets and all automatic browser requests.
+    Missing or unbounded values are rejected, including a boolean masquerading as 0.
+    """
+    extras = {"body_limit": body_limit, "cleanup": cleanup, "browser": browser}
+    if any(type(value) is not int or value < 0 for value in extras.values()):
+        raise ValueError("Every supplemental request bound must be a finite integer")
+    core = fixture_core_request_plan(target_parts, seed_parts)
+    return {
+        "core": core["total"],
+        **extras,
+        "total": core["total"] + sum(extras.values()),
+    }
+
+
+def fixture_request_usage_screen(
+    forecast,
+    observed_workers,
+    observed_do,
+    pending_workers,
+    pending_do,
+    reserve_workers,
+    reserve_do,
+):
+    """Screen request counts only; freshness, spend and enforcement need separate proof."""
+    if not isinstance(forecast, dict) or set(forecast) != {
+        "core",
+        "body_limit",
+        "cleanup",
+        "browser",
+        "total",
+    }:
+        raise ValueError("Complete fixture forecast required")
+    values = tuple(forecast.values()) + (
+        observed_workers,
+        observed_do,
+        pending_workers,
+        pending_do,
+        reserve_workers,
+        reserve_do,
+    )
+    if any(type(value) is not int or value < 0 for value in values):
+        raise ValueError("Unknown or invalid request usage")
+    if forecast["total"] != sum(
+        forecast[k] for k in ("core", "body_limit", "cleanup", "browser")
+    ):
+        raise ValueError("Inconsistent fixture forecast")
+    return (
+        observed_workers + pending_workers + reserve_workers + forecast["total"]
+        < 10_000_000
+        and observed_do + pending_do + reserve_do + forecast["total"] < 1_000_000
+    )
+
+
 def fixture_request_budget(path, binding, origin, plan):
     """Reserve app requests before I/O across processes using the same journal.
 
     This local cap is not a Cloudflare spend limit or distributed deployment lock.
     """
     path = Path(path)
+    full_plan = isinstance(plan, dict) and set(plan) == {
+        "core",
+        "body_limit",
+        "cleanup",
+        "browser",
+        "total",
+    }
+    if full_plan:
+        values = tuple(plan.values())
+        if any(type(value) is not int or value < 0 for value in values) or (
+            not 1 <= plan["core"] <= 2340
+            or plan["total"]
+            != sum(plan[key] for key in ("core", "body_limit", "cleanup", "browser"))
+        ):
+            raise ValueError("Invalid fixture request budget")
+        core = plan["core"]
+        plan = {"per_attempt": core // 2, "max_attempts": 2, "total": plan["total"]}
+        if plan["per_attempt"] * 2 != core:
+            raise ValueError("Invalid fixture request budget")
     if (
         not path.is_absolute()
         or not path.parent.is_dir()
@@ -1600,8 +1736,8 @@ def fixture_request_budget(path, binding, origin, plan):
         or type(plan["max_attempts"]) is not int
         or type(plan["per_attempt"]) is not int
         or plan["max_attempts"] != 2
-        or plan["total"] != plan["per_attempt"] * 2
-        or not 1 <= plan["total"] <= 2340
+        or (not full_plan and plan["total"] != plan["per_attempt"] * 2)
+        or not 1 <= plan["per_attempt"] * 2 <= 2340
     ):
         raise ValueError("Invalid fixture request budget")
 
@@ -1665,6 +1801,7 @@ def fixture_bootstrap_cloud(
     password,
     manifest,
     seed_spec=None,
+    request_usage=None,
 ):
     """Compose real adapters; callers must supply independent, current safety gates.
 
@@ -1706,7 +1843,11 @@ def fixture_bootstrap_cloud(
         ):
             raise ValueError("Fixture seed part list required")
         seed_parts = len(seed_spec["parts"])
-    plan = fixture_core_request_plan(len(target_parts), seed_parts)
+    # API-only sequence: cleanup once per attempt. Browser and oversized-body
+    # probes remain disabled until their complete request paths are bounded.
+    plan = fixture_full_request_forecast(
+        len(target_parts), seed_parts, body_limit=0, cleanup=2, browser=0
+    )
     start_attempt, request_json = fixture_request_budget(
         journal, journal_binding, "https://" + frozen["vars"]["B_WEB_QA_HOSTNAME"], plan
     )
@@ -1719,6 +1860,7 @@ def fixture_bootstrap_cloud(
     )
     transfer = fixture_transfer_adapter(frozen, operator_key, manifest, request_json)
     login = fixture_login_adapter(frozen, operator_key, password, request_json)
+    cleanup = fixture_cleanup_adapter(frozen, operator_key, manifest, request_json)
     seed = None
     if seed_spec is not None:
         if not isinstance(seed_spec, dict) or set(seed_spec) != {
@@ -1813,11 +1955,33 @@ def fixture_bootstrap_cloud(
 
     def budgeted_preflight(current_config):
         result = preflight(current_config)
+        if not callable(request_usage):
+            raise ValueError("Fixture request usage evidence missing")
+        usage = request_usage()
+        required = {
+            "observed_workers",
+            "observed_do",
+            "pending_workers",
+            "pending_do",
+            "reserve_workers",
+            "reserve_do",
+        }
+        if not isinstance(usage, dict) or set(usage) != required:
+            raise ValueError("Fixture request usage evidence incomplete")
+        if not fixture_request_usage_screen(plan, **usage):
+            raise ValueError("Fixture request resource screen closed")
         start_attempt()
         return result
 
     return fixture_bootstrap_sequence(
-        budgeted_preflight, create, observer, transfer_restore, login, record, frozen
+        budgeted_preflight,
+        create,
+        observer,
+        transfer_restore,
+        login,
+        record,
+        frozen,
+        cleanup,
     )
 
 
@@ -1836,6 +2000,7 @@ def fixture_bootstrap_from_ci(
     password,
     manifest,
     seed_spec=None,
+    request_usage=None,
 ):
     """Bind the bootstrap to authenticated protected-main CI before any mutation.
 
@@ -1858,6 +2023,7 @@ def fixture_bootstrap_from_ci(
         password,
         manifest,
         seed_spec,
+        request_usage,
     )
 
 
