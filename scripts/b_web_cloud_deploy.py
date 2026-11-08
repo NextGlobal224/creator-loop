@@ -1856,6 +1856,15 @@ def sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def included_sql_storage_screen(storage):
+    """Conservative size screen only; not proof of GB-month or pending usage."""
+    return (
+        0 < len(storage) < 100
+        and sum(s["max"]["storedBytes"] for s in storage) + 512 * 1024**2
+        < 5_000_000_000
+    )
+
+
 def require_legacy_qa_fence() -> None:
     """No external fence for the old QA19 constructor/alarm is proven yet."""
     raise ValueError("QA19 preflight unavailable: old runtime quiescence unproven")
@@ -2453,8 +2462,7 @@ def main():
         and d["duration"] + 60000 < 400000
         and d["rowsRead"] + 10000000 < 25000000000
         and d["rowsWritten"] + 1000000 < 50000000
-        and 0 < len(storage) < 100
-        and sum(s["max"]["storedBytes"] for s in storage) + 512 * 1024**2 < 5 * 1024**3
+        and included_sql_storage_screen(storage)
     ):
         raise ValueError("Included-resource guard closed")
     origin = "https://" + worker + ".creator-loop-ai-beta.workers.dev"

@@ -2133,6 +2133,19 @@ class CloudDeploymentTests(unittest.TestCase):
             with self.subTest(count=count), self.assertRaises(ValueError):
                 require_idle_jobs({"jobs": [], "active_job_count": count})
 
+    def test_sql_storage_screen_uses_decimal_gb_and_retains_reserve(self):
+        from scripts.b_web_cloud_deploy import included_sql_storage_screen
+
+        def storage(value):
+            return [{"max": {"storedBytes": value}}]
+
+        limit = 5_000_000_000 - 512 * 1024**2
+        self.assertTrue(included_sql_storage_screen(storage(limit - 1)))
+        self.assertFalse(included_sql_storage_screen(storage(limit)))
+        # This passes the old 5 GiB comparison despite exceeding 5 decimal GB.
+        self.assertFalse(included_sql_storage_screen(storage(4_600_000_000)))
+        self.assertFalse(included_sql_storage_screen([]))
+
     def test_old_qa_runtime_without_count_fails_closed(self):
         # The installed QA runtime cannot yet report the exhaustive count.
         # Do not bootstrap by interpreting its filtered UI list as complete.
