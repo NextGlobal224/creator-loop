@@ -660,7 +660,7 @@ def fixture_cloud_observer(account, headers, config, artifact, commit, artifact_
     return observe
 
 
-def fixture_login_adapter(config, operator_key, password):
+def fixture_login_adapter(config, operator_key, password, request_json=None):
     """Return the fixture-only login callback; caller must first establish the fence."""
     validate_fixture_config(config)
     if (
@@ -671,6 +671,7 @@ def fixture_login_adapter(config, operator_key, password):
     ):
         raise ValueError("Fixture credentials required")
     origin = "https://" + config["vars"]["B_WEB_QA_HOSTNAME"]
+    request_json = request_json or (lambda *args, **kwargs: read_json(*args, **kwargs))
 
     def login(candidate):
         if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
@@ -681,7 +682,7 @@ def fixture_login_adapter(config, operator_key, password):
             "X-Operator-Key": operator_key,
             "X-QA-Expected-Version": candidate,
         }
-        result, response = read_json(
+        result, response = request_json(
             origin + "/api/login", headers, {"password": password}
         )
         if not isinstance(result, dict) or result.get("ok") is not True:
@@ -689,7 +690,9 @@ def fixture_login_adapter(config, operator_key, password):
         cookie = response.get("Set-Cookie", "").split(";", 1)[0]
         if not re.fullmatch(r"__Host-creator=[a-f0-9]{64}", cookie):
             raise ValueError("Fixture session unconfirmed")
-        runtime, _ = read_json(origin + "/api/runtime", {**headers, "Cookie": cookie})
+        runtime, _ = request_json(
+            origin + "/api/runtime", {**headers, "Cookie": cookie}
+        )
         if not isinstance(runtime, dict) or runtime.get("deployment") != candidate:
             raise ValueError("Fixture runtime version unconfirmed")
         return {"authenticated": True, "deployment": candidate}
@@ -1041,7 +1044,9 @@ def fixture_restore_reservation(path):
     return reserve
 
 
-def fixture_restore_adapter(config, operator_key, manifest, reserve_once):
+def fixture_restore_adapter(
+    config, operator_key, manifest, reserve_once, request_json=None
+):
     """Return a single-attempt fixture restore callback, not a fence or budget proof.
 
     reserve_once must durably reject prior or ambiguous attempts across runs.
@@ -1068,6 +1073,7 @@ def fixture_restore_adapter(config, operator_key, manifest, reserve_once):
     if not isinstance(parts, list) or not 0 < len(parts) <= 384:
         raise ValueError("Fixture restore parts missing")
     origin = "https://" + identity["B_WEB_QA_HOSTNAME"]
+    request_json = request_json or (lambda *args, **kwargs: read_json(*args, **kwargs))
     target = identity["B_WEB_QA_RESTORE_OBJECT_NAME"]
     snapshot = identity["B_WEB_QA_RESTORE_SNAPSHOT_ID"]
     restore_payload = {
@@ -1092,7 +1098,9 @@ def fixture_restore_adapter(config, operator_key, manifest, reserve_once):
         }
 
         def request(payload):
-            result, _ = read_json(origin + "/api/qa-snapshot-staging", headers, payload)
+            result, _ = request_json(
+                origin + "/api/qa-snapshot-staging", headers, payload
+            )
             if (
                 not isinstance(result, dict)
                 or result.get("qa_object") != target
@@ -1178,6 +1186,7 @@ def fixture_seed_capture_adapter(
     checkpoint_sha256,
     reserve_restore,
     reserve_capture,
+    request_json=None,
 ):
     """Seed a fixed fixture source and capture once; caller must establish QA safety."""
     validate_fixture_config(config)
@@ -1223,6 +1232,7 @@ def fixture_seed_capture_adapter(
         ):
             raise ValueError("Fixture seed part mismatch")
     origin = "https://" + values["B_WEB_QA_HOSTNAME"]
+    request_json = request_json or (lambda *args, **kwargs: read_json(*args, **kwargs))
     source = values["B_WEB_QA_SOURCE_OBJECT_NAME"]
     snapshot = values["B_WEB_QA_SOURCE_SNAPSHOT_ID"]
     export = values["B_WEB_QA_EXPORT_SNAPSHOT_ID"]
@@ -1239,7 +1249,7 @@ def fixture_seed_capture_adapter(
         }
 
         def request(route, payload):
-            result, _ = read_json(origin + route, headers, payload)
+            result, _ = request_json(origin + route, headers, payload)
             if (
                 not isinstance(result, dict)
                 or result.get("qa_object") != source
@@ -1342,7 +1352,7 @@ def fixture_seed_capture_adapter(
     return seed
 
 
-def fixture_transfer_adapter(config, operator_key, manifest):
+def fixture_transfer_adapter(config, operator_key, manifest, request_json=None):
     """Transfer verified pinned fixture parts; caller must establish the cloud fence."""
     validate_fixture_config(config)
     if (
@@ -1374,6 +1384,7 @@ def fixture_transfer_adapter(config, operator_key, manifest):
         ):
             raise ValueError("Invalid fixture part metadata")
     origin = "https://" + values["B_WEB_QA_HOSTNAME"]
+    request_json = request_json or (lambda *args, **kwargs: read_json(*args, **kwargs))
 
     def transfer(candidate):
         if not isinstance(candidate, str) or not re.fullmatch(UUID, candidate):
@@ -1387,7 +1398,7 @@ def fixture_transfer_adapter(config, operator_key, manifest):
                 "X-QA-Expected-Version": candidate,
                 "X-QA-Object": role,
             }
-            result, _ = read_json(origin + route, headers, payload)
+            result, _ = request_json(origin + route, headers, payload)
             name = values[
                 "B_WEB_QA_SOURCE_OBJECT_NAME"
                 if role == "source"
@@ -1551,6 +1562,93 @@ def fixture_phase_journal(path, binding):
     return access
 
 
+def fixture_core_request_plan(target_parts, seed_parts=None):
+    """Maximum app requests for two core attempts, including capture reconciliation.
+
+    Does not cover later browser QA, manual probes, CPU, SQL rows or other traffic.
+    """
+    if type(target_parts) is not int or not 1 <= target_parts <= 384:
+        raise ValueError("Invalid target part count")
+    if seed_parts is not None and (
+        type(seed_parts) is not int or not 1 <= seed_parts <= 384
+    ):
+        raise ValueError("Invalid seed part count")
+    # Transfer: status + manifest + two requests/part; restore: two; login: two.
+    core = 2 * target_parts + 6
+    # Seed: status + parts + restore + capture + one unknown-capture lookup.
+    if seed_parts is not None:
+        core += seed_parts + 4
+    return {"per_attempt": core, "max_attempts": 2, "total": 2 * core}
+
+
+def fixture_request_budget(path, binding, origin, plan):
+    """Reserve app requests before I/O across processes using the same journal.
+
+    This local cap is not a Cloudflare spend limit or distributed deployment lock.
+    """
+    path = Path(path)
+    if (
+        not path.is_absolute()
+        or not path.parent.is_dir()
+        or not isinstance(binding, str)
+        or not re.fullmatch(r"[a-f0-9]{64}", binding)
+        or not isinstance(origin, str)
+        or not origin.startswith("https://")
+        or not isinstance(plan, dict)
+        or set(plan) != {"per_attempt", "max_attempts", "total"}
+        or type(plan["total"]) is not int
+        or type(plan["max_attempts"]) is not int
+        or type(plan["per_attempt"]) is not int
+        or plan["max_attempts"] != 2
+        or plan["total"] != plan["per_attempt"] * 2
+        or not 1 <= plan["total"] <= 2340
+    ):
+        raise ValueError("Invalid fixture request budget")
+
+    def reserve(kind):
+        with closing(sqlite3.connect(str(path), timeout=5)) as db:
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_request_budget "
+                "(id INTEGER PRIMARY KEY CHECK(id=1), binding TEXT NOT NULL, "
+                "maximum INTEGER NOT NULL, attempts INTEGER NOT NULL, used INTEGER NOT NULL)"
+            )
+            db.execute(
+                "INSERT OR IGNORE INTO fixture_request_budget VALUES (1,?,?,0,0)",
+                (binding, plan["total"]),
+            )
+            row = db.execute(
+                "SELECT binding,maximum,attempts,used FROM fixture_request_budget WHERE id=1"
+            ).fetchone()
+            if row[0] != binding or row[1] != plan["total"]:
+                raise ValueError("Fixture request budget changed")
+            if kind == "attempt":
+                if row[2] >= plan["max_attempts"]:
+                    raise ValueError("Fixture attempt budget exhausted")
+                db.execute(
+                    "UPDATE fixture_request_budget SET attempts=attempts+1 WHERE id=1"
+                )
+            else:
+                if row[2] < 1 or row[3] >= row[1]:
+                    raise ValueError("Fixture request budget exhausted")
+                db.execute("UPDATE fixture_request_budget SET used=used+1 WHERE id=1")
+            db.commit()
+
+    def request(url, headers, data=None):
+        if url not in {
+            origin + "/api/login",
+            origin + "/api/runtime",
+            origin + "/api/qa-snapshot-export",
+            origin + "/api/qa-snapshot-staging",
+        }:
+            raise ValueError("Unexpected fixture budget target")
+        reserve("request")
+        return read_json(url, headers, data)
+
+    return lambda: reserve("attempt"), request
+
+
 def fixture_bootstrap_cloud(
     account,
     headers,
@@ -1598,11 +1696,29 @@ def fixture_bootstrap_cloud(
         account, headers, config, artifact, commit, artifact_sha256
     )
     frozen = copy.deepcopy(config)
-    restore = fixture_restore_adapter(
-        frozen, operator_key, manifest, fixture_restore_reservation(journal)
+    target_parts = manifest.get("parts") if isinstance(manifest, dict) else None
+    if not isinstance(target_parts, list):
+        raise ValueError("Fixture target part list required")
+    seed_parts = None
+    if seed_spec is not None:
+        if not isinstance(seed_spec, dict) or not isinstance(
+            seed_spec.get("parts"), (list, tuple)
+        ):
+            raise ValueError("Fixture seed part list required")
+        seed_parts = len(seed_spec["parts"])
+    plan = fixture_core_request_plan(len(target_parts), seed_parts)
+    start_attempt, request_json = fixture_request_budget(
+        journal, journal_binding, "https://" + frozen["vars"]["B_WEB_QA_HOSTNAME"], plan
     )
-    transfer = fixture_transfer_adapter(frozen, operator_key, manifest)
-    login = fixture_login_adapter(frozen, operator_key, password)
+    restore = fixture_restore_adapter(
+        frozen,
+        operator_key,
+        manifest,
+        fixture_restore_reservation(journal),
+        request_json,
+    )
+    transfer = fixture_transfer_adapter(frozen, operator_key, manifest, request_json)
+    login = fixture_login_adapter(frozen, operator_key, password, request_json)
     seed = None
     if seed_spec is not None:
         if not isinstance(seed_spec, dict) or set(seed_spec) != {
@@ -1623,6 +1739,7 @@ def fixture_bootstrap_cloud(
             fixture_capture_reservation(
                 journal, frozen["vars"]["B_WEB_QA_EXPORT_SNAPSHOT_ID"]
             ),
+            request_json,
         )
 
     def create(current_config):
@@ -1694,8 +1811,13 @@ def fixture_bootstrap_cloud(
         transfer(candidate)
         return restore(candidate)
 
+    def budgeted_preflight(current_config):
+        result = preflight(current_config)
+        start_attempt()
+        return result
+
     return fixture_bootstrap_sequence(
-        preflight, create, observer, transfer_restore, login, record, frozen
+        budgeted_preflight, create, observer, transfer_restore, login, record, frozen
     )
 
 

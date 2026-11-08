@@ -5,12 +5,14 @@ import hashlib
 import io
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
 import zipfile
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -36,6 +38,140 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def setUp(self):
+        # Deployment unit tests must never contact Cloudflare, even when a mock
+        # is accidentally installed after an adapter is constructed.
+        for target in ("socket.create_connection", "socket.socket.connect"):
+            guard = patch(
+                target, side_effect=AssertionError("network forbidden in unit test")
+            )
+            guard.start()
+            self.addCleanup(guard.stop)
+
+    def test_fixture_request_budget_survives_restart_and_refuses_unknown_calls(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_core_request_plan,
+            fixture_request_budget,
+        )
+
+        self.assertEqual(
+            fixture_core_request_plan(384, 384),
+            {"per_attempt": 1162, "max_attempts": 2, "total": 2324},
+        )
+        plan = fixture_core_request_plan(1)
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "requests.sqlite"
+            start, request = fixture_request_budget(
+                journal, "a" * 64, "https://fixture.invalid", plan
+            )
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                side_effect=TimeoutError("unknown"),
+            ) as network:
+                with self.assertRaisesRegex(ValueError, "Unexpected fixture"):
+                    request("https://other.invalid/api/login", {})
+                start()
+                with self.assertRaises(TimeoutError):
+                    request("https://fixture.invalid/api/login", {})
+                start2, request2 = fixture_request_budget(
+                    journal, "a" * 64, "https://fixture.invalid", plan
+                )
+                start2()
+                with self.assertRaisesRegex(ValueError, "attempt budget exhausted"):
+                    start2()
+                for _ in range(plan["total"] - 1):
+                    with self.assertRaises(TimeoutError):
+                        request2("https://fixture.invalid/api/runtime", {})
+                with self.assertRaisesRegex(ValueError, "request budget exhausted"):
+                    request2("https://fixture.invalid/api/runtime", {})
+                self.assertEqual(network.call_count, plan["total"])
+            other, _ = fixture_request_budget(
+                journal, "b" * 64, "https://fixture.invalid", plan
+            )
+            with self.assertRaisesRegex(ValueError, "budget changed"):
+                other()
+
+    def test_fixture_request_budget_reserves_atomically_across_threads(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_core_request_plan,
+            fixture_request_budget,
+        )
+
+        plan = fixture_core_request_plan(1)
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "requests.sqlite"
+            start, request = fixture_request_budget(
+                journal, "a" * 64, "https://fixture.invalid", plan
+            )
+            start()
+            results = []
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json", return_value=({}, {})
+            ) as network:
+                for _ in range(plan["total"] - 1):
+                    request("https://fixture.invalid/api/runtime", {})
+
+                def invoke():
+                    try:
+                        request("https://fixture.invalid/api/runtime", {})
+                        results.append("sent")
+                    except ValueError:
+                        results.append("blocked")
+
+                threads = [threading.Thread(target=invoke) for _ in range(2)]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(timeout=10)
+                    self.assertFalse(thread.is_alive())
+                self.assertCountEqual(results, ["sent", "blocked"])
+                self.assertEqual(network.call_count, plan["total"])
+
+    def test_fixture_request_budget_reserves_atomically_across_processes(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_core_request_plan,
+            fixture_request_budget,
+        )
+
+        plan = fixture_core_request_plan(1)
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "requests.sqlite"
+            start, request = fixture_request_budget(
+                journal, "a" * 64, "https://fixture.invalid", plan
+            )
+            start()
+            with patch("scripts.b_web_cloud_deploy.read_json", return_value=({}, {})):
+                for _ in range(plan["total"] - 1):
+                    request("https://fixture.invalid/api/runtime", {})
+            code = (
+                "import socket,sys; "
+                "socket.create_connection=lambda *a,**k: (_ for _ in ()).throw(AssertionError('network forbidden')); "
+                "import scripts.b_web_cloud_deploy as m; "
+                "m.read_json=lambda *a,**k: ({},{}); "
+                "_,request=m.fixture_request_budget(sys.argv[1],'a'*64,'https://fixture.invalid',m.fixture_core_request_plan(1)); "
+                "exec(\"try:\\n request('https://fixture.invalid/api/runtime',{})\\n print('sent')\\nexcept ValueError:\\n print('blocked')\")"
+            )
+            processes = [
+                subprocess.Popen(
+                    [sys.executable, "-c", code, str(journal)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                for _ in range(2)
+            ]
+            outcomes = []
+            for process in processes:
+                try:
+                    stdout, stderr = process.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                    self.fail("fixture request counter process timed out")
+                self.assertEqual(process.returncode, 0, stderr)
+                outcomes.append(stdout.strip())
+            self.assertCountEqual(outcomes, ["sent", "blocked"])
+
     def test_fixture_bootstrap_from_ci_refuses_before_cloud_when_artifact_invalid(self):
         from scripts.b_web_cloud_deploy import fixture_bootstrap_from_ci
 
@@ -491,6 +627,15 @@ class CloudDeploymentTests(unittest.TestCase):
             )
             self.assertEqual(fixture_bootstrap_cloud(*args), "c" * 32)
             self.assertEqual(fixture_bootstrap_cloud(*args), "c" * 32)
+            with closing(sqlite3.connect(str(Path(temp) / "journal.sqlite"))) as db:
+                self.assertEqual(
+                    db.execute(
+                        "SELECT maximum, attempts, used FROM fixture_request_budget"
+                    ).fetchone(),
+                    (16, 2, 12),
+                )
+            with self.assertRaisesRegex(ValueError, "attempt budget exhausted"):
+                fixture_bootstrap_cloud(*args)
         self.assertEqual(
             events,
             [
@@ -516,6 +661,7 @@ class CloudDeploymentTests(unittest.TestCase):
                 "B_WEB_QA_RESTORE_OBJECT_NAME": "target",
                 "B_WEB_QA_RESTORE_SNAPSHOT_ID": "snapshot",
                 "B_WEB_QA_RESTORE_MANIFEST_SHA256": "manifest",
+                "B_WEB_QA_HOSTNAME": "fixture.invalid",
             }
         }
         candidate = "12345678-1234-1234-1234-123456789abc"
@@ -591,7 +737,7 @@ class CloudDeploymentTests(unittest.TestCase):
                 lambda _: None,
                 "operator",
                 "password",
-                {},
+                {"parts": [{"bytes": 1, "sha256": "a" * 64}]},
             )
         self.assertEqual(result, "c" * 32)
         self.assertEqual(steps, ["create", "upload", "activate", "transfer"])
