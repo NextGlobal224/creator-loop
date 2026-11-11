@@ -25,8 +25,8 @@ from scripts.b_web_cloud_deploy import (
 )
 
 
-def verify_child_namespaces():
-    """Refuse if visible driver/browser descendants escape this net namespace."""
+def verify_child_namespaces(driver_pid, browser_pids):
+    """Refuse if identified driver/browser processes leave this net namespace."""
     processes = {}
     for entry in Path("/proc").iterdir():
         if not entry.name.isdecimal():
@@ -52,8 +52,13 @@ def verify_child_namespaces():
             break
         descendants = expanded
     selected = [(pid, processes[pid][1]) for pid in descendants if pid in processes]
-    if not any("chrome" in name for _, name in selected) or not any(
-        "node" in name for _, name in selected
+    selected_ids = {pid for pid, _ in selected}
+    if (
+        type(driver_pid) is not int
+        or driver_pid not in selected_ids
+        or not isinstance(browser_pids, list)
+        or not browser_pids
+        or any(type(pid) is not int or pid not in selected_ids for pid in browser_pids)
     ):
         raise RuntimeError("Browser and Playwright driver descendants not confirmed")
     namespace = os.readlink("/proc/self/ns/net")
@@ -161,7 +166,14 @@ def main():
                 )
                 context.route_web_socket("**/*", lambda ws: ws.close())
                 page = context.new_page()
-                verify_child_namespaces()
+                driver_pid = p._impl_obj._connection._transport._proc.pid
+                cdp = browser.new_browser_cdp_session()
+                process_info = cdp.send("SystemInfo.getProcessInfo")["processInfo"]
+                browser_pids = [
+                    item["id"] for item in process_info if item["type"] == "browser"
+                ]
+                cdp.detach()
+                verify_child_namespaces(driver_pid, browser_pids)
                 try:
                     context.request.get(
                         "https://203.0.113.1:443/",
