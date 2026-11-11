@@ -168,7 +168,13 @@ def main():
                         route, budget.reserve_browser_url
                     ),
                 )
-                context.route_web_socket("**/*", lambda ws: ws.close())
+                # The sync WebSocketRoute.close callback can deadlock; disable
+                # page WebSocket construction for this isolated probe. This is
+                # not a network fence for worker-created WebSockets.
+                context.add_init_script("""Object.defineProperty(globalThis, 'WebSocket', {
+                    value: class { constructor() { throw new Error('WebSocket disabled'); } },
+                    writable: false, configurable: false
+                });""")
                 page = context.new_page()
                 print("probe: browser page ready", flush=True)
                 driver_pid = p._impl_obj._connection._transport._proc.pid
@@ -195,11 +201,11 @@ def main():
                 page.goto(origin + "/", wait_until="networkidle", timeout=15000)
                 print("probe: fixture page loaded", flush=True)
                 assert received.count("/") == 1 and received.count("/asset") == 1
-                page.evaluate("""() => new Promise(resolve => {
-                    const ws = new WebSocket('wss://127.0.0.1:' + location.port + '/ws');
-                    ws.onclose = ws.onerror = () => resolve(true);
-                    setTimeout(() => resolve(false), 1500);
-                })""")
+                assert page.evaluate("""() => {
+                    try { new WebSocket('wss://127.0.0.1:' + location.port + '/ws'); }
+                    catch (_) { return true; }
+                    return false;
+                }""")
                 assert "/ws" not in received
                 print("probe: websocket blocked", flush=True)
                 page.evaluate("""() => Promise.race([
@@ -255,7 +261,10 @@ def main():
             server.server_close()
             thread.join(timeout=5)
     print("loopback browser route, asset, explicit API, redirect and exhaustion: PASS")
-    print("service-worker/WebSocket blocking and child network namespaces: PASS")
+    print("page WebSocket/service-worker blocking and child namespaces: PASS")
+    print(
+        "worker WebSocket, unwrapped APIRequestContext and cloud egress: NOT VERIFIED"
+    )
     faulthandler.cancel_dump_traceback_later()
 
 
