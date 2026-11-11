@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 REPO = "NextGlobal224/creator-loop"
 ACCOUNT_SHA = "cb4cbcb99957ea0ea4b795edd35824fe18158d1b0e782945dc09d81d554d9499"
@@ -1720,6 +1721,7 @@ def fixture_request_budget(path, binding, origin, plan):
     This local cap is not a Cloudflare spend limit or distributed deployment lock.
     """
     path = Path(path)
+    browser_limit = 0
     full_plan = isinstance(plan, dict) and set(plan) == {
         "core",
         "body_limit",
@@ -1735,6 +1737,7 @@ def fixture_request_budget(path, binding, origin, plan):
             != sum(plan[key] for key in ("core", "body_limit", "cleanup", "browser"))
         ):
             raise ValueError("Invalid fixture request budget")
+        browser_limit = plan["browser"]
         core = plan["core"]
         plan = {"per_attempt": core // 2, "max_attempts": 2, "total": plan["total"]}
         if plan["per_attempt"] * 2 != core:
@@ -1775,6 +1778,20 @@ def fixture_request_budget(path, binding, origin, plan):
             ).fetchone()
             if row[0] != binding or row[1] != plan["total"]:
                 raise ValueError("Fixture request budget changed")
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS fixture_browser_budget "
+                "(id INTEGER PRIMARY KEY CHECK(id=1), binding TEXT NOT NULL, "
+                "maximum INTEGER NOT NULL, used INTEGER NOT NULL)"
+            )
+            db.execute(
+                "INSERT OR IGNORE INTO fixture_browser_budget VALUES (1,?,?,0)",
+                (binding, browser_limit),
+            )
+            browser_row = db.execute(
+                "SELECT binding,maximum,used FROM fixture_browser_budget WHERE id=1"
+            ).fetchone()
+            if browser_row[0] != binding or browser_row[1] != browser_limit:
+                raise ValueError("Fixture browser budget changed")
             if kind == "attempt":
                 if row[2] >= plan["max_attempts"]:
                     raise ValueError("Fixture attempt budget exhausted")
@@ -1784,6 +1801,12 @@ def fixture_request_budget(path, binding, origin, plan):
             else:
                 if row[2] < 1 or row[3] >= row[1]:
                     raise ValueError("Fixture request budget exhausted")
+                if kind == "browser":
+                    if browser_row[2] >= browser_row[1]:
+                        raise ValueError("Fixture browser budget exhausted")
+                    db.execute(
+                        "UPDATE fixture_browser_budget SET used=used+1 WHERE id=1"
+                    )
                 db.execute("UPDATE fixture_request_budget SET used=used+1 WHERE id=1")
             db.commit()
 
@@ -1807,6 +1830,22 @@ def fixture_request_budget(path, binding, origin, plan):
         return fixture_raw_body_limit_request(url, headers, body)
 
     request.raw_body_limit_probe = raw_body_limit_probe
+
+    def reserve_browser_url(url):
+        parsed = urlsplit(url) if isinstance(url, str) else None
+        expected = urlsplit(origin)
+        if (
+            parsed is None
+            or parsed.scheme != "https"
+            or parsed.netloc != expected.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.fragment
+        ):
+            raise ValueError("Unexpected fixture browser target")
+        reserve("browser")
+
+    request.reserve_browser_url = reserve_browser_url
     return lambda: reserve("attempt"), request
 
 
@@ -1821,6 +1860,42 @@ def fixture_raw_body_limit_request(url, headers, body):
     except urllib.error.HTTPError as error:
         with error:
             return error.code
+
+
+def fixture_browser_route(route, reserve_browser_url):
+    """Reserve before a single routed fetch; direct clients require a separate fence.
+
+    This handler does not create a browser context, block service workers or
+    WebSockets, or make a browser safe for cloud QA by itself.
+    """
+    if not callable(reserve_browser_url):
+        raise ValueError("Fixture browser reservation required")
+    try:
+        reserve_browser_url(route.request.url)
+        response = route.fetch(max_redirects=0, max_retries=0)
+        if 300 <= response.status < 400:
+            route.abort()
+            return
+        route.fulfill(response=response)
+    except Exception:
+        route.abort()
+        raise
+
+
+def fixture_browser_api_get(api_request, url, reserve_browser_url):
+    """Budget an explicit APIRequestContext GET, with no retry or redirect.
+
+    The caller must not expose the underlying APIRequestContext to unbudgeted
+    code. This helper does not establish an egress fence or authorize cloud QA.
+    """
+    if not callable(reserve_browser_url):
+        raise ValueError("Fixture browser reservation required")
+    reserve_browser_url(url)
+    response = api_request.get(url, max_redirects=0, max_retries=0, timeout=30000)
+    if 300 <= response.status < 400:
+        response.dispose()
+        raise ValueError("Fixture browser API redirect refused")
+    return response
 
 
 def fixture_bootstrap_cloud(

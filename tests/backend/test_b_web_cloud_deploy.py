@@ -122,6 +122,127 @@ class CloudDeploymentTests(unittest.TestCase):
                 cleanup(candidate)
             self.assertEqual(network.call_count, plan["total"])
 
+    def test_fixture_browser_route_reserves_before_fetch_and_refuses_redirect(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_browser_route,
+            fixture_full_request_forecast,
+            fixture_request_budget,
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            plan = fixture_full_request_forecast(
+                1, None, body_limit=0, cleanup=0, browser=2
+            )
+            start, request = fixture_request_budget(
+                Path(temp) / "journal.sqlite", "a" * 64, "https://fixture.invalid", plan
+            )
+            start()
+            route = MagicMock()
+            route.request.url = "https://fixture.invalid/static/app.js"
+            route.fetch.return_value.status = 200
+            fixture_browser_route(route, request.reserve_browser_url)
+            route.fetch.assert_called_once_with(max_redirects=0, max_retries=0)
+            route.fulfill.assert_called_once()
+            route.reset_mock()
+            route.request.url = "https://other.invalid/"
+            with self.assertRaisesRegex(ValueError, "target"):
+                fixture_browser_route(route, request.reserve_browser_url)
+            route.fetch.assert_not_called()
+            route.reset_mock()
+            route.request.url = "https://fixture.invalid/redirect"
+            route.fetch.return_value.status = 302
+            fixture_browser_route(route, request.reserve_browser_url)
+            route.abort.assert_called_once()
+            route.fulfill.assert_not_called()
+            route.reset_mock()
+            route.request.url = "https://fixture.invalid/asset"
+            with self.assertRaisesRegex(ValueError, "browser budget exhausted"):
+                fixture_browser_route(route, request.reserve_browser_url)
+            route.fetch.assert_not_called()
+            _, resumed = fixture_request_budget(
+                Path(temp) / "journal.sqlite", "a" * 64, "https://fixture.invalid", plan
+            )
+            with self.assertRaisesRegex(ValueError, "browser budget exhausted"):
+                resumed.reserve_browser_url("https://fixture.invalid/after-restart")
+
+    def test_fixture_browser_api_get_counts_before_send_and_refuses_redirect(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_browser_api_get,
+            fixture_full_request_forecast,
+            fixture_request_budget,
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            plan = fixture_full_request_forecast(
+                1, None, body_limit=0, cleanup=0, browser=1
+            )
+            start, request = fixture_request_budget(
+                Path(temp) / "journal.sqlite", "a" * 64, "https://fixture.invalid", plan
+            )
+            start()
+            api = MagicMock()
+            api.get.return_value.status = 302
+            with self.assertRaisesRegex(ValueError, "redirect refused"):
+                fixture_browser_api_get(
+                    api, "https://fixture.invalid/redirect", request.reserve_browser_url
+                )
+            api.get.assert_called_once_with(
+                "https://fixture.invalid/redirect",
+                max_redirects=0,
+                max_retries=0,
+                timeout=30000,
+            )
+            api.get.return_value.dispose.assert_called_once()
+            with self.assertRaisesRegex(ValueError, "browser budget exhausted"):
+                fixture_browser_api_get(
+                    api, "https://fixture.invalid/next", request.reserve_browser_url
+                )
+            self.assertEqual(api.get.call_count, 1)
+
+    def test_fixture_browser_budget_is_atomic_across_competing_threads(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_full_request_forecast,
+            fixture_request_budget,
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "journal.sqlite"
+            plan = fixture_full_request_forecast(
+                1, None, body_limit=0, cleanup=0, browser=1
+            )
+            start, request = fixture_request_budget(
+                journal, "a" * 64, "https://fixture.invalid", plan
+            )
+            start()
+            barrier = threading.Barrier(8)
+            results = []
+
+            def reserve():
+                barrier.wait(timeout=5)
+                try:
+                    request.reserve_browser_url("https://fixture.invalid/asset")
+                    results.append("allowed")
+                except ValueError:
+                    results.append("refused")
+
+            threads = [threading.Thread(target=reserve) for _ in range(8)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+                self.assertFalse(thread.is_alive())
+            self.assertEqual(results.count("allowed"), 1)
+            self.assertEqual(results.count("refused"), 7)
+            with closing(sqlite3.connect(str(journal))) as db:
+                self.assertEqual(
+                    db.execute("SELECT used FROM fixture_browser_budget").fetchone(),
+                    (1,),
+                )
+                self.assertEqual(
+                    db.execute("SELECT used FROM fixture_request_budget").fetchone(),
+                    (1,),
+                )
+
     def test_fixture_request_budget_survives_restart_and_refuses_unknown_calls(self):
         from scripts.b_web_cloud_deploy import (
             fixture_core_request_plan,

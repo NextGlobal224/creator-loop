@@ -34,6 +34,25 @@ jobs:
         run: |
           python -m compileall -q app tests packaging
           python -m unittest discover -s tests -t . -v
+      - name: Isolated fixture browser network probe
+        timeout-minutes: 3
+        run: |
+          python -m pip install playwright==1.63.0
+          command -v google-chrome
+          command -v unshare
+          command -v setpriv
+          command -v ip
+          probe_tmp="$(mktemp -d)"
+          probe_python="$(command -v python)"
+          probe_uid="$(id -u)"
+          probe_gid="$(id -g)"
+          sudo unshare --net -- sh -c '
+            set -eu
+            ip link set lo up
+            exec setpriv --reuid="$1" --regid="$2" --clear-groups \
+              env -i HOME="$3" TMPDIR="$3" PATH=/usr/bin:/bin PYTHONPATH="$4" \
+              timeout 90s "$5" -m scripts.b_web_fixture_netns_probe
+          ' sh "$probe_uid" "$probe_gid" "$probe_tmp" "$PWD" "$probe_python"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4, pinned
         with:
           node-version: '22'
