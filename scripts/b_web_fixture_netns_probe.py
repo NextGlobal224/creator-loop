@@ -6,6 +6,7 @@ This is not a Cloudflare QA runner and must not receive project credentials.
 from __future__ import annotations
 
 import errno
+import faulthandler
 import http.server
 import os
 import socket
@@ -73,6 +74,7 @@ def verify_child_namespaces(driver_pid, browser_pids):
 
 
 def main():
+    faulthandler.dump_traceback_later(50, exit=False)
     if os.name != "posix" or os.geteuid() == 0:
         raise RuntimeError("Run as an unprivileged user in an isolated Linux netns")
     if {name for _, name in socket.if_nameindex()} != {"lo"}:
@@ -112,6 +114,7 @@ def main():
             pass
 
     with tempfile.TemporaryDirectory() as temp:
+        print("probe: isolated namespace confirmed", flush=True)
         cert, key = Path(temp) / "cert.pem", Path(temp) / "key.pem"
         subprocess.run(
             [
@@ -152,6 +155,7 @@ def main():
             )
             start()
             with sync_playwright() as p:
+                print("probe: driver started", flush=True)
                 browser = p.chromium.launch(
                     executable_path="/usr/bin/google-chrome", headless=True
                 )
@@ -166,6 +170,7 @@ def main():
                 )
                 context.route_web_socket("**/*", lambda ws: ws.close())
                 page = context.new_page()
+                print("probe: browser page ready", flush=True)
                 driver_pid = p._impl_obj._connection._transport._proc.pid
                 cdp = browser.new_browser_cdp_session()
                 process_info = cdp.send("SystemInfo.getProcessInfo")["processInfo"]
@@ -174,6 +179,7 @@ def main():
                 ]
                 cdp.detach()
                 verify_child_namespaces(driver_pid, browser_pids)
+                print("probe: process namespaces confirmed", flush=True)
                 try:
                     context.request.get(
                         "https://203.0.113.1:443/",
@@ -185,7 +191,9 @@ def main():
                     pass
                 else:
                     raise AssertionError("Playwright driver external egress succeeded")
+                print("probe: driver external egress refused", flush=True)
                 page.goto(origin + "/", wait_until="networkidle", timeout=15000)
+                print("probe: fixture page loaded", flush=True)
                 assert received.count("/") == 1 and received.count("/asset") == 1
                 page.evaluate("""() => new Promise(resolve => {
                     const ws = new WebSocket('wss://127.0.0.1:' + location.port + '/ws');
@@ -193,11 +201,13 @@ def main():
                     setTimeout(() => resolve(false), 1500);
                 })""")
                 assert "/ws" not in received
+                print("probe: websocket blocked", flush=True)
                 page.evaluate("""() => Promise.race([
                     navigator.serviceWorker.register('/sw.js').then(() => true, () => false),
                     new Promise(resolve => setTimeout(() => resolve(false), 1500))
                 ])""")
                 assert "/sw.js" not in received
+                print("probe: service worker blocked", flush=True)
                 try:
                     fixture_browser_api_get(
                         context.request,
@@ -208,6 +218,7 @@ def main():
                 except ValueError as error:
                     assert "redirect refused" in str(error)
                 assert "/should-not-follow" not in received
+                print("probe: redirect refused", flush=True)
                 response = fixture_browser_api_get(
                     context.request, origin + "/api", budget.reserve_browser_url
                 )
@@ -224,6 +235,7 @@ def main():
                 else:
                     raise AssertionError("Disconnected request unexpectedly succeeded")
                 assert received.count("/disconnect") == 1
+                print("probe: automatic retry absent", flush=True)
                 before = list(received)
                 try:
                     fixture_browser_api_get(
@@ -235,6 +247,7 @@ def main():
                 except ValueError as error:
                     assert "browser budget exhausted" in str(error)
                 assert received == before
+                print("probe: exhausted budget refused", flush=True)
                 context.close()
                 browser.close()
         finally:
@@ -243,6 +256,7 @@ def main():
             thread.join(timeout=5)
     print("loopback browser route, asset, explicit API, redirect and exhaustion: PASS")
     print("service-worker/WebSocket blocking and child network namespaces: PASS")
+    faulthandler.cancel_dump_traceback_later()
 
 
 if __name__ == "__main__":
