@@ -380,6 +380,12 @@ class Database(DurableObject):
             # A hold may have been installed while getAlarm was awaiting I/O.
             if self.observation_only() or self._restore_hold():
                 return
+            # The job or its lease may also have changed during the await.
+            pending = self.rows(
+                "SELECT record,status FROM jobs WHERE status IN ('QUEUED','RUNNING') ORDER BY rowid LIMIT 1"
+            )
+            if not pending:
+                return
             record = json.loads(pending[0]["record"])
             at = (
                 time.time() + 0.1

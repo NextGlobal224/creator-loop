@@ -1225,6 +1225,12 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
         await self.app.recover_wakeup()
         self.storage.setAlarm.assert_not_awaited()
 
+    async def test_job_finishing_during_get_alarm_does_not_rearm_stale_job(self):
+        pending = {"status": "QUEUED", "record": json.dumps({"id": "q"})}
+        self.app.rows = MagicMock(side_effect=[[pending], []])
+        await self.app.recover_wakeup()
+        self.storage.setAlarm.assert_not_awaited()
+
     def test_paid_grant_retains_included_only_ceiling_and_full_forecast(self):
         grant = dict(
             grant="B-finish-20261017-free",
