@@ -1212,6 +1212,19 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
         await self.app.recover_wakeup()
         self.storage.setAlarm.assert_not_awaited()
 
+    async def test_hold_arriving_during_get_alarm_prevents_rearm(self):
+        held = {"value": False}
+        self.app._restore_hold = lambda: held["value"]
+        self.app.rows = lambda *_: [{"status": "QUEUED", "record": "{}"}]
+
+        async def install_hold():
+            held["value"] = True
+            return None
+
+        self.storage.getAlarm.side_effect = install_hold
+        await self.app.recover_wakeup()
+        self.storage.setAlarm.assert_not_awaited()
+
     def test_paid_grant_retains_included_only_ceiling_and_full_forecast(self):
         grant = dict(
             grant="B-finish-20261017-free",

@@ -377,6 +377,9 @@ class Database(DurableObject):
             "SELECT record,status FROM jobs WHERE status IN ('QUEUED','RUNNING') ORDER BY rowid LIMIT 1"
         )
         if pending and await self.ctx.storage.getAlarm() is None:
+            # A hold may have been installed while getAlarm was awaiting I/O.
+            if self.observation_only() or self._restore_hold():
+                return
             record = json.loads(pending[0]["record"])
             at = (
                 time.time() + 0.1
@@ -1677,6 +1680,12 @@ class Database(DurableObject):
             await self.ctx.storage.setAlarm(int(time.time() * 1000) + 1000)
 
             def queue():
+                # A hold can arrive during setAlarm. Do not reserve or queue a
+                # job after it; the already-issued alarm needs reconciliation.
+                if self.observation_only() or self._restore_hold():
+                    raise WebInputError(
+                        "Observation-only runtime; changes are paused", 503
+                    )
                 if self.rows(
                     "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
                 ):
@@ -2276,6 +2285,12 @@ class Database(DurableObject):
                 return reply(receipt)
 
             def mutate():
+                # The initial guard precedes awaits, including setAlarm on job
+                # routes. Recheck atomically before any mutation or reservation.
+                if self.observation_only() or self._restore_hold():
+                    raise WebInputError(
+                        "Observation-only runtime; changes are paused", 503
+                    )
                 with closing(_connect_write(root / "creator_loop.sqlite3")) as check:
                     schema_version = check.execute("PRAGMA user_version").fetchone()[0]
                 if schema_version == 10 and path != "/api/schema-migrate":
