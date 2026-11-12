@@ -162,12 +162,15 @@ def main():
                 context = browser.new_context(
                     ignore_https_errors=True, service_workers="block"
                 )
-                context.route(
-                    "**/*",
-                    lambda route: fixture_browser_route(
-                        route, budget.reserve_browser_url
-                    ),
-                )
+                route_errors = []
+
+                def route_fixture(route):
+                    try:
+                        fixture_browser_route(route, budget.reserve_browser_url)
+                    except ValueError as error:
+                        route_errors.append(str(error))
+
+                context.route("**/*", route_fixture)
                 # The sync WebSocketRoute.close callback can deadlock; disable
                 # page WebSocket construction for this isolated probe. This is
                 # not a network fence for worker-created WebSockets.
@@ -270,13 +273,11 @@ def main():
                 # A page fetch takes the routed path, unlike APIRequestContext.
                 # Verify exhaustion is enforced before the fixture sees it.
                 before = list(received)
-                try:
-                    page.evaluate("""async () => {
-                        try { await fetch('/routed-exhausted'); } catch (_) {}
-                    }""")
-                except ValueError as error:
-                    assert "browser budget exhausted" in str(error)
+                page.evaluate("""async () => {
+                    try { await fetch('/routed-exhausted'); } catch (_) {}
+                }""")
                 assert received == before
+                assert route_errors == ["Fixture browser budget exhausted"]
                 print("probe: exhausted page route refused before send", flush=True)
                 context.close()
                 browser.close()
