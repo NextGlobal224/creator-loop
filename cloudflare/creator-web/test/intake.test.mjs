@@ -6,6 +6,16 @@ test('Unicode filename selects image type and UTF8 Vietnamese keeps exact bytes'
  const text='Tư liệu tiếng Việt có dấu và khoảng trắng.';
  assert.deepEqual(await materialBytes(new File([text],'Tư liệu có dấu.txt'),'', 'TEXT'),new TextEncoder().encode(text));
 });
+test('WAV without a useful MIME is selected as audio without changing original bytes',async()=>{
+ const raw=new Uint8Array([82,73,70,70,4,0,0,0,87,65,86,69]);
+ for(const mime of ['', 'application/octet-stream']){
+  const file=new File([raw],'Ghi âm.WAV',{type:mime});
+  assert.equal(fileKind(file.name,file.type),'AUDIO');
+  assert.deepEqual(await materialBytes(file,'','AUDIO'),raw);
+ }
+ assert.equal(fileKind('note.txt',''),'TEXT');
+ assert.equal(fileKind('not-audio.wav','video/mp4'),'VIDEO');
+});
 test('invalid text/image/backup inputs identify the actual correction',async()=>{
  await assert.rejects(materialBytes(new File([new Uint8Array([255,216,255])],'ảnh.jpg'),'', 'TEXT'),/UTF-8/);
  await assert.rejects(materialBytes(new File(['<svg/>'],'ảnh.svg'),'', 'IMAGE'),/PNG/);

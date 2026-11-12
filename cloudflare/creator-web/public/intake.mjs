@@ -3,6 +3,7 @@ export function fileKind(name,mime=''){
  if(/\.(png|jpe?g|webp)$/i.test(name)||mime.startsWith('image/'))return 'IMAGE';
  if(mime.startsWith('video/'))return 'VIDEO';
  if(mime.startsWith('audio/'))return 'AUDIO';
+ if((!mime||mime==='application/octet-stream')&&/\.wav$/i.test(name))return 'AUDIO';
  return 'TEXT';
 }
 export async function materialBytes(file,text,kind){
