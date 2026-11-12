@@ -61,6 +61,19 @@ class CloudTranscript:
     review_state: str = "PENDING"
 
 
+@dataclass(frozen=True)
+class CloudTranscriptChunk:
+    """A validated WAV probe and native response for one contiguous audio slice.
+
+    The caller must separately bind every slice to the unchanged original and
+    retain all native responses and receipts; this object proves neither.
+    """
+
+    start_ms: int
+    probe: CloudAudioProbe
+    native_response: dict[str, Any]
+
+
 def prepare_cloud_transcription(
     db: sqlite3.Connection,
     *,
@@ -336,6 +349,71 @@ def parse_whisper_transcript(
         warnings.append("UNTRANSCRIBED_RANGES")
     if " ".join(text.split()) != " ".join(" ".join(s.text for s in segments).split()):
         warnings.append("FULL_TEXT_SEGMENT_MISMATCH")
+    return CloudTranscript(text, tuple(segments), tuple(warnings), tuple(uncovered))
+
+
+def merge_whisper_chunks(
+    chunks: tuple[CloudTranscriptChunk, ...], *, source_duration_ms: int
+) -> CloudTranscript:
+    """Convert contiguous slice-local transcript locators to original time.
+
+    Parsing is offline only: no decoder, provider call, persistence or review is
+    performed here. A caller must verify original/slice hashes and durations,
+    and persist each untouched native response and its receipt before use.
+    Every boundary remains suspect until a person checks the original audio;
+    this routine deliberately does not guess or remove repeated words.
+    """
+    if (
+        not isinstance(chunks, tuple)
+        or not 1 <= len(chunks) <= 64
+        or type(source_duration_ms) is not int
+        or source_duration_ms <= 0
+    ):
+        raise ValueError("Invalid source duration or audio slices")
+    cursor = 0
+    segments: list[TranscriptSegment] = []
+    uncovered: list[tuple[int, int]] = []
+    texts: list[str] = []
+    warnings: list[str] = []
+    for chunk in chunks:
+        if (
+            not isinstance(chunk, CloudTranscriptChunk)
+            or type(chunk.start_ms) is not int
+            or chunk.start_ms != cursor
+            or not isinstance(chunk.probe, CloudAudioProbe)
+            or type(chunk.probe.duration_ms) is not int
+            or not 0 < chunk.probe.duration_ms <= MAX_AUDIO_MS
+        ):
+            raise ValueError("Audio slices are missing, overlapping or unbounded")
+        end = cursor + chunk.probe.duration_ms
+        if end > source_duration_ms:
+            raise ValueError("Audio slice exceeds source duration")
+        parsed = parse_whisper_transcript(chunk.native_response, chunk.probe)
+        texts.append(parsed.text)
+        segments.extend(
+            TranscriptSegment(
+                cursor + segment.start_ms,
+                cursor + segment.end_ms,
+                segment.text,
+                segment.warnings,
+            )
+            for segment in parsed.segments
+        )
+        uncovered.extend(
+            (cursor + start, cursor + stop)
+            for start, stop in parsed.untranscribed_ranges
+        )
+        for warning in parsed.warnings:
+            if warning not in warnings:
+                warnings.append(warning)
+        cursor = end
+    if cursor != source_duration_ms:
+        raise ValueError("Audio slices do not cover the source duration")
+    text = " ".join(texts)
+    if len(text) > 24_000 or sum(len(segment.text) for segment in segments) > 24_000:
+        raise ValueError("ASR segments vượt giới hạn transcript")
+    if len(chunks) > 1:
+        warnings.append("CHUNK_BOUNDARIES_REQUIRE_REVIEW")
     return CloudTranscript(text, tuple(segments), tuple(warnings), tuple(uncovered))
 
 
