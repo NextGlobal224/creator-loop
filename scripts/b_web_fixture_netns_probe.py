@@ -254,6 +254,30 @@ def main():
                     assert "browser budget exhausted" in str(error)
                 assert received == before
                 print("probe: exhausted budget refused", flush=True)
+                # Demonstrate the known bypass solely against this loopback
+                # fixture: page.request does not pass through context.route.
+                # Never treat this demonstration as an authorised QA transport.
+                bypass = page.request.get(
+                    origin + "/unwrapped-bypass",
+                    max_redirects=0,
+                    max_retries=0,
+                    timeout=3000,
+                )
+                assert bypass.status == 200
+                bypass.dispose()
+                assert received.count("/unwrapped-bypass") == 1
+                print("probe: unwrapped page.request bypass CONFIRMED", flush=True)
+                # A page fetch takes the routed path, unlike APIRequestContext.
+                # Verify exhaustion is enforced before the fixture sees it.
+                before = list(received)
+                try:
+                    page.evaluate("""async () => {
+                        try { await fetch('/routed-exhausted'); } catch (_) {}
+                    }""")
+                except ValueError as error:
+                    assert "browser budget exhausted" in str(error)
+                assert received == before
+                print("probe: exhausted page route refused before send", flush=True)
                 context.close()
                 browser.close()
         finally:
@@ -263,7 +287,8 @@ def main():
     print("loopback browser route, asset, explicit API, redirect and exhaustion: PASS")
     print("page WebSocket/service-worker blocking and child namespaces: PASS")
     print(
-        "worker WebSocket, unwrapped APIRequestContext and cloud egress: NOT VERIFIED"
+        "worker WebSocket and cloud egress: NOT VERIFIED; "
+        "unwrapped APIRequestContext bypass: CONFIRMED"
     )
     faulthandler.cancel_dump_traceback_later()
 
