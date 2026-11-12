@@ -1077,6 +1077,49 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             ):
                 self.loaded.Database(ctx, env)
             self.assertEqual(ctx.blockConcurrencyWhile.called, expected)
+            if not expected:
+                ctx.storage.sql.exec.assert_not_called()
+
+    def test_observation_constructor_initializes_only_explicit_isolated_fixture(self):
+        base = self.loaded.Database.__mro__[1]
+        ctx = types.SimpleNamespace(
+            id=types.SimpleNamespace(name="qa-isolated-restore-" + "a" * 32),
+            storage=types.SimpleNamespace(sql=types.SimpleNamespace(exec=MagicMock())),
+            blockConcurrencyWhile=MagicMock(),
+        )
+        env = types.SimpleNamespace(
+            B_WEB_OBSERVATION_ONLY="1",
+            B_WEB_ISOLATED_RESTORE="1",
+            B_WEB_QA_READONLY_LOGIN="1",
+            B_WEB_QA_HOSTNAME="creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev",
+        )
+        with patch.object(
+            base,
+            "__init__",
+            lambda obj, context, environment: setattr(obj, "env", environment),
+            create=True,
+        ):
+            self.loaded.Database(ctx, env)
+            self.assertGreater(ctx.storage.sql.exec.call_count, 0)
+            ctx.blockConcurrencyWhile.assert_not_called()
+            for change in ("name", "hostname", "restore", "login", "observation"):
+                original_name, original_env = ctx.id.name, vars(env).copy()
+                if change == "name":
+                    ctx.id.name = "private-owner-v1"
+                elif change == "hostname":
+                    env.B_WEB_QA_HOSTNAME = "production.example"
+                elif change == "restore":
+                    env.B_WEB_ISOLATED_RESTORE = "0"
+                elif change == "login":
+                    env.B_WEB_QA_READONLY_LOGIN = "0"
+                else:
+                    env.B_WEB_OBSERVATION_ONLY = "unexpected"
+                ctx.storage.sql.exec.reset_mock()
+                self.loaded.Database(ctx, env)
+                ctx.storage.sql.exec.assert_not_called()
+                ctx.id.name = original_name
+                for key, value in original_env.items():
+                    setattr(env, key, value)
 
     def test_active_count_includes_old_and_diagnostic_jobs(self):
         import sqlite3

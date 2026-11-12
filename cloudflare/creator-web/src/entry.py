@@ -327,6 +327,20 @@ class Database(DurableObject):
     def __init__(self, ctx, env):
         super().__init__(ctx, env)
         self.sql = ctx.storage.sql
+        if self.observation_only():
+            name = getattr(getattr(ctx, "id", None), "name", None)
+            fixture_init = (
+                getattr(env, "B_WEB_OBSERVATION_ONLY", "") == "1"
+                and getattr(env, "B_WEB_ISOLATED_RESTORE", "") == "1"
+                and getattr(env, "B_WEB_QA_READONLY_LOGIN", "") == "1"
+                and getattr(env, "B_WEB_QA_HOSTNAME", "") in QA_ISOLATED_HOSTS
+                and isinstance(name, str)
+                and bool(re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", name))
+            )
+            # No DDL against an existing observed object. A fresh QA fixture
+            # still needs tables, and external namespace proof remains required.
+            if not fixture_init:
+                return
         # Coordination rows are not an alternative domain history/schema.
         for statement in (
             "CREATE TABLE IF NOT EXISTS checkpoint (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, payload TEXT NOT NULL, sha256 TEXT NOT NULL)",
