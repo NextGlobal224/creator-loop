@@ -3850,6 +3850,11 @@ class Database(DurableObject):
 
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
+        # This is only an ingress gate in this deployed version. It cannot fence
+        # old Worker versions, alarms, or external calls already dispatched.
+        ingress = getattr(self.env, "B_WEB_BLOCK_INGRESS", "")
+        if ingress not in ("", "0"):
+            return reply({"error": "Worker ingress is temporarily paused"}, 503)
         name = getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", "")
         fixture_mode = getattr(self.env, "B_WEB_QA_HOSTNAME", "") == (
             "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"

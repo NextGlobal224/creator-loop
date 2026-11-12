@@ -291,6 +291,27 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(status, 503)
             lookup.assert_not_called()
 
+    async def test_worker_ingress_hold_refuses_before_durable_object_lookup(self):
+        worker = object.__new__(self.loaded.Default)
+        lookup = MagicMock()
+        worker.env = types.SimpleNamespace(
+            B_WEB_BLOCK_INGRESS="1", DATABASE=types.SimpleNamespace(getByName=lookup)
+        )
+        request = types.SimpleNamespace(
+            url="https://creator-loop-b-web.creator-loop-ai-beta.workers.dev/api/state"
+        )
+        with patch.object(
+            self.loaded, "reply", side_effect=lambda body, status=200: (body, status)
+        ):
+            for flag in ("1", "unexpected", True):
+                worker.env.B_WEB_BLOCK_INGRESS = flag
+                self.assertEqual((await worker.fetch(request))[1], 503)
+                lookup.assert_not_called()
+            worker.env.B_WEB_BLOCK_INGRESS = "0"
+            lookup.return_value.fetch = AsyncMock(return_value="allowed")
+            self.assertEqual(await worker.fetch(request), "allowed")
+            lookup.assert_called_once_with("private-owner-v1")
+
     def test_isolated_host_requires_exact_configured_allowlisted_https_host(self):
         from urllib.parse import urlsplit
 
