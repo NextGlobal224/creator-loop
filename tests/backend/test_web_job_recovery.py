@@ -1270,6 +1270,26 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
         await self.app.alarm()
         self.storage.setAlarm.assert_awaited_once_with(int(lease * 1000) + 1)
 
+    async def test_hold_arriving_during_alarm_write_prevents_dispatch(self):
+        original = {"id": "q", "status": "QUEUED", "kind": "SOURCE_TRANSCRIPTION"}
+        records = {"q": original}
+        self.app.rows = lambda *_: [{"record": json.dumps(records["q"])}]
+        self.app.sync_run = lambda job: records.update(q=copy.deepcopy(job))
+        self.app.extract_source = AsyncMock()
+        held = {"value": False}
+        self.app._restore_hold = lambda: held["value"]
+
+        async def install_hold(_when):
+            held["value"] = True
+
+        self.storage.setAlarm.side_effect = install_hold
+        await self.app.alarm()
+        self.storage.setAlarm.assert_awaited_once()
+        self.app.extract_source.assert_not_awaited()
+        self.assertEqual(records["q"]["status"], "RUNNING")
+        self.assertGreater(records["q"]["lease_until"], time.time())
+        self.assertEqual(records["q"]["stage_outputs"], [])
+
     async def test_alarm_failure_before_enqueue_cannot_commit_a_job(self):
         # Assert the executable method order at the actual failure boundary,
         # rather than claiming that a mock tests remote storage durability.
@@ -1446,6 +1466,32 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 db.execute("SELECT COUNT(*) FROM review_events").fetchone()[0], 0
             )
+        records[run_id] = copy.deepcopy(job)
+
+        held = {"value": False}
+
+        async def hold_after_first_stage(*_):
+            held["value"] = True
+            return json.dumps(
+                {
+                    **envelopes[0],
+                    "ok": True,
+                    "model": "fixture-model",
+                    "worker_version": "fixture-version",
+                    "model_calls": 1,
+                }
+            )
+
+        sdk.stage = AsyncMock(side_effect=hold_after_first_stage)
+        with (
+            patch.object(self.app, "_restore_hold", side_effect=lambda: held["value"]),
+            patch.object(self.loaded, "import_from_javascript", return_value=sdk),
+        ):
+            await self.app.alarm()
+        self.assertEqual(sdk.stage.await_count, 1)
+        self.assertEqual(records[run_id]["status"], "RUNNING")
+        self.assertEqual(records[run_id]["calls"][0]["outcome"], "RECEIVED")
+        self.assertEqual(len(records[run_id]["stage_outputs"]), 1)
         records[run_id] = copy.deepcopy(job)
 
         async def reassigned_stage(*_):

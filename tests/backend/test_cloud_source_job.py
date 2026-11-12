@@ -570,6 +570,30 @@ class CloudSourceJobTests(unittest.TestCase):
         finally:
             self.api.discard_projection(root)
 
+    def test_hold_during_call_retains_receipt_without_finalizing(self):
+        namespace = self.api.authorized.__func__.__globals__
+        original = namespace["import_from_javascript"](
+            "creator_ai.mjs"
+        ).transcribeSource
+
+        async def held(binding, packet, deployment):
+            response = await original(binding, packet, deployment)
+            self.api._restore_hold = lambda: True
+            return response
+
+        namespace["import_from_javascript"] = lambda _: SimpleNamespace(
+            transcribeSource=held
+        )
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        job = self.job()
+        self.assertEqual(job["status"], "RUNNING")
+        self.assertEqual(self.calls, 1)
+        self.assertEqual(job["calls"][0]["outcome"], "RECEIVED")
+        self.assertEqual(job["stage_outputs"][0]["native_response"], self.response)
+        self.assertNotIn("evidence_version_ids", job)
+
     def test_cancelled_unknown_response_keeps_unknown_and_reservation(self):
         namespace = self.api.authorized.__func__.__globals__
         image = (

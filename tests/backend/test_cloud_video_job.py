@@ -66,6 +66,9 @@ class CloudVideoJobTests(unittest.TestCase):
         self.calls = []
         self.cancel_decode = False
         self.cancel_audio = False
+        self.hold_decode = False
+        self.hold_audio = False
+        self.hold_vision = False
         self.fail_audio = False
         self.fail_decode_close = False
         self.reassign_decode = False
@@ -101,6 +104,8 @@ class CloudVideoJobTests(unittest.TestCase):
             self.assertEqual(json.loads(encoded)["browser_reserved_seconds"], 60)
             if self.cancel_decode:
                 await cancel()
+            if self.hold_decode:
+                self.api._restore_hold = lambda: True
             if self.reassign_decode:
                 current = self.job()
                 current["lease_until"] += 1000
@@ -148,6 +153,8 @@ class CloudVideoJobTests(unittest.TestCase):
             self.assertEqual(self.job()["calls"][-1]["outcome"], "UNKNOWN")
             if self.cancel_audio:
                 await cancel()
+            if self.hold_audio:
+                self.api._restore_hold = lambda: True
             if self.reassign_audio:
                 current = self.job()
                 current["lease_until"] += 1000
@@ -175,6 +182,8 @@ class CloudVideoJobTests(unittest.TestCase):
 
         async def vision(binding, encoded, deployment):
             self.calls.append("vision")
+            if self.hold_vision:
+                self.api._restore_hold = lambda: True
             p = json.loads(encoded)
             return json.dumps(
                 {
@@ -281,6 +290,36 @@ class CloudVideoJobTests(unittest.TestCase):
         self.assertEqual(self.job()["status"], "CANCELLED")
         self.assertEqual(self.calls, ["audio"])
         self.assertEqual(len(self.job()["stage_outputs"]), 1)
+
+    def test_hold_during_decode_keeps_receipt_without_model_calls(self):
+        self.hold_decode = True
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        self.assertEqual(self.job()["status"], "RUNNING")
+        self.assertEqual(self.job()["browser"]["outcome"], "RECEIVED")
+        self.assertEqual(self.calls, [])
+
+    def test_hold_during_audio_preserves_receipt_and_stops_vision(self):
+        self.hold_audio = True
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        self.assertEqual(self.job()["status"], "RUNNING")
+        self.assertEqual(self.calls, ["audio"])
+        self.assertEqual(self.job()["calls"][0]["outcome"], "RECEIVED")
+        self.assertEqual(len(self.job()["stage_outputs"]), 1)
+
+    def test_hold_during_vision_preserves_both_receipts_without_finalizing(self):
+        self.hold_vision = True
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        self.assertEqual(self.job()["status"], "RUNNING")
+        self.assertEqual(self.calls, ["audio", "vision"])
+        self.assertEqual(len(self.job()["stage_outputs"]), 2)
+        self.assertEqual(self.job()["calls"][-1]["outcome"], "RECEIVED")
+        self.assertNotIn("evidence_version_ids", self.job())
 
     def test_unknown_audio_stops_vision_without_refund(self):
         self.fail_audio = True

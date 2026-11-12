@@ -2977,6 +2977,10 @@ class Database(DurableObject):
                 sha,
             ),
         ):
+            # A hold can arrive while the decoder or preceding provider call
+            # is in flight. Preserve its result but do not dispatch another.
+            if self.observation_only() or self._restore_hold():
+                return
             if not allowed() or current_job() != job:
                 if current_job().get("status") == "CANCELLED":
                     return
@@ -3052,6 +3056,10 @@ class Database(DurableObject):
                 self.save_job(current)
                 return
             self.save_job(job)
+            # A result can arrive after a hold. Preserve its receipt in the job
+            # but do not validate/finalize or dispatch another stage yet.
+            if self.observation_only() or self._restore_hold():
+                return
             if (
                 not response.get("ok")
                 or response.get("model") != model
@@ -3223,6 +3231,10 @@ class Database(DurableObject):
             self.save_job(current)
             return
         self.save_job(job)
+        # Retain a response that arrived during a hold, without creating domain
+        # evidence or treating this as a complete snapshot of late writes.
+        if self.observation_only() or self._restore_hold():
+            return
         if (
             not response.get("ok")
             or response.get("model") != model
@@ -3468,6 +3480,10 @@ class Database(DurableObject):
         job.update(status="RUNNING", lease_until=time.time() + 600, stage_outputs=[])
         self.sync_run(job)
         await self.ctx.storage.setAlarm(int(job["lease_until"] * 1000) + 1)
+        # A restore hold may be written while setAlarm is awaiting storage.
+        # Keep the RUNNING record and its lease alarm; do not dispatch work.
+        if self.observation_only() or self._restore_hold():
+            return
         try:
             if job.get("kind") == "QA_EDITING_DIAGNOSTIC":
                 await self.probe_editing(job)
@@ -3496,6 +3512,10 @@ class Database(DurableObject):
             for index, stage in enumerate(
                 ("analysis", "writing", "editing", "source_audit")
             ):
+                # The prior stage may have returned after a hold was installed.
+                # Its receipt was persisted below; do not cross another boundary.
+                if self.observation_only() or self._restore_hold():
+                    return
                 current = json.loads(
                     self.rows("SELECT record FROM jobs WHERE id=?", job["id"])[0][
                         "record"
@@ -3628,6 +3648,8 @@ class Database(DurableObject):
                     self.save_job(current)
                     return
                 self.save_job(job)
+                if self.observation_only() or self._restore_hold():
+                    return
                 if (
                     not result.get("ok")
                     or result.get("model") != self.env.CREATOR_MODEL
