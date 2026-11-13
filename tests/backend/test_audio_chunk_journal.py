@@ -4,7 +4,9 @@ import asyncio
 import copy
 import io
 import json
+import shutil
 import sqlite3
+import subprocess
 import tempfile
 import unittest
 import wave
@@ -21,6 +23,7 @@ from creator_loop.backend.knowledge.audio_chunk_journal import (
     reserve_next_chunk,
     stop_chunk_journal,
 )
+from creator_loop.backend.knowledge.cloud_audio import probe_pcm_wav
 
 from tests.backend.test_audio_playback import m4a, mp3
 
@@ -325,6 +328,124 @@ class AudioChunkJournalTest(unittest.TestCase):
         self.create(source)
         with self.assertRaises(sqlite3.IntegrityError):
             self.create(source)
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg unavailable")
+    def test_generated_ten_minute_audio_decodes_to_chunks_and_fake_run(self):
+        # Synthetic silence and fake transcription; no speech quality claim.
+        for index, (extension, codec) in enumerate(
+            (("mp3", "libmp3lame"), ("m4a", "aac"))
+        ):
+            directory = Path(self.tmp.name) / extension
+            directory.mkdir()
+            original = directory / ("original." + extension)
+            subprocess.run(
+                [
+                    shutil.which("ffmpeg"),
+                    "-nostdin",
+                    "-v",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "anullsrc=r=16000:cl=mono",
+                    "-t",
+                    "600",
+                    "-threads",
+                    "1",
+                    "-c:a",
+                    codec,
+                    "-b:a",
+                    "32k",
+                    str(original),
+                ],
+                check=True,
+                capture_output=True,
+                timeout=90,
+            )
+            subprocess.run(
+                [
+                    shutil.which("ffmpeg"),
+                    "-nostdin",
+                    "-v",
+                    "error",
+                    "-i",
+                    str(original),
+                    "-vn",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "8000",
+                    "-c:a",
+                    "pcm_u8",
+                    "-f",
+                    "segment",
+                    "-segment_time",
+                    "119",
+                    "-reset_timestamps",
+                    "1",
+                    str(directory / "slice-%02d.wav"),
+                ],
+                check=True,
+                capture_output=True,
+                timeout=90,
+            )
+            chunks = tuple(
+                path.read_bytes() for path in sorted(directory.glob("slice-*.wav"))
+            )
+            duration = sum(probe_pcm_wav(raw).duration_ms for raw in chunks)
+            self.assertTrue(599_000 <= duration <= 602_000)
+            source, run_id = original.read_bytes(), str(index + 1) * 32
+            plan = create_chunk_journal(
+                self.db,
+                run_id=run_id,
+                source=source,
+                decoded_chunks=chunks,
+                duration_ms=duration,
+                decoder="local ffmpeg fixture",
+                model="fake-whisper-model",
+                deployment="fixture-version",
+            )
+            duration_by_request = {
+                item["request_id"]: item["probe"]["duration_ms"]
+                for item in plan["chunks"]
+            }
+
+            async def fake_provider(packet, raw):
+                response = fake_response(packet)
+                duration_ms = duration_by_request[packet["request_id"]]
+                response["native_response"]["transcription_info"]["duration"] = (
+                    duration_ms / 1000
+                )
+                response["native_response"]["segments"][0]["end"] = (
+                    duration_ms - 1
+                ) / 1000
+                return response
+
+            for chunk in chunks:
+                self.assertEqual(
+                    asyncio.run(
+                        dispatch_next_chunk(
+                            self.db,
+                            run_id=run_id,
+                            source=source,
+                            chunk=chunk,
+                            provider=fake_provider,
+                        )
+                    ),
+                    "RECEIVED",
+                )
+                self.reopen()
+            merged = merge_chunk_journal(self.db, run_id=run_id, source=source)
+            self.assertEqual(len(merged.segments), len(chunks))
+            self.assertEqual(merged.segments[0].start_ms, 0)
+            for item, segment in zip(plan["chunks"], merged.segments):
+                self.assertEqual(segment.start_ms, item["start_ms"])
+                self.assertLessEqual(
+                    segment.end_ms, item["start_ms"] + item["probe"]["duration_ms"]
+                )
+            self.assertGreater(merged.segments[-1].end_ms, 599_000)
+            self.assertEqual(merged.review_state, "PENDING")
+            self.assertIn("CHUNK_BOUNDARIES_REQUIRE_REVIEW", merged.warnings)
 
 
 if __name__ == "__main__":
