@@ -329,6 +329,58 @@ class AudioChunkJournalTest(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.create(source)
 
+    def test_fractional_milliseconds_and_mixed_formats_are_rejected(self):
+        out = io.BytesIO()
+        with wave.open(out, "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(1)
+            writer.setframerate(8000)
+            writer.writeframes(b"\x80" * 8002)
+        with self.assertRaisesRegex(ValueError, "fractional milliseconds"):
+            create_chunk_journal(
+                self.db,
+                run_id=self.run_id,
+                source=mp3(),
+                decoded_chunks=(out.getvalue(), pcm(2)),
+                duration_ms=3001,
+                decoder="fake",
+                model="fake",
+                deployment="fixture",
+            )
+        last = create_chunk_journal(
+            self.db,
+            run_id=self.run_id,
+            source=mp3(),
+            decoded_chunks=(out.getvalue(),),
+            duration_ms=1001,
+            decoder="fake",
+            model="fake",
+            deployment="fixture",
+        )
+        self.assertTrue(last["final_duration_ceiled"])
+        packet = reserve_next_chunk(
+            self.db, run_id=self.run_id, source=mp3(), chunk=out.getvalue()
+        )
+        response = fake_response(packet)
+        response["native_response"]["transcription_info"]["duration"] = 1.001
+        response["native_response"]["segments"][0]["end"] = 1
+        record_chunk_response(self.db, run_id=self.run_id, envelope=response)
+        merged = merge_chunk_journal(self.db, run_id=self.run_id, source=mp3())
+        self.assertIn("FINAL_DURATION_CEILED_TO_MILLISECOND", merged.warnings)
+        from tests.backend.test_cloud_audio import wav
+
+        with self.assertRaisesRegex(ValueError, "format changed"):
+            create_chunk_journal(
+                self.db,
+                run_id="b" * 32,
+                source=mp3(),
+                decoded_chunks=(pcm(2), wav()),
+                duration_ms=4000,
+                decoder="fake",
+                model="fake",
+                deployment="fixture",
+            )
+
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg unavailable")
     def test_generated_ten_minute_audio_decodes_to_chunks_and_fake_run(self):
         # Synthetic silence and fake transcription; no speech quality claim.
@@ -338,6 +390,7 @@ class AudioChunkJournalTest(unittest.TestCase):
             directory = Path(self.tmp.name) / extension
             directory.mkdir()
             original = directory / ("original." + extension)
+            decoded = directory / "decoded.pcm"
             subprocess.run(
                 [
                     shutil.which("ffmpeg"),
@@ -376,22 +429,27 @@ class AudioChunkJournalTest(unittest.TestCase):
                     "-ar",
                     "8000",
                     "-c:a",
-                    "pcm_u8",
+                    "pcm_s16le",
                     "-f",
-                    "segment",
-                    "-segment_time",
-                    "119",
-                    "-reset_timestamps",
-                    "1",
-                    str(directory / "slice-%02d.wav"),
+                    "s16le",
+                    str(decoded),
                 ],
                 check=True,
                 capture_output=True,
                 timeout=90,
             )
-            chunks = tuple(
-                path.read_bytes() for path in sorted(directory.glob("slice-*.wav"))
-            )
+            pcm_bytes = decoded.read_bytes()
+            self.assertEqual(len(pcm_bytes) % 2, 0)
+            chunk_list = []
+            for offset in range(0, len(pcm_bytes), 119 * 8000 * 2):
+                buffer = io.BytesIO()
+                with wave.open(buffer, "wb") as writer:
+                    writer.setnchannels(1)
+                    writer.setsampwidth(2)
+                    writer.setframerate(8000)
+                    writer.writeframes(pcm_bytes[offset : offset + 119 * 8000 * 2])
+                chunk_list.append(buffer.getvalue())
+            chunks = tuple(chunk_list)
             duration = sum(probe_pcm_wav(raw).duration_ms for raw in chunks)
             self.assertTrue(599_000 <= duration <= 602_000)
             source, run_id = original.read_bytes(), str(index + 1) * 32

@@ -13,7 +13,7 @@ import json
 import re
 import sqlite3
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Any
 
 from creator_loop.backend.knowledge.cloud_audio import (
@@ -58,6 +58,21 @@ def _save(db: sqlite3.Connection, value: dict[str, Any]) -> None:
     )
 
 
+def _slice_frames_and_codec(raw: bytes, probe: CloudAudioProbe) -> tuple[int, int]:
+    """Inspect PCM layout already validated by probe_pcm_wav."""
+    offset = 12
+    codec = 0
+    while offset < len(raw):
+        length = int.from_bytes(raw[offset + 4 : offset + 8], "little")
+        if raw[offset : offset + 4] == b"fmt ":
+            codec = int.from_bytes(raw[offset + 8 : offset + 10], "little")
+        if raw[offset : offset + 4] == b"data":
+            frames = length // (probe.channels * probe.sample_width)
+            return frames, codec
+        offset += 8 + length + length % 2
+    raise ValueError("Audio chunk has no PCM data")
+
+
 def create_chunk_journal(
     db: sqlite3.Connection,
     *,
@@ -92,8 +107,19 @@ def create_chunk_journal(
     source_sha = hashlib.sha256(source).hexdigest()
     start = 0
     chunks = []
-    for raw in decoded_chunks:
+    format_identity = None
+    final_fractional = False
+    for index, raw in enumerate(decoded_chunks):
         probe = probe_pcm_wav(raw)
+        frames, codec = _slice_frames_and_codec(raw, probe)
+        fractional = bool(frames * 1000 % probe.sample_rate)
+        if fractional and index != len(decoded_chunks) - 1:
+            raise ValueError("Non-final audio chunk has fractional milliseconds")
+        final_fractional = fractional
+        current_format = (probe.sample_rate, probe.channels, probe.sample_width, codec)
+        if format_identity is not None and current_format != format_identity:
+            raise ValueError("Decoded audio chunk format changed")
+        format_identity = current_format
         request_id = hashlib.sha256(
             f"{run_id}:{source_sha}:{start}:{probe.sha256}".encode()
         ).hexdigest()[:32]
@@ -113,6 +139,7 @@ def create_chunk_journal(
         "source_sha256": source_sha,
         "source_size": len(source),
         "duration_ms": duration_ms,
+        "final_duration_ceiled": final_fractional,
         "decoder": decoder,
         "model": model,
         "deployment": deployment,
@@ -264,4 +291,10 @@ def merge_chunk_journal(
         )
         for c in value["chunks"]
     )
-    return merge_whisper_chunks(chunks, source_duration_ms=value["duration_ms"])
+    transcript = merge_whisper_chunks(chunks, source_duration_ms=value["duration_ms"])
+    if value.get("final_duration_ceiled") is True:
+        transcript = replace(
+            transcript,
+            warnings=(*transcript.warnings, "FINAL_DURATION_CEILED_TO_MILLISECOND"),
+        )
+    return transcript
