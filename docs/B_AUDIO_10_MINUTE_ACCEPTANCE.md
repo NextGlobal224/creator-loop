@@ -21,3 +21,7 @@ Intake giới hạn 8 MiB/tệp, tổng media 10,5 MiB, body request 16 MiB và 
 Deepgram mô tả việc giữ dữ liệu để cải thiện model là mặc định; `mip_opt_out=true` loại request khỏi chương trình và không giữ audio/transcript sau phản hồi, nhưng metadata/usage logs vẫn được giữ. Nơi xử lý phụ thuộc endpoint, cần kiểm tra quyền và chính sách dữ liệu trước khi chọn provider. [Chính sách dữ liệu](https://developers.deepgram.com/trust-security/your-data).
 
 Không có phương án nào ở đây đã chứng minh giới hạn chi phí account 0 USD hoặc đạt chất lượng với file 10 phút của B. Chỉ triển khai provider khi có bằng chứng, quyền và quyết định cần thiết; tiếp tục giữ mọi dữ liệu, ledger và reservation.
+
+## Journal đoạn offline đang chuẩn bị
+
+`audio_chunk_journal.py` lưu kế hoạch và response theo từng đoạn trong bảng coordination `control`, kiểm hash nguồn/đoạn và danh tính model/deployment, ghi `UNKNOWN` trong transaction đã commit trước khi sequencer gọi callback, giữ response lỗi hoặc đến muộn, và chỉ ghép khi mọi response hợp lệ. Test SQLite local dùng provider giả và mốc 600 giây; kết quả vẫn `PENDING` và bắt buộc đối chiếu ranh giới. Đây **chưa phải job Worker**: SQLite local không chứng minh hoạt động của Durable Object; chưa có guard chi phí, cấp quyền hay bộ decoder được nối. Đặc biệt, journal không chứng minh các đoạn PCM thực sự được giải mã từ MP3/M4A gốc, chưa lưu thành Evidence/version, và chưa khép race giữa Dừng với request đang gửi. Không dùng nó để mở inference hoặc tuyên bố luồng 10 phút đã hoàn thành.
