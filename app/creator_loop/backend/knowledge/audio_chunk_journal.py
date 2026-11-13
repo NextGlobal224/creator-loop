@@ -195,7 +195,11 @@ def record_chunk_response(
         if item["state"] in ("RECEIVED", "INVALID"):
             if item["envelope"] != envelope:
                 raise ValueError("Audio response conflicts with retained receipt")
-            return str(item["state"])
+            return (
+                "CANCELLED_RECEIPT_RETAINED"
+                if value["state"] == "CANCELLED"
+                else str(item["state"])
+            )
         if item["state"] != "UNKNOWN":
             raise ValueError("Audio request was not reserved")
         try:
@@ -208,7 +212,7 @@ def record_chunk_response(
             status = "RECEIVED"
         item.update(state=status, envelope=envelope)
         _save(db, value)
-        return status
+        return "CANCELLED_RECEIPT_RETAINED" if value["state"] == "CANCELLED" else status
 
 
 async def dispatch_next_chunk(

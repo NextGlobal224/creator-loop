@@ -172,8 +172,11 @@ class AudioChunkJournalTest(unittest.TestCase):
         )
         stop_chunk_journal(self.db, run_id=self.run_id)
         self.reopen()
-        record_chunk_response(
-            self.db, run_id=self.run_id, envelope=fake_response(packet)
+        self.assertEqual(
+            record_chunk_response(
+                self.db, run_id=self.run_id, envelope=fake_response(packet)
+            ),
+            "CANCELLED_RECEIPT_RETAINED",
         )
         record = json.loads(self.db.execute("SELECT record FROM control").fetchone()[0])
         self.assertEqual(record["state"], "CANCELLED")
@@ -206,6 +209,29 @@ class AudioChunkJournalTest(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, "incomplete"):
             merge_chunk_journal(self.db, run_id=self.run_id, source=source)
+
+    def test_stop_while_provider_runs_returns_cancelled_with_receipt(self):
+        source = mp3()
+        self.create(source)
+
+        async def stopped_provider(packet, raw):
+            stop_chunk_journal(self.db, run_id=self.run_id)
+            return fake_response(packet)
+
+        result = asyncio.run(
+            dispatch_next_chunk(
+                self.db,
+                run_id=self.run_id,
+                source=source,
+                chunk=self.chunk,
+                provider=stopped_provider,
+            )
+        )
+        self.assertEqual(result, "CANCELLED_RECEIPT_RETAINED")
+        self.reopen()
+        record = json.loads(self.db.execute("SELECT record FROM control").fetchone()[0])
+        self.assertEqual(record["state"], "CANCELLED")
+        self.assertEqual(record["chunks"][0]["state"], "RECEIVED")
 
     def test_two_local_sessions_cannot_reserve_the_same_chunk(self):
         source = mp3()
