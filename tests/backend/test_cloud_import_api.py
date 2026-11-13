@@ -255,7 +255,8 @@ class CloudImportAPITests(unittest.TestCase):
             )
         )
 
-    def test_media_player_only_serves_verified_pcm_as_inline_wav(self):
+    def test_media_player_serves_identified_audio_containers_inline(self):
+        from tests.backend.test_audio_playback import m4a, mp3
         from tests.backend.test_cloud_audio import wav
 
         domain = self.fixture.domain
@@ -269,6 +270,9 @@ class CloudImportAPITests(unittest.TestCase):
         )
         for raw, expected in (
             (wav(), "audio/wav"),
+            (mp3(), "audio/mpeg"),
+            (m4a(), "audio/mp4"),
+            (m4a(b"vide"), "application/octet-stream"),
             (b"opaque audio", "application/octet-stream"),
         ):
             file = domain.intake(
@@ -284,9 +288,9 @@ class CloudImportAPITests(unittest.TestCase):
             self.assertEqual(result.headers["Content-Type"], expected)
             self.assertEqual(
                 result.headers["Content-Disposition"],
-                "inline" if expected == "audio/wav" else "attachment",
+                "inline" if expected.startswith("audio/") else "attachment",
             )
-            if expected == "audio/wav":
+            if expected.startswith("audio/"):
                 self.assertEqual(result.headers["Accept-Ranges"], "bytes")
                 for header, expected_raw in (
                     ("bytes=10-19", raw[10:20]),

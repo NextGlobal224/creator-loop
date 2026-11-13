@@ -11,7 +11,7 @@
 
 ## Trạng thái thực tế của source PR trước thay đổi này
 
-Intake giới hạn 8 MiB/tệp, tổng media 10,5 MiB, body request 16 MiB và đường ASR hiện xác thực WAV PCM/float32 tối đa 120 giây. Các ngưỡng này chưa đáp ứng tiêu chí. Ví dụ tính theo bitrate danh nghĩa: 10 phút, 128 kbit/s khoảng 9.600.000 byte trước overhead, đã vượt 8 MiB; không coi ví dụ là kích thước cố định cho mọi tệp. Chưa có giải mã MP3/M4A hay chia/ghép 10 phút được nối vào ASR hiện tại. Sửa nhận diện tên tệp chỉ giúp chọn loại AUDIO, không xác nhận codec hoặc khả năng trích lời. Route `/media/` hiện chỉ phát inline audio vượt qua `probe_pcm_wav`; MP3/M4A và WAV dài hơn 120 giây bị trả dạng attachment, nên player còn cần đường xác thực nội dung phù hợp.
+Intake giới hạn 8 MiB/tệp, tổng media 10,5 MiB, body request 16 MiB và đường ASR hiện xác thực WAV PCM/float32 tối đa 120 giây. Các ngưỡng này chưa đáp ứng tiêu chí. Ví dụ tính theo bitrate danh nghĩa: 10 phút, 128 kbit/s khoảng 9.600.000 byte trước overhead, đã vượt 8 MiB; không coi ví dụ là kích thước cố định cho mọi tệp. Chưa có giải mã MP3/M4A hay chia/ghép 10 phút được nối vào ASR hiện tại. Sửa nhận diện tên tệp chỉ giúp chọn loại AUDIO, không xác nhận codec hoặc khả năng trích lời. Source hiện tại bổ sung nhận diện cấu trúc giới hạn của MP3/M4A để route `/media/` trả inline và hỗ trợ byte-range; đó không xác minh codec giải mã được, thời lượng, nội dung hay chất lượng ASR. WAV dài hơn 120 giây vẫn là attachment. Chưa có bằng chứng player thật trên cloud cho code mới.
 
 ## Hướng kỹ thuật để đánh giá, chưa bật dịch vụ
 

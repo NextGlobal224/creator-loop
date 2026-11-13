@@ -2006,7 +2006,13 @@ class Database(DurableObject):
                     try:
                         probe_pcm_wav(raw)
                     except ValueError:
-                        pass  # Opaque/unsupported audio remains a download.
+                        from creator_loop.backend.knowledge.audio_playback import (
+                            playback_audio_type,
+                        )
+
+                        detected = playback_audio_type(raw)
+                        if detected:
+                            mime, verified_media = detected, True
                     else:
                         mime = "audio/wav"
                         verified_media = True

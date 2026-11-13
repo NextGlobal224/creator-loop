@@ -230,6 +230,34 @@ class CloudSourceJobTests(unittest.TestCase):
             result.value["source_extraction"]["parsed"]["text"], self.response["text"]
         )
         self.assertEqual(result.value["source_extraction"]["artifact_sha256"], sha)
+        original_version = result.value["evidence_versions"][0]["evidence_version_id"]
+        corrected = self.fixture.call(
+            {
+                "project_id": self.project,
+                "file_id": self.file,
+                "evidence_version_id": original_version,
+                "start_ms": 100,
+                "end_ms": 1900,
+                "content": "Đã nghe đối chiếu; tên riêng chưa rõ.",
+                "reason": "Nghe lại bản gốc",
+            },
+            path="/api/source-audio-ranges",
+            key="f" * 32,
+        )
+        self.assertEqual(corrected.value["review_state"], "PENDING")
+        root, _ = self.api.load()
+        try:
+            reopened = WebDomain(root).source_review(self.project, self.file)
+            versions = reopened["evidence_versions"]
+            self.assertEqual([v["producer_type"] for v in versions], ["MODEL", "HUMAN"])
+            self.assertEqual(versions[0]["content"], self.response["text"])
+            self.assertEqual(
+                versions[1]["content"], "Đã nghe đối chiếu; tên riêng chưa rõ."
+            )
+            self.assertIsNone(reopened["source_use"])
+        finally:
+            self.api.discard_projection(root)
+        self.assertEqual(self.calls, 1)
 
     def test_expired_running_lease_is_unknown_and_never_retried(self):
         self.grant()
