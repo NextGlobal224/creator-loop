@@ -14,16 +14,20 @@ import re
 import sqlite3
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, replace
+from pathlib import Path
 from typing import Any
 
 from creator_loop.backend.knowledge.cloud_audio import (
+    WHISPER_MODEL,
     CloudAudioProbe,
     CloudTranscript,
     CloudTranscriptChunk,
+    _store_verified_transcript,
     merge_whisper_chunks,
     parse_whisper_transcript,
     probe_pcm_wav,
 )
+from creator_loop.backend.knowledge.evidence_reopen import _anchor_path
 from creator_loop.backend.runtime.transactions import atomic_transaction
 
 _ID = re.compile(r"[0-9a-f]{32}\Z")
@@ -298,3 +302,56 @@ def merge_chunk_journal(
             warnings=(*transcript.warnings, "FINAL_DURATION_CEILED_TO_MILLISECOND"),
         )
     return transcript
+
+
+def store_completed_chunk_journal(
+    db: sqlite3.Connection, *, data_root: Path, run_id: str, file_id: str
+) -> dict[str, Any]:
+    """Bind retained chunk receipts to versioned evidence in the same DB.
+
+    Offline integration candidate: the decoder's source-to-PCM provenance and
+    the real Durable Object storage adapter must still be verified by the caller.
+    This function neither dispatches a model nor settles usage.
+    """
+    with atomic_transaction(db):
+        value = _read(db, run_id)
+        row = db.execute(
+            """SELECT f.asset_id,f.storage_key,f.sha256,f.byte_size,f.duration_ms,
+                      a.media_type,r.status,r.model_name
+               FROM asset_files f JOIN assets a USING(asset_id)
+               JOIN processing_runs r ON r.asset_id=f.asset_id AND r.input_file_id=f.file_id
+               WHERE f.file_id=? AND f.role='ORIGINAL' AND r.run_id=?
+                 AND r.tool_name='CLOUDFLARE_WORKERS_AI_SOURCE'
+                 AND r.task_type='SOURCE_TRANSCRIPTION' AND a.deleted_at IS NULL""",
+            (file_id, run_id),
+        ).fetchone()
+        if (
+            row is None
+            or row[5:] != ("AUDIO", "RUNNING", WHISPER_MODEL)
+            or value["model"] != WHISPER_MODEL
+            or (row[4] is not None and row[4] != value["duration_ms"])
+        ):
+            raise ValueError("Chunk journal does not match the active source run")
+        source = _anchor_path(data_root, "ORIGINAL", row[1]).read_bytes()
+        if len(source) != row[3] or hashlib.sha256(source).hexdigest() != row[2]:
+            raise ValueError("Original audio changed before transcript storage")
+        transcript = merge_chunk_journal(db, run_id=run_id, source=source)
+        receipts = {
+            "decoder": value["decoder"],
+            "deployment": value["deployment"],
+            "source_to_decoded_provenance": "NOT_VERIFIED_BY_JOURNAL",
+            "chunks": value["chunks"],
+        }
+        return _store_verified_transcript(
+            db,
+            data_root=data_root,
+            file_id=file_id,
+            run_id=run_id,
+            asset_id=row[0],
+            source_sha=row[2],
+            duration_ms=value["duration_ms"],
+            model=WHISPER_MODEL,
+            native_response=receipts,
+            transcript=transcript,
+            artifact_format="CREATOR_CLOUD_CHUNKED_TRANSCRIPT_V1",
+        )

@@ -15,6 +15,7 @@ from contextlib import closing
 from pathlib import Path
 from threading import Barrier
 
+from creator_loop.backend.creator.web_domain import WebDomain
 from creator_loop.backend.knowledge.audio_chunk_journal import (
     create_chunk_journal,
     dispatch_next_chunk,
@@ -22,8 +23,10 @@ from creator_loop.backend.knowledge.audio_chunk_journal import (
     record_chunk_response,
     reserve_next_chunk,
     stop_chunk_journal,
+    store_completed_chunk_journal,
 )
-from creator_loop.backend.knowledge.cloud_audio import probe_pcm_wav
+from creator_loop.backend.knowledge.cloud_audio import WHISPER_MODEL, probe_pcm_wav
+from creator_loop.backend.runtime.database import _connect_write, initialize
 
 from tests.backend.test_audio_playback import m4a, mp3
 
@@ -129,6 +132,106 @@ class AudioChunkJournalTest(unittest.TestCase):
         self.assertEqual([c["state"] for c in record["chunks"]], ["RECEIVED"] * 5)
         self.assertTrue(
             all(c["envelope"]["native_usage"] is None for c in record["chunks"])
+        )
+
+    def test_store_and_reopen_corrected_chunked_transcript(self):
+        root = Path(self.tmp.name) / "domain"
+        root.mkdir()
+        initialize(root / "creator_loop.sqlite3")
+        domain = WebDomain(root)
+        project = domain.project("Fixture")["project_id"]
+        source = m4a()
+        file = domain.intake(
+            {"project_id": project, "media_type": "AUDIO", "display_name": "test.m4a"},
+            source,
+        )
+        with closing(_connect_write(domain.path)) as db:
+            db.execute(
+                "CREATE TABLE control(id TEXT PRIMARY KEY, record TEXT NOT NULL)"
+            )
+            db.execute(
+                """INSERT INTO processing_runs(run_id,asset_id,input_file_id,task_type,
+                     status,tool_name,tool_version,model_name,started_at,created_at)
+                   VALUES(?,?,?,'SOURCE_TRANSCRIPTION','RUNNING',
+                     'CLOUDFLARE_WORKERS_AI_SOURCE','fixture',?,
+                     '2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')""",
+                (self.run_id, file["asset_id"], file["file_id"], WHISPER_MODEL),
+            )
+            db.commit()
+            create_chunk_journal(
+                db,
+                run_id=self.run_id,
+                source=source,
+                decoded_chunks=(self.chunk,) * 5,
+                duration_ms=600_000,
+                decoder="fixture only",
+                model=WHISPER_MODEL,
+                deployment="fixture",
+            )
+            with self.assertRaisesRegex(ValueError, "incomplete"):
+                store_completed_chunk_journal(
+                    db, data_root=root, run_id=self.run_id, file_id=file["file_id"]
+                )
+            for _ in range(5):
+                packet = reserve_next_chunk(
+                    db, run_id=self.run_id, source=source, chunk=self.chunk
+                )
+                record_chunk_response(
+                    db, run_id=self.run_id, envelope=fake_response(packet)
+                )
+            result = store_completed_chunk_journal(
+                db, data_root=root, run_id=self.run_id, file_id=file["file_id"]
+            )
+            artifact = json.loads(result["content"])
+            self.assertEqual(artifact["source_duration_ms"], 600_000)
+            self.assertEqual(len(artifact["native_response"]["chunks"]), 5)
+            self.assertEqual(
+                artifact["native_response"]["source_to_decoded_provenance"],
+                "NOT_VERIFIED_BY_JOURNAL",
+            )
+            with self.assertRaisesRegex(ValueError, "active source run"):
+                store_completed_chunk_journal(
+                    db, data_root=root, run_id=self.run_id, file_id=file["file_id"]
+                )
+            original_path = (
+                root
+                / db.execute(
+                    "SELECT storage_key FROM asset_files WHERE file_id=?",
+                    (file["file_id"],),
+                ).fetchone()[0]
+            )
+        review = WebDomain(root).source_review(project, file["file_id"])
+        version = result["evidence_version_ids"][-1]
+        self.assertEqual(len(review["evidence_versions"]), 5)
+        edit = {
+            "project_id": project,
+            "file_id": file["file_id"],
+            "evidence_version_id": version,
+            "start_ms": 480_001,
+            "end_ms": 599_999,
+            "content": "Lời đã sửa",
+            "reason": "Đối chiếu",
+        }
+        original_path.write_bytes(source + b"changed")
+        with self.assertRaisesRegex(ValueError, "nguồn không khớp"):
+            WebDomain(root).source_audio_range(edit)
+        original_path.write_bytes(source)
+        artifact_path = root / result["storage_key"]
+        artifact_path.write_bytes(result["content"] + b"changed")
+        with self.assertRaisesRegex(ValueError, "Artifact transcript không khớp"):
+            WebDomain(root).source_audio_range(edit)
+        artifact_path.write_bytes(result["content"])
+        with self.assertRaisesRegex(ValueError, "ngoài thời lượng"):
+            WebDomain(root).source_audio_range(edit | {"end_ms": 600_001})
+        corrected = WebDomain(root).source_audio_range(edit)
+        reopened = WebDomain(root).source_review(project, file["file_id"])
+        versions = {v["evidence_version_id"]: v for v in reopened["evidence_versions"]}
+        self.assertEqual(versions[version]["producer_type"], "MODEL")
+        self.assertEqual(
+            versions[corrected["evidence_version_id"]]["content"], "Lời đã sửa"
+        )
+        self.assertEqual(
+            versions[corrected["evidence_version_id"]]["review_state"], "PENDING"
         )
 
     def test_fail_closed_on_changed_bytes_wrong_response_and_partial_transaction(self):
