@@ -2535,8 +2535,18 @@ class Database(DurableObject):
                     "/api/source-image-regions",
                     "/api/source-use",
                 ):
+                    # A quota-waiting job is not runnable. Permit only audio
+                    # corrections against already retained evidence; selecting
+                    # sources and all edits during running jobs remain fenced.
+                    # commit() uses revision CAS inside this same transaction,
+                    # so a stale late-result projection cannot overwrite edits.
+                    statuses = (
+                        "'QUEUED','RUNNING'"
+                        if path == "/api/source-audio-ranges"
+                        else "'QUEUED','RUNNING','WAITING_QUOTA'"
+                    )
                     if self.rows(
-                        """SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA') AND
+                        f"""SELECT 1 FROM jobs WHERE status IN ({statuses}) AND
                         (json_extract(record,'$.request.project_id')=? OR EXISTS(
                           SELECT 1 FROM json_each(jobs.record,'$.sources') source
                           WHERE json_extract(source.value,'$.file_id')=?)) LIMIT 1""",

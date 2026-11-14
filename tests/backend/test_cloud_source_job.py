@@ -474,42 +474,61 @@ class CloudSourceJobTests(unittest.TestCase):
                     ),
                 ),
             )
+        edit_data = {
+            "project_id": self.project,
+            "file_id": file_id,
+            "evidence_version_id": version,
+            "start_ms": 100,
+            "end_ms": 1900,
+            "content": "Đã sửa",
+            "reason": "Nghe đối chiếu",
+        }
+        with self.fixture.coord:
+            self.fixture.coord.execute(
+                "UPDATE jobs SET status='RUNNING' WHERE id=?", (run_id,)
+            )
+        running_edit = asyncio.run(
+            fetch("/api/source-audio-ranges", "POST", edit_data, cookie)
+        )
+        self.assertEqual(running_edit.status, 409)
+        with self.fixture.coord:
+            self.fixture.coord.execute(
+                "UPDATE jobs SET status='WAITING_QUOTA' WHERE id=?", (run_id,)
+            )
         blocked = asyncio.run(
             fetch(
-                "/api/source-audio-ranges",
+                "/api/source-use",
                 "POST",
-                {
-                    "project_id": self.project,
-                    "file_id": file_id,
-                    "evidence_version_id": version,
-                    "start_ms": 100,
-                    "end_ms": 1900,
-                    "content": "Đã sửa",
-                    "reason": "Nghe đối chiếu",
-                },
+                {"project_id": self.project, "file_id": file_id},
                 cookie,
             )
         )
         self.assertEqual(blocked.status, 409)
-        with self.fixture.coord:
-            self.fixture.coord.execute("DELETE FROM jobs WHERE id=?", (run_id,))
+        stale_root, stale_revision = self.api.load()
         edited = asyncio.run(
             fetch(
                 "/api/source-audio-ranges",
                 "POST",
-                {
-                    "project_id": self.project,
-                    "file_id": file_id,
-                    "evidence_version_id": version,
-                    "start_ms": 100,
-                    "end_ms": 1900,
-                    "content": "Đã sửa",
-                    "reason": "Nghe đối chiếu",
-                },
+                edit_data,
                 cookie,
             )
         )
         self.assertEqual(edited.status, 200, edited.value)
+        self.assertEqual(
+            self.api.rows("SELECT status FROM jobs WHERE id=?", run_id)[0]["status"],
+            "WAITING_QUOTA",
+        )
+        # A late writer that read before the correction cannot publish its
+        # stale projection. It must load the latest state before reconciling.
+        try:
+            with self.assertRaisesRegex(
+                RuntimeError, "Concurrent durable revision changed"
+            ):
+                self.api.ctx.storage.transactionSync(
+                    lambda: self.api.commit(stale_root, stale_revision)
+                )
+        finally:
+            self.api.discard_projection(stale_root)
         root, revision = self.api.load()
         try:
             # Finalization remains synthetic; the real adapter must hydrate
@@ -547,6 +566,18 @@ class CloudSourceJobTests(unittest.TestCase):
         }
         self.assertEqual(
             versions[edited.value["evidence_version_id"]]["content"], "Đã sửa"
+        )
+        corrected = versions[edited.value["evidence_version_id"]]
+        self.assertEqual(
+            max(
+                (
+                    v
+                    for v in versions.values()
+                    if v["evidence_id"] == corrected["evidence_id"]
+                ),
+                key=lambda v: v["version_no"],
+            )["evidence_version_id"],
+            corrected["evidence_version_id"],
         )
         self.assertEqual(versions[version]["producer_type"], "MODEL")
         self.assertEqual(len(versions), 3)

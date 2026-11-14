@@ -1356,6 +1356,7 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_hold_arriving_during_alarm_write_prevents_dispatch(self):
         original = {"id": "q", "status": "QUEUED", "kind": "SOURCE_TRANSCRIPTION"}
         records = {"q": original}
+        self.app.env = types.SimpleNamespace()
         self.app.rows = lambda *_: [{"record": json.dumps(records["q"])}]
         self.app.sync_run = lambda job: records.update(q=copy.deepcopy(job))
         self.app.extract_source = AsyncMock()
@@ -1366,7 +1367,12 @@ class WebJobRecoveryTests(unittest.IsolatedAsyncioTestCase):
             held["value"] = True
 
         self.storage.setAlarm.side_effect = install_hold
-        await self.app.alarm()
+        # Exercise the independent hold race with a fake verified quota. The
+        # production verifier itself remains fail-closed and is tested elsewhere.
+        with patch.object(
+            self.loaded, "source_audio_quota_verified", return_value=True
+        ):
+            await self.app.alarm()
         self.storage.setAlarm.assert_awaited_once()
         self.app.extract_source.assert_not_awaited()
         self.assertEqual(records["q"]["status"], "RUNNING")
