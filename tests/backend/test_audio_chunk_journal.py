@@ -25,6 +25,7 @@ from creator_loop.backend.knowledge.audio_chunk_journal import (
     stop_chunk_journal,
     store_completed_chunk_journal,
 )
+from creator_loop.backend.knowledge.audio_playback import playback_audio_type
 from creator_loop.backend.knowledge.cloud_audio import WHISPER_MODEL, probe_pcm_wav
 from creator_loop.backend.runtime.database import _connect_write, initialize
 
@@ -607,6 +608,100 @@ class AudioChunkJournalTest(unittest.TestCase):
             self.assertGreater(merged.segments[-1].end_ms, 599_000)
             self.assertEqual(merged.review_state, "PENDING")
             self.assertIn("CHUNK_BOUNDARIES_REQUIRE_REVIEW", merged.warnings)
+
+            # Exercise the same real compressed fixture through the domain and
+            # durable transcript store; ASR and login remain simulated here.
+            root = directory / "domain"
+            root.mkdir()
+            initialize(root / "creator_loop.sqlite3")
+            domain = WebDomain(root)
+            project = domain.project("Ten-minute offline fixture")["project_id"]
+            item = domain.intake(
+                {
+                    "project_id": project,
+                    "media_type": "AUDIO",
+                    "display_name": original.name,
+                },
+                source,
+            )
+            self.assertIsNotNone(playback_audio_type(source))
+            db = _connect_write(domain.path)
+            try:
+                db.execute(
+                    "CREATE TABLE control(id TEXT PRIMARY KEY, record TEXT NOT NULL)"
+                )
+                db.execute(
+                    """INSERT INTO processing_runs(run_id,asset_id,input_file_id,task_type,
+                         status,tool_name,tool_version,model_name,started_at,created_at)
+                       VALUES(?,?,?,'SOURCE_TRANSCRIPTION','RUNNING',
+                         'CLOUDFLARE_WORKERS_AI_SOURCE','fixture',?,
+                         '2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')""",
+                    (run_id, item["asset_id"], item["file_id"], WHISPER_MODEL),
+                )
+                db.commit()
+                stored_plan = create_chunk_journal(
+                    db,
+                    run_id=run_id,
+                    source=source,
+                    decoded_chunks=chunks,
+                    duration_ms=duration,
+                    decoder="local ffmpeg fixture",
+                    model=WHISPER_MODEL,
+                    deployment="fixture-version",
+                )
+                duration_by_request = {
+                    part["request_id"]: part["probe"]["duration_ms"]
+                    for part in stored_plan["chunks"]
+                }
+                for chunk in chunks:
+                    self.assertEqual(
+                        asyncio.run(
+                            dispatch_next_chunk(
+                                db,
+                                run_id=run_id,
+                                source=source,
+                                chunk=chunk,
+                                provider=fake_provider,
+                            )
+                        ),
+                        "RECEIVED",
+                    )
+                    db.close()
+                    db = _connect_write(domain.path)
+                result = store_completed_chunk_journal(
+                    db, data_root=root, run_id=run_id, file_id=item["file_id"]
+                )
+                path = (
+                    root
+                    / db.execute(
+                        "SELECT storage_key FROM asset_files WHERE file_id=?",
+                        (item["file_id"],),
+                    ).fetchone()[0]
+                )
+                self.assertEqual(path.read_bytes(), source)
+            finally:
+                db.close()
+            source_version = result["evidence_version_ids"][-1]
+            change = WebDomain(root).source_audio_range(
+                {
+                    "project_id": project,
+                    "file_id": item["file_id"],
+                    "evidence_version_id": source_version,
+                    "start_ms": stored_plan["chunks"][-1]["start_ms"],
+                    "end_ms": duration - 1,
+                    "content": "Đã sửa sau đối chiếu",
+                    "reason": "Fixture",
+                }
+            )
+            review = WebDomain(root).source_review(project, item["file_id"])
+            versions = {
+                v["evidence_version_id"]: v for v in review["evidence_versions"]
+            }
+            self.assertEqual(versions[source_version]["producer_type"], "MODEL")
+            self.assertEqual(
+                versions[change["evidence_version_id"]]["producer_type"], "HUMAN"
+            )
+            self.assertIsNone(review["source_use"])
 
 
 if __name__ == "__main__":
