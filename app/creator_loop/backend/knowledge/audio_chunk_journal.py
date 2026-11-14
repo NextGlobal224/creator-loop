@@ -3,7 +3,8 @@
 The caller must supply chunks produced by a trusted decoder for the exact
 original. This module verifies identities and timing, but cannot prove that
 the decoder actually derived those chunks from compressed source bytes.
-It is not wired to the Worker or exposed as a client endpoint.
+The Worker has an internal receipt adapter; the real decoder, chunk planner,
+quota reservation and resumable dispatcher are not wired or exposed to clients.
 """
 
 from __future__ import annotations

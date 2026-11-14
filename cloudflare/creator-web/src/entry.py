@@ -3237,6 +3237,122 @@ class Database(DurableObject):
         finally:
             self.discard_projection(root)
 
+    def retain_audio_chunk_response(self, job_id, envelope):
+        """Retain a reserved receipt before attempting review materialization.
+
+        Internal callback only. It never starts a provider request, changes a
+        grant, schedules an alarm, or treats an UNKNOWN request as retriable.
+        """
+        from creator_loop.backend.knowledge.audio_chunk_journal import (
+            record_chunk_response,
+            store_received_chunk_for_review,
+        )
+
+        if not isinstance(job_id, str) or not re.fullmatch(r"[a-f0-9]{32}", job_id):
+            raise ValueError("Invalid chunk job")
+        key = "audio-chunks-" + job_id
+
+        def journal_receipt():
+            rows = self.rows("SELECT record FROM jobs WHERE id=?", job_id)
+            journals = self.rows("SELECT record FROM control WHERE id=?", key)
+            if len(rows) != 1 or len(journals) != 1:
+                raise ValueError("Chunk job or journal missing")
+            job = json.loads(rows[0]["record"])
+            if (
+                job.get("kind") != "SOURCE_TRANSCRIPTION"
+                or job.get("status")
+                not in ("RUNNING", "WAITING_QUOTA", "CANCELLED", "FAILED")
+                or not isinstance(job.get("request"), dict)
+                or not isinstance(job["request"].get("file_id"), str)
+            ):
+                raise ValueError("Chunk job is not eligible for receipt")
+            with closing(sqlite3.connect(":memory:")) as db:
+                db.execute(
+                    "CREATE TABLE control(id TEXT PRIMARY KEY, record TEXT NOT NULL)"
+                )
+                db.execute(
+                    "INSERT INTO control VALUES(?,?)", (key, journals[0]["record"])
+                )
+                db.commit()
+                outcome = record_chunk_response(db, run_id=job_id, envelope=envelope)
+                saved = db.execute(
+                    "SELECT record FROM control WHERE id=?", (key,)
+                ).fetchone()[0]
+            self.sql.exec("UPDATE control SET record=? WHERE id=?", saved, key)
+            return outcome
+
+        # The provider response is durable even if projection, media capacity,
+        # hash checks or the later checkpoint transaction fail.
+        outcome = self.ctx.storage.transactionSync(journal_receipt)
+        if outcome != "RECEIVED" or self.observation_only() or self._restore_hold():
+            return {"outcome": outcome, "partial": None}
+        root, revision = self.load()
+        try:
+
+            def retain():
+                rows = self.rows("SELECT record FROM jobs WHERE id=?", job_id)
+                journals = self.rows("SELECT record FROM control WHERE id=?", key)
+                if len(rows) != 1 or len(journals) != 1:
+                    raise ValueError("Chunk job or journal missing")
+                job = json.loads(rows[0]["record"])
+                if (
+                    job.get("kind") != "SOURCE_TRANSCRIPTION"
+                    or job.get("status")
+                    not in ("RUNNING", "WAITING_QUOTA", "CANCELLED", "FAILED")
+                    or not isinstance(job.get("request"), dict)
+                    or not isinstance(job["request"].get("file_id"), str)
+                ):
+                    raise ValueError("Chunk job is not eligible for receipt")
+                with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+                    db.execute(
+                        "CREATE TEMP TABLE control(id TEXT PRIMARY KEY, record TEXT NOT NULL)"
+                    )
+                    db.execute(
+                        "INSERT INTO control VALUES(?,?)", (key, journals[0]["record"])
+                    )
+                    db.commit()
+                    journal = json.loads(
+                        db.execute(
+                            "SELECT record FROM control WHERE id=?", (key,)
+                        ).fetchone()[0]
+                    )
+                    matches = [
+                        i
+                        for i, part in enumerate(journal["chunks"])
+                        if part["request_id"] == envelope["request_id"]
+                    ]
+                    if len(matches) != 1:
+                        raise ValueError("Chunk receipt identity changed")
+                    part = journal["chunks"][matches[0]]
+                    partial = part.get("partial_artifact")
+                    if (
+                        partial is None
+                        and job["status"] in ("RUNNING", "WAITING_QUOTA")
+                        and not self.observation_only()
+                        and not self._restore_hold()
+                    ):
+                        partial = store_received_chunk_for_review(
+                            db,
+                            data_root=root,
+                            run_id=job_id,
+                            file_id=job["request"]["file_id"],
+                            index=matches[0],
+                        )
+                        raw = (
+                            root / ("storage/derived/" + partial["sha256"])
+                        ).read_bytes()
+                        self.put_object(partial["sha256"], raw)
+                        self.commit(root, revision)
+                    saved = db.execute(
+                        "SELECT record FROM control WHERE id=?", (key,)
+                    ).fetchone()[0]
+                self.sql.exec("UPDATE control SET record=? WHERE id=?", saved, key)
+                return {"outcome": outcome, "partial": partial}
+
+            return self.ctx.storage.transactionSync(retain)
+        finally:
+            self.discard_projection(root)
+
     async def extract_source(self, job):
         image = job.get("kind") == "SOURCE_IMAGE_ANALYSIS"
         model = IMAGE_MODEL if image else WHISPER_MODEL
@@ -3311,6 +3427,35 @@ class Database(DurableObject):
         if len(encoded.encode()) > 512 * 1024:
             raise ValueError("Source response exceeds retained protocol")
         response = json.loads(encoded)
+        chunk = job.get("audio_chunk_receipt")
+        if chunk is not None:
+            # Only a previously reserved internal chunk can reach this branch.
+            # Chunk planning/dispatch remains disabled until a real quota guard
+            # and a verified decoder adapter are implemented.
+            if (
+                image
+                or not isinstance(chunk, dict)
+                or not response.get("ok")
+                or response.get("model_calls") != 1
+                or response.get("request_id") != chunk.get("request_id")
+                or response.get("input_sha256") != chunk.get("input_sha256")
+                or response.get("model") != chunk.get("model")
+                or response.get("worker_version") != chunk.get("deployment")
+            ):
+                raise ValueError("Chunk provider response binding rejected")
+            self.retain_audio_chunk_response(
+                job["id"],
+                {
+                    "request_id": chunk["request_id"],
+                    "source_sha256": chunk["source_sha256"],
+                    "input_sha256": chunk["input_sha256"],
+                    "model": chunk["model"],
+                    "deployment": chunk["deployment"],
+                    "native_response": response.get("native_response"),
+                    "native_usage": response.get("native_usage"),
+                },
+            )
+            return
         call.update(
             outcome="UNKNOWN" if response.get("unknown_outcome") else "RECEIVED",
             finished_at=time.time(),

@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import secrets
+import sqlite3
 import time
 import unittest
 from contextlib import closing
@@ -16,10 +17,8 @@ from urllib.parse import parse_qs, urlsplit
 from creator_loop.backend.creator.web_domain import WebDomain, WebInputError
 from creator_loop.backend.knowledge.audio_chunk_journal import (
     create_chunk_journal,
-    record_chunk_response,
     reserve_next_chunk,
     store_completed_chunk_journal,
-    store_received_chunk_for_review,
 )
 from creator_loop.backend.knowledge.cloud_audio import (
     WHISPER_MODEL,
@@ -71,6 +70,7 @@ class CloudSourceJobTests(unittest.TestCase):
             "sync_run",
             "fetch",
             "authenticated",
+            "retain_audio_chunk_response",
         }
         for node in tree.body:
             if (
@@ -342,6 +342,63 @@ class CloudSourceJobTests(unittest.TestCase):
         self.assertEqual(cancelled.value["status"], "CANCELLED")
         self.assertEqual(self.calls, 0)
 
+    def test_actual_worker_provider_callback_retains_reserved_chunk_after_wait(self):
+        """Fake binding; actual alarm, provider callback and DO receipt adapter."""
+        self.grant()
+        self.enqueue()
+        job = self.job()
+        raw = wav()
+        with closing(sqlite3.connect(":memory:")) as db:
+            db.execute("CREATE TABLE control(id TEXT PRIMARY KEY,record TEXT NOT NULL)")
+            create_chunk_journal(
+                db,
+                run_id=job["id"],
+                source=raw,
+                decoded_chunks=(raw,),
+                duration_ms=probe_pcm_wav(raw).duration_ms,
+                decoder="fixture WAV identity",
+                model=WHISPER_MODEL,
+                deployment="fixture-deployment",
+            )
+            packet = reserve_next_chunk(db, run_id=job["id"], source=raw, chunk=raw)
+            journal = db.execute(
+                "SELECT record FROM control WHERE id=?", ("audio-chunks-" + job["id"],)
+            ).fetchone()[0]
+        job["audio_chunk_receipt"] = packet
+        job["sources"][0]["request_id"] = packet["request_id"]
+        with self.fixture.coord:
+            self.api.sql.exec(
+                "INSERT INTO control VALUES(?,?)", "audio-chunks-" + job["id"], journal
+            )
+            self.api.save_job(job)
+        namespace = self.api.authorized.__func__.__globals__
+        original_provider = namespace["import_from_javascript"](
+            "creator_ai.mjs"
+        ).transcribeSource
+
+        async def fake_provider(binding, encoded, deployment):
+            result = await original_provider(binding, encoded, deployment)
+            waiting = self.job()
+            waiting["status"] = "WAITING_QUOTA"
+            self.api.save_job(waiting)
+            return result
+
+        namespace["import_from_javascript"] = lambda _: SimpleNamespace(
+            transcribeSource=fake_provider
+        )
+        asyncio.run(self.api.alarm())
+        journal = json.loads(
+            self.api.rows(
+                "SELECT record FROM control WHERE id=?", "audio-chunks-" + job["id"]
+            )[0]["record"]
+        )
+        self.assertEqual(self.calls, 1)
+        self.assertEqual(self.job()["status"], "WAITING_QUOTA")
+        self.assertEqual(journal["chunks"][0]["state"], "RECEIVED")
+        self.assertTrue(
+            journal["chunks"][0]["partial_artifact"]["evidence_version_ids"]
+        )
+
     def test_partial_compressed_artifact_edit_and_relogin_through_worker(self):
         """Real Worker handlers; synthetic job/receipts, no cloud or AI."""
         self.fixture.coord.executescript(
@@ -384,7 +441,7 @@ class CloudSourceJobTests(unittest.TestCase):
         try:
             with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
                 db.execute(
-                    "CREATE TABLE control(id TEXT PRIMARY KEY,record TEXT NOT NULL)"
+                    "CREATE TEMP TABLE control(id TEXT PRIMARY KEY,record TEXT NOT NULL)"
                 )
                 db.execute(
                     """INSERT INTO processing_runs(run_id,asset_id,input_file_id,task_type,
@@ -408,24 +465,70 @@ class CloudSourceJobTests(unittest.TestCase):
                 first = reserve_next_chunk(
                     db, run_id=run_id, source=source, chunk=chunk
                 )
-                record_chunk_response(db, run_id=run_id, envelope=response(first))
-                second = reserve_next_chunk(
-                    db, run_id=run_id, source=source, chunk=chunk
-                )
-                partial = store_received_chunk_for_review(
-                    db, data_root=root, run_id=run_id, file_id=file_id, index=0
-                )
+                journal = db.execute(
+                    "SELECT record FROM control WHERE id=?", ("audio-chunks-" + run_id,)
+                ).fetchone()[0]
 
             def commit_fixture():
-                self.api.put_object(
-                    partial["sha256"],
-                    (root / ("storage/derived/" + partial["sha256"])).read_bytes(),
-                )
                 self.api.commit(root, revision)
+                self.api.sql.exec(
+                    "INSERT INTO control VALUES(?,?)", "audio-chunks-" + run_id, journal
+                )
+                self.api.save_job(
+                    {
+                        "id": run_id,
+                        "kind": "SOURCE_TRANSCRIPTION",
+                        "status": "RUNNING",
+                        "request": {"project_id": self.project, "file_id": file_id},
+                        "sources": [{"file_id": file_id}],
+                    }
+                )
 
             self.api.ctx.storage.transactionSync(commit_fixture)
         finally:
             self.api.discard_projection(root)
+
+        # Fake-provider response goes through the real Worker internal callback.
+        put_object = self.api.put_object
+        self.api.put_object = lambda *_: (_ for _ in ()).throw(
+            ValueError("fixture capacity")
+        )
+        try:
+            with self.assertRaisesRegex(ValueError, "fixture capacity"):
+                self.api.retain_audio_chunk_response(run_id, response(first))
+        finally:
+            self.api.put_object = put_object
+        retained_journal = json.loads(
+            self.api.rows(
+                "SELECT record FROM control WHERE id=?", "audio-chunks-" + run_id
+            )[0]["record"]
+        )
+        self.assertEqual(retained_journal["chunks"][0]["state"], "RECEIVED")
+        self.assertNotIn("partial_artifact", retained_journal["chunks"][0])
+        # Replay a retained receipt locally, never the provider request.
+        received = self.api.retain_audio_chunk_response(run_id, response(first))
+        self.assertEqual(received["outcome"], "RECEIVED")
+        partial = received["partial"]
+        # The future chunk-reservation sequencer is not wired yet; establish a
+        # synthetic already-dispatched request without calling a real provider.
+        journal = self.api.rows(
+            "SELECT record FROM control WHERE id=?", "audio-chunks-" + run_id
+        )[0]["record"]
+        with closing(sqlite3.connect(":memory:")) as db:
+            db.execute("CREATE TABLE control(id TEXT PRIMARY KEY,record TEXT NOT NULL)")
+            db.execute(
+                "INSERT INTO control VALUES(?,?)", ("audio-chunks-" + run_id, journal)
+            )
+            db.commit()
+            second = reserve_next_chunk(db, run_id=run_id, source=source, chunk=chunk)
+            journal = db.execute(
+                "SELECT record FROM control WHERE id=?", ("audio-chunks-" + run_id,)
+            ).fetchone()[0]
+        with self.fixture.coord:
+            self.fixture.coord.execute(
+                "UPDATE control SET record=? WHERE id=?",
+                (journal, "audio-chunks-" + run_id),
+            )
 
         class Request:
             def __init__(self, path, method="GET", data=None, cookie=""):
@@ -460,20 +563,22 @@ class CloudSourceJobTests(unittest.TestCase):
                 for v in before.value["evidence_versions"]
             )
         )
+        waiting_job = json.loads(
+            self.api.rows("SELECT record FROM jobs WHERE id=?", run_id)[0]["record"]
+        )
+        # Synthetic sequencer leaves an in-flight UNKNOWN second request;
+        # the actual alarm must move this job into a non-retrying quota wait.
+        waiting_job["status"] = "QUEUED"
         with self.fixture.coord:
-            self.fixture.coord.execute(
-                "INSERT INTO jobs VALUES(?,?,?)",
-                (
-                    run_id,
-                    "WAITING_QUOTA",
-                    json.dumps(
-                        {
-                            "request": {"project_id": self.project},
-                            "sources": [{"file_id": file_id}],
-                        }
-                    ),
-                ),
-            )
+            self.api.save_job(waiting_job)
+        namespace["source_audio_quota_verified"] = lambda env, job: False
+        alarms_before_wait = list(self.alarms)
+        asyncio.run(self.api.alarm())
+        self.assertEqual(
+            self.api.rows("SELECT status FROM jobs WHERE id=?", run_id)[0]["status"],
+            "WAITING_QUOTA",
+        )
+        self.assertEqual(self.alarms, alarms_before_wait)
         edit_data = {
             "project_id": self.project,
             "file_id": file_id,
@@ -529,6 +634,14 @@ class CloudSourceJobTests(unittest.TestCase):
                 )
         finally:
             self.api.discard_projection(stale_root)
+        late = self.api.retain_audio_chunk_response(run_id, response(second))
+        self.assertEqual(late["outcome"], "RECEIVED")
+        duplicate = self.api.retain_audio_chunk_response(run_id, response(second))
+        self.assertEqual(duplicate["partial"]["sha256"], late["partial"]["sha256"])
+        conflict = response(second)
+        conflict["native_response"]["text"] = "conflicting result"
+        with self.assertRaisesRegex(ValueError, "conflicts"):
+            self.api.retain_audio_chunk_response(run_id, conflict)
         root, revision = self.api.load()
         try:
             # Finalization remains synthetic; the real adapter must hydrate
@@ -536,20 +649,29 @@ class CloudSourceJobTests(unittest.TestCase):
             retained = root / ("storage/derived/" + partial["sha256"])
             retained.parent.mkdir(parents=True, exist_ok=True)
             retained.write_bytes(self.api.object_bytes(partial["sha256"]))
+            (root / ("storage/derived/" + late["partial"]["sha256"])).write_bytes(
+                self.api.object_bytes(late["partial"]["sha256"])
+            )
             with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
-                record_chunk_response(db, run_id=run_id, envelope=response(second))
-                late = store_received_chunk_for_review(
-                    db, data_root=root, run_id=run_id, file_id=file_id, index=1
+                db.execute(
+                    "CREATE TEMP TABLE control(id TEXT PRIMARY KEY,record TEXT NOT NULL)"
                 )
+                db.execute(
+                    "INSERT INTO control VALUES(?,?)",
+                    (
+                        "audio-chunks-" + run_id,
+                        self.api.rows(
+                            "SELECT record FROM control WHERE id=?",
+                            "audio-chunks-" + run_id,
+                        )[0]["record"],
+                    ),
+                )
+                db.commit()
                 summary = store_completed_chunk_journal(
                     db, data_root=root, run_id=run_id, file_id=file_id
                 )
 
             def commit_late():
-                self.api.put_object(
-                    late["sha256"],
-                    (root / ("storage/derived/" + late["sha256"])).read_bytes(),
-                )
                 self.api.put_object(summary["sha256"], summary["content"])
                 self.api.commit(root, revision)
 
