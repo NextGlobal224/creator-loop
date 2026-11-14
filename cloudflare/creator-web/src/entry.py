@@ -124,6 +124,17 @@ PRESERVATION_CHUNK = 512 * 1024
 PRESERVATION_MAX = 64 * 1024 * 1024
 PRESERVATION_RESTORE_MAX = 88 * 1024 * 1024
 VERSION = "B-web/0.2.0-beta.1"
+
+
+def source_audio_quota_verified(env, job):
+    """Fail closed until an account-wide and provider proof exists.
+
+    This is deliberately not a configuration flag or a caller-supplied grant.
+    It cannot be turned on without implementing and reviewing the real guard.
+    """
+    return False
+
+
 HEADERS = {
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
@@ -416,7 +427,7 @@ class Database(DurableObject):
         # Count the entire coordination table, including diagnostic jobs. The
         # user-facing recent-jobs list is filtered and capped for display only.
         return self.rows(
-            "SELECT COUNT(*) AS count FROM jobs WHERE status IN ('QUEUED','RUNNING')"
+            "SELECT COUNT(*) AS count FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA')"
         )[0]["count"]
 
     def _capture_coordination_snapshot(self, snapshot_id, revision, checkpoint_sha256):
@@ -1076,7 +1087,9 @@ class Database(DurableObject):
             raise WebInputError(
                 "Revision cloud đã đổi; đọc lại và đối chiếu trước khi nhập.", 409
             )
-        if self.rows("SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"):
+        if self.rows(
+            "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA') LIMIT 1"
+        ):
             raise WebInputError("Chờ tác vụ cloud kết thúc trước migration.", 409)
         if not isinstance(data["backup_id"], str) or not re.fullmatch(
             "[a-f0-9]{32}", data["backup_id"]
@@ -1707,7 +1720,7 @@ class Database(DurableObject):
                         "Observation-only runtime; changes are paused", 503
                     )
                 if self.rows(
-                    "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
+                    "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA') LIMIT 1"
                 ):
                     raise WebInputError(
                         "Wait for the existing job; no duplicate inference", 409
@@ -1809,6 +1822,14 @@ class Database(DurableObject):
             )[0]
             if media_type not in ("AUDIO", "IMAGE", "VIDEO"):
                 raise WebInputError("Chọn nguồn ghi âm hoặc ảnh trước khi kiểm quyền.")
+            if media_type == "AUDIO" and not source_audio_quota_verified(self.env, {}):
+                return reply(
+                    {
+                        "available": False,
+                        "code": "AUDIO_QUOTA_UNVERIFIED",
+                        "message": "Đang chờ xác minh hạn mức an toàn; chưa tạo tác vụ hoặc gửi yêu cầu mới.",
+                    }
+                )
             model = IMAGE_MODEL if media_type == "IMAGE" else WHISPER_MODEL
             found = self.rows("SELECT record FROM control WHERE id='grant'")
             grant = json.loads(found[0]["record"]) if found else {}
@@ -1974,7 +1995,7 @@ class Database(DurableObject):
                 )
             ):
                 return reply({"error": "QA19 operator required"}, 403)
-            if found[0]["status"] in ("QUEUED", "RUNNING"):
+            if found[0]["status"] in ("QUEUED", "RUNNING", "WAITING_QUOTA"):
                 record.update(
                     status="CANCELLED",
                     message="Đã dừng các bước tiếp theo; lời gọi đã gửi có thể vẫn tiêu thụ quota",
@@ -2159,7 +2180,9 @@ class Database(DurableObject):
                     raise WebInputError(
                         "Dữ liệu đã đổi; tải lại trước khi lưu backup cloud", 409
                     )
-                if self.rows("SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING')"):
+                if self.rows(
+                    "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA')"
+                ):
                     raise WebInputError("Chờ tác vụ kết thúc trước khi backup", 409)
                 if len(self.rows("SELECT id FROM backups")) >= 3:
                     raise WebInputError(
@@ -2211,15 +2234,18 @@ class Database(DurableObject):
                                 "Bằng chứng transcript không khớp; giữ bản gốc để đối chiếu."
                             )
                         content = json.loads(raw)
-                        if (
-                            content.get("format")
-                            != (
-                                "CREATOR_CLOUD_VIDEO_V1"
-                                if review["media_type"] == "VIDEO"
-                                else "CREATOR_CLOUD_IMAGE_V1"
-                                if review["media_type"] == "IMAGE"
-                                else "CREATOR_CLOUD_TRANSCRIPT_V1"
+                        accepted_formats = (
+                            ("CREATOR_CLOUD_VIDEO_V1",)
+                            if review["media_type"] == "VIDEO"
+                            else ("CREATOR_CLOUD_IMAGE_V1",)
+                            if review["media_type"] == "IMAGE"
+                            else (
+                                "CREATOR_CLOUD_TRANSCRIPT_V1",
+                                "CREATOR_CLOUD_CHUNKED_TRANSCRIPT_V1",
                             )
+                        )
+                        if (
+                            content.get("format") not in accepted_formats
                             or content.get("model")
                             != (
                                 VIDEO_MODEL
@@ -2310,6 +2336,21 @@ class Database(DurableObject):
                     await self.recover_wakeup()
                 return reply(receipt)
 
+            if path == "/api/source-jobs" and set(data) == {"project_id", "file_id"}:
+                media_type = domain._project_original(
+                    data["project_id"], data["file_id"]
+                )["media_type"]
+                if media_type == "AUDIO" and not source_audio_quota_verified(
+                    self.env, data
+                ):
+                    return reply(
+                        {
+                            "error": "Đang chờ xác minh hạn mức an toàn; chưa tạo tác vụ hoặc gửi yêu cầu mới.",
+                            "code": "AUDIO_QUOTA_UNVERIFIED",
+                        },
+                        409,
+                    )
+
             def mutate():
                 # The initial guard precedes awaits, including setAlarm on job
                 # routes. Recheck atomically before any mutation or reservation.
@@ -2366,7 +2407,7 @@ class Database(DurableObject):
                             )
                         )
                         or self.rows(
-                            "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING')"
+                            "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA')"
                         )
                     ):
                         raise WebInputError(
@@ -2424,7 +2465,7 @@ class Database(DurableObject):
                     if set(data) != {"project_id", "file_id"}:
                         raise WebInputError("Chọn đúng Project và nguồn ghi âm/ảnh.")
                     if self.rows(
-                        "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
+                        "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA') LIMIT 1"
                     ):
                         raise WebInputError(
                             "Còn tác vụ đang chạy; mở trạng thái hoặc Dừng trước.", 409
@@ -2495,7 +2536,7 @@ class Database(DurableObject):
                     "/api/source-use",
                 ):
                     if self.rows(
-                        """SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') AND
+                        """SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA') AND
                         (json_extract(record,'$.request.project_id')=? OR EXISTS(
                           SELECT 1 FROM json_each(jobs.record,'$.sources') source
                           WHERE json_extract(source.value,'$.file_id')=?)) LIMIT 1""",
@@ -2509,6 +2550,54 @@ class Database(DurableObject):
                     if path == "/api/source-ranges":
                         result = domain.source_text_range(data)
                     elif path == "/api/source-audio-ranges":
+                        # The disposable projection normally hydrates Originals
+                        # only. Audio correction verifies the machine artifact,
+                        # including every per-chunk artifact from the same run.
+                        # Load only those bounded, hash-addressed objects; never
+                        # trust a client path or bypass the active-job fence.
+                        with closing(
+                            _connect_write(root / "creator_loop.sqlite3")
+                        ) as db:
+                            artifacts = db.execute(
+                                """SELECT f.storage_key,f.sha256,f.byte_size
+                                   FROM evidence_versions v
+                                   JOIN evidence_versions first ON first.evidence_id=v.evidence_id
+                                     AND first.version_no=1 AND first.producer_type='MODEL'
+                                   JOIN asset_files f ON f.processing_run_id=first.processing_run_id
+                                   WHERE v.evidence_version_id=? AND v.anchor_file_id=?
+                                     AND f.parent_file_id=v.anchor_file_id AND f.role='OTHER'
+                                     AND f.mime_type='application/json'""",
+                                (
+                                    data.get("evidence_version_id", ""),
+                                    data.get("file_id", ""),
+                                ),
+                            ).fetchall()
+                        if (
+                            len(artifacts) > 65
+                            or sum(r[2] for r in artifacts) > 16 * 1024 * 1024
+                        ):
+                            raise WebInputError(
+                                "Artifact transcript vượt giới hạn; chưa sửa nguồn."
+                            )
+                        for storage_key, sha, size in artifacts:
+                            if (
+                                not isinstance(sha, str)
+                                or not re.fullmatch("[a-f0-9]{64}", sha)
+                                or storage_key != "storage/derived/" + sha
+                                or type(size) is not int
+                                or not 0 < size <= 256 * 1024
+                            ):
+                                raise WebInputError(
+                                    "Artifact transcript không hợp lệ; chưa sửa nguồn."
+                                )
+                            blob = self.object_bytes(sha)
+                            if len(blob) != size or digest(blob) != sha:
+                                raise WebInputError(
+                                    "Artifact transcript không khớp; chưa sửa nguồn."
+                                )
+                            destination = root / storage_key
+                            destination.parent.mkdir(parents=True, exist_ok=True)
+                            destination.write_bytes(blob)
                         result = domain.source_audio_range(data)
                     elif path == "/api/source-image-regions":
                         result = domain.source_image_region(data)
@@ -2525,7 +2614,7 @@ class Database(DurableObject):
                             409,
                         )
                     if self.rows(
-                        "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING')"
+                        "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA')"
                     ):
                         raise WebInputError(
                             "Còn tác vụ AI đang chạy. Kiểm tra/dừng và chờ tác vụ kết thúc trước khi khôi phục.",
@@ -2733,7 +2822,7 @@ class Database(DurableObject):
                     elif choices:
                         raise ValueError("Image selection belongs to IMAGE_CAPTION")
                     if self.rows(
-                        "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
+                        "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA') LIMIT 1"
                     ):
                         raise ValueError("Only one active B job")
                     grants = self.rows("SELECT record FROM control WHERE id='grant'")
@@ -3517,6 +3606,20 @@ class Database(DurableObject):
                 message="Kết quả request trước chưa rõ sau gián đoạn; không tự gửi lại",
             )
             self.sync_run(job)
+            return
+        if job.get(
+            "kind"
+        ) == "SOURCE_TRANSCRIPTION" and not source_audio_quota_verified(self.env, job):
+            # A caller-declared grant does not prove account-wide pending usage
+            # or provider overage. Keep the queued domain run and reservation;
+            # do not issue, retry, or schedule an inference. Reopening requires
+            # a future verified per-resource reservation, not a clock reset.
+            job.update(
+                status="WAITING_QUOTA",
+                message="Đang chờ xác minh hạn mức an toàn; chưa gửi yêu cầu mới.",
+                resume_requires="VERIFIED_ACCOUNT_AND_PROVIDER_RESERVATION",
+            )
+            self.save_job(job)
             return
         job.update(status="RUNNING", lease_until=time.time() + 600, stage_outputs=[])
         self.sync_run(job)

@@ -3,7 +3,9 @@
 import ast
 import asyncio
 import base64
+import hashlib
 import json
+import secrets
 import time
 import unittest
 from contextlib import closing
@@ -12,6 +14,13 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 from creator_loop.backend.creator.web_domain import WebDomain, WebInputError
+from creator_loop.backend.knowledge.audio_chunk_journal import (
+    create_chunk_journal,
+    record_chunk_response,
+    reserve_next_chunk,
+    store_completed_chunk_journal,
+    store_received_chunk_for_review,
+)
 from creator_loop.backend.knowledge.cloud_audio import (
     WHISPER_MODEL,
     probe_pcm_wav,
@@ -25,6 +34,8 @@ from creator_loop.backend.knowledge.cloud_image import (
 from creator_loop.backend.runtime.database import _connect_write
 
 from tests.backend import test_cloud_import_api
+from tests.backend.test_audio_chunk_journal import fake_response, pcm
+from tests.backend.test_audio_playback import m4a
 from tests.backend.test_cloud_audio import wav
 
 
@@ -45,12 +56,22 @@ class CloudSourceJobTests(unittest.TestCase):
             python_to_rpc=lambda value: value,
             parse_qs=parse_qs,
             urlsplit=urlsplit,
+            # Exercises the legacy fake-provider path only; this is not a
+            # quota proof and the deployed function always fails closed.
+            source_audio_quota_verified=lambda env, job: True,
         )
         source = (
             Path(__file__).resolve().parents[2] / "cloudflare/creator-web/src/entry.py"
         )
         tree = ast.parse(source.read_text("utf8"))
-        names = {"alarm", "extract_source", "save_job", "sync_run"}
+        names = {
+            "alarm",
+            "extract_source",
+            "save_job",
+            "sync_run",
+            "fetch",
+            "authenticated",
+        }
         for node in tree.body:
             if (
                 isinstance(node, ast.FunctionDef)
@@ -269,6 +290,270 @@ class CloudSourceJobTests(unittest.TestCase):
         self.assertEqual(self.calls, 0)
         self.assertEqual(self.job()["status"], "FAILED")
         self.assertTrue(self.job()["unknown_outcome"])
+
+    def test_unverified_audio_quota_waits_without_call_or_automatic_retry(self):
+        source = (
+            Path(__file__).resolve().parents[2] / "cloudflare/creator-web/src/entry.py"
+        )
+        tree = ast.parse(source.read_text("utf8"))
+        verifier = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "source_audio_quota_verified"
+        )
+        local = {}
+        exec(
+            compile(ast.Module(body=[verifier], type_ignores=[]), str(source), "exec"),
+            local,
+        )
+        self.assertFalse(
+            local["source_audio_quota_verified"](
+                SimpleNamespace(), {"remaining": 10**9}
+            )
+        )
+        self.grant()
+        namespace = self.api.authorized.__func__.__globals__
+        namespace["source_audio_quota_verified"] = lambda env, job: False
+        alarms_before = list(self.alarms)
+        rejected = self.enqueue()
+        self.assertEqual(rejected.status, 409)
+        self.assertEqual(rejected.value["code"], "AUDIO_QUOTA_UNVERIFIED")
+        self.assertEqual(self.alarms, alarms_before)
+        self.assertEqual(self.api.rows("SELECT * FROM jobs"), [])
+        namespace["source_audio_quota_verified"] = lambda env, job: True
+        self.enqueue()
+        namespace["source_audio_quota_verified"] = lambda env, job: False
+        asyncio.run(self.api.alarm())
+        waiting = self.job()
+        self.assertEqual(waiting["status"], "WAITING_QUOTA")
+        self.assertEqual(waiting["calls"], [])
+        self.assertEqual(waiting["grant"]["reserved_pipeline"], "c" * 32)
+        self.assertEqual(self.calls, 0)
+        alarms = list(self.alarms)
+        asyncio.run(self.api.alarm())
+        self.assertEqual(self.job(), waiting)
+        self.assertEqual(self.alarms, alarms)
+        rejected = self.fixture.call(
+            dict(self.request), path="/api/source-jobs", key="d" * 32
+        )
+        self.assertEqual(rejected.value["code"], "AUDIO_QUOTA_UNVERIFIED")
+        cancelled = self.fixture.call({"job_id": "c" * 32}, path="/api/cancel")
+        self.assertEqual(cancelled.value["status"], "CANCELLED")
+        self.assertEqual(self.calls, 0)
+
+    def test_partial_compressed_artifact_edit_and_relogin_through_worker(self):
+        """Real Worker handlers; synthetic job/receipts, no cloud or AI."""
+        self.fixture.coord.executescript(
+            "CREATE TABLE sessions(hash TEXT PRIMARY KEY,expires REAL NOT NULL);"
+            "CREATE TABLE attempts(ip TEXT PRIMARY KEY,started REAL NOT NULL,count INTEGER NOT NULL);"
+        )
+        namespace = self.api.authorized.__func__.__globals__
+        namespace.update(
+            secrets=secrets,
+            MAX_BODY=16 * 1024 * 1024,
+            HEADERS={},
+            reply=lambda value, status=200, headers=None: SimpleNamespace(
+                value=value, status=status, headers=headers or {}
+            ),
+        )
+        self.api.env.LOGIN_PASSWORD_HASH = hashlib.sha256(
+            b"fixture-password"
+        ).hexdigest()
+        source = m4a()
+        item = self.fixture.call(
+            {
+                "project_id": self.project,
+                "media_type": "AUDIO",
+                "display_name": "sample.m4a",
+                "content_base64": base64.b64encode(source).decode(),
+            },
+            path="/api/materials",
+            key="1" * 32,
+        ).value
+        file_id, run_id = item["file_id"], "e" * 32
+        chunk = pcm(2)
+
+        def response(packet):
+            value = fake_response(packet)
+            value["native_response"]["transcription_info"]["duration"] = 2
+            value["native_response"]["segments"][0]["end"] = 2
+            return value
+
+        root, revision = self.api.load()
+        try:
+            with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+                db.execute(
+                    "CREATE TABLE control(id TEXT PRIMARY KEY,record TEXT NOT NULL)"
+                )
+                db.execute(
+                    """INSERT INTO processing_runs(run_id,asset_id,input_file_id,task_type,
+                         status,tool_name,tool_version,model_name,started_at,created_at)
+                       VALUES(?,?,?,'SOURCE_TRANSCRIPTION','RUNNING',
+                         'CLOUDFLARE_WORKERS_AI_SOURCE','fixture',?,
+                         '2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')""",
+                    (run_id, item["asset_id"], file_id, WHISPER_MODEL),
+                )
+                db.commit()
+                create_chunk_journal(
+                    db,
+                    run_id=run_id,
+                    source=source,
+                    decoded_chunks=(chunk, chunk),
+                    duration_ms=4000,
+                    decoder="fixture",
+                    model=WHISPER_MODEL,
+                    deployment="fixture-deployment",
+                )
+                first = reserve_next_chunk(
+                    db, run_id=run_id, source=source, chunk=chunk
+                )
+                record_chunk_response(db, run_id=run_id, envelope=response(first))
+                second = reserve_next_chunk(
+                    db, run_id=run_id, source=source, chunk=chunk
+                )
+                partial = store_received_chunk_for_review(
+                    db, data_root=root, run_id=run_id, file_id=file_id, index=0
+                )
+
+            def commit_fixture():
+                self.api.put_object(
+                    partial["sha256"],
+                    (root / ("storage/derived/" + partial["sha256"])).read_bytes(),
+                )
+                self.api.commit(root, revision)
+
+            self.api.ctx.storage.transactionSync(commit_fixture)
+        finally:
+            self.api.discard_projection(root)
+
+        class Request:
+            def __init__(self, path, method="GET", data=None, cookie=""):
+                self.url = "https://fixture" + path
+                self.method = method
+                self.headers = {
+                    "Origin": "https://fixture",
+                    "Content-Type": "application/json",
+                    "Cookie": cookie,
+                    "Idempotency-Key": "f" * 32,
+                }
+                self.data = data or {}
+
+            async def text(self):
+                return json.dumps(self.data)
+
+        async def fetch(path, method="GET", data=None, cookie=""):
+            return await self.api.fetch(Request(path, method, data, cookie))
+
+        query = f"/api/source-review?project_id={self.project}&file_id={file_id}"
+        self.assertEqual(asyncio.run(fetch(query)).status, 401)
+        login = asyncio.run(
+            fetch("/api/login", "POST", {"password": "fixture-password"})
+        )
+        self.assertEqual(login.status, 200)
+        cookie = login.headers["Set-Cookie"].split(";", 1)[0]
+        before = asyncio.run(fetch(query, cookie=cookie))
+        version = partial["evidence_version_ids"][0]
+        self.assertTrue(
+            any(
+                v["evidence_version_id"] == version
+                for v in before.value["evidence_versions"]
+            )
+        )
+        with self.fixture.coord:
+            self.fixture.coord.execute(
+                "INSERT INTO jobs VALUES(?,?,?)",
+                (
+                    run_id,
+                    "WAITING_QUOTA",
+                    json.dumps(
+                        {
+                            "request": {"project_id": self.project},
+                            "sources": [{"file_id": file_id}],
+                        }
+                    ),
+                ),
+            )
+        blocked = asyncio.run(
+            fetch(
+                "/api/source-audio-ranges",
+                "POST",
+                {
+                    "project_id": self.project,
+                    "file_id": file_id,
+                    "evidence_version_id": version,
+                    "start_ms": 100,
+                    "end_ms": 1900,
+                    "content": "Đã sửa",
+                    "reason": "Nghe đối chiếu",
+                },
+                cookie,
+            )
+        )
+        self.assertEqual(blocked.status, 409)
+        with self.fixture.coord:
+            self.fixture.coord.execute("DELETE FROM jobs WHERE id=?", (run_id,))
+        edited = asyncio.run(
+            fetch(
+                "/api/source-audio-ranges",
+                "POST",
+                {
+                    "project_id": self.project,
+                    "file_id": file_id,
+                    "evidence_version_id": version,
+                    "start_ms": 100,
+                    "end_ms": 1900,
+                    "content": "Đã sửa",
+                    "reason": "Nghe đối chiếu",
+                },
+                cookie,
+            )
+        )
+        self.assertEqual(edited.status, 200, edited.value)
+        root, revision = self.api.load()
+        try:
+            # Finalization remains synthetic; the real adapter must hydrate
+            # the immutable artifact before calling this journal function.
+            retained = root / ("storage/derived/" + partial["sha256"])
+            retained.parent.mkdir(parents=True, exist_ok=True)
+            retained.write_bytes(self.api.object_bytes(partial["sha256"]))
+            with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+                record_chunk_response(db, run_id=run_id, envelope=response(second))
+                late = store_received_chunk_for_review(
+                    db, data_root=root, run_id=run_id, file_id=file_id, index=1
+                )
+                summary = store_completed_chunk_journal(
+                    db, data_root=root, run_id=run_id, file_id=file_id
+                )
+
+            def commit_late():
+                self.api.put_object(
+                    late["sha256"],
+                    (root / ("storage/derived/" + late["sha256"])).read_bytes(),
+                )
+                self.api.put_object(summary["sha256"], summary["content"])
+                self.api.commit(root, revision)
+
+            self.api.ctx.storage.transactionSync(commit_late)
+        finally:
+            self.api.discard_projection(root)
+        login_again = asyncio.run(
+            fetch("/api/login", "POST", {"password": "fixture-password"})
+        )
+        cookie_again = login_again.headers["Set-Cookie"].split(";", 1)[0]
+        after = asyncio.run(fetch(query, cookie=cookie_again))
+        versions = {
+            v["evidence_version_id"]: v for v in after.value["evidence_versions"]
+        }
+        self.assertEqual(
+            versions[edited.value["evidence_version_id"]]["content"], "Đã sửa"
+        )
+        self.assertEqual(versions[version]["producer_type"], "MODEL")
+        self.assertEqual(len(versions), 3)
+        self.assertEqual(
+            after.value["source_extraction"]["artifact_sha256"], summary["sha256"]
+        )
+        self.assertEqual(self.calls, 0)
 
     def test_provider_unknown_keeps_call_reservation_and_never_retries(self):
         async def failure(binding, packet, deployment):
