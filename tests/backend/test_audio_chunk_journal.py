@@ -24,6 +24,7 @@ from creator_loop.backend.knowledge.audio_chunk_journal import (
     reserve_next_chunk,
     stop_chunk_journal,
     store_completed_chunk_journal,
+    store_received_chunk_for_review,
 )
 from creator_loop.backend.knowledge.audio_playback import playback_audio_type
 from creator_loop.backend.knowledge.cloud_audio import WHISPER_MODEL, probe_pcm_wav
@@ -234,6 +235,161 @@ class AudioChunkJournalTest(unittest.TestCase):
         self.assertEqual(
             versions[corrected["evidence_version_id"]]["review_state"], "PENDING"
         )
+
+    def test_partial_review_preserves_receipts_and_never_replays_unknown(self):
+        root = Path(self.tmp.name) / "partial"
+        root.mkdir()
+        initialize(root / "creator_loop.sqlite3")
+        domain = WebDomain(root)
+        project = domain.project("Partial review")["project_id"]
+        source = m4a()
+        file = domain.intake(
+            {"project_id": project, "media_type": "AUDIO", "display_name": "test.m4a"},
+            source,
+        )
+        with closing(_connect_write(domain.path)) as db:
+            db.execute(
+                "CREATE TABLE control(id TEXT PRIMARY KEY, record TEXT NOT NULL)"
+            )
+            db.execute(
+                """INSERT INTO processing_runs(run_id,asset_id,input_file_id,task_type,
+                     status,tool_name,tool_version,model_name,started_at,created_at)
+                   VALUES(?,?,?,'SOURCE_TRANSCRIPTION','RUNNING',
+                     'CLOUDFLARE_WORKERS_AI_SOURCE','fixture',?,
+                     '2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')""",
+                (self.run_id, file["asset_id"], file["file_id"], WHISPER_MODEL),
+            )
+            db.commit()
+            create_chunk_journal(
+                db,
+                run_id=self.run_id,
+                source=source,
+                decoded_chunks=(self.chunk,) * 5,
+                duration_ms=600_000,
+                decoder="fixture",
+                model=WHISPER_MODEL,
+                deployment="fixture",
+            )
+            first = reserve_next_chunk(
+                db, run_id=self.run_id, source=source, chunk=self.chunk
+            )
+            record_chunk_response(db, run_id=self.run_id, envelope=fake_response(first))
+            second = reserve_next_chunk(
+                db, run_id=self.run_id, source=source, chunk=self.chunk
+            )
+            with self.assertRaisesRegex(ValueError, "Only received"):
+                store_received_chunk_for_review(
+                    db,
+                    data_root=root,
+                    run_id=self.run_id,
+                    file_id=file["file_id"],
+                    index=1,
+                )
+            stored = store_received_chunk_for_review(
+                db, data_root=root, run_id=self.run_id, file_id=file["file_id"], index=0
+            )
+            artifact_path = (
+                root
+                / db.execute(
+                    "SELECT storage_key FROM asset_files WHERE file_id=?",
+                    (stored["artifact_file_id"],),
+                ).fetchone()[0]
+            )
+            saved_artifact = artifact_path.read_bytes()
+            artifact_path.write_bytes(saved_artifact + b"changed")
+            with self.assertRaisesRegex(ValueError, "partial artifact"):
+                store_received_chunk_for_review(
+                    db,
+                    data_root=root,
+                    run_id=self.run_id,
+                    file_id=file["file_id"],
+                    index=0,
+                )
+            artifact_path.write_bytes(saved_artifact)
+            again = store_received_chunk_for_review(
+                db, data_root=root, run_id=self.run_id, file_id=file["file_id"], index=0
+            )
+            self.assertFalse(stored["already_stored"])
+            self.assertTrue(again["already_stored"])
+            self.assertEqual(
+                stored["evidence_version_ids"], again["evidence_version_ids"]
+            )
+            with self.assertRaisesRegex(ValueError, "unknown"):
+                reserve_next_chunk(
+                    db, run_id=self.run_id, source=source, chunk=self.chunk
+                )
+        version = stored["evidence_version_ids"][0]
+        corrected = WebDomain(root).source_audio_range(
+            {
+                "project_id": project,
+                "file_id": file["file_id"],
+                "evidence_version_id": version,
+                "start_ms": 1,
+                "end_ms": 119_999,
+                "content": "Đã sửa",
+                "reason": "Đối chiếu khi chờ",
+            }
+        )
+        with closing(_connect_write(domain.path)) as db:
+            record_chunk_response(
+                db, run_id=self.run_id, envelope=fake_response(second)
+            )
+            result = store_received_chunk_for_review(
+                db, data_root=root, run_id=self.run_id, file_id=file["file_id"], index=1
+            )
+            with self.assertRaisesRegex(ValueError, "incomplete"):
+                store_completed_chunk_journal(
+                    db, data_root=root, run_id=self.run_id, file_id=file["file_id"]
+                )
+            third = reserve_next_chunk(
+                db, run_id=self.run_id, source=source, chunk=self.chunk
+            )
+            self.assertEqual(third["start_ms"], 240_000)
+            record_chunk_response(db, run_id=self.run_id, envelope=fake_response(third))
+            for _ in range(2):
+                packet = reserve_next_chunk(
+                    db, run_id=self.run_id, source=source, chunk=self.chunk
+                )
+                record_chunk_response(
+                    db, run_id=self.run_id, envelope=fake_response(packet)
+                )
+            final = store_completed_chunk_journal(
+                db, data_root=root, run_id=self.run_id, file_id=file["file_id"]
+            )
+            self.assertEqual(final["evidence_version_ids"], [])
+            self.assertEqual(
+                db.execute(
+                    "SELECT status FROM processing_runs WHERE run_id=?", (self.run_id,)
+                ).fetchone()[0],
+                "SUCCEEDED",
+            )
+        review = WebDomain(root).source_review(project, file["file_id"])
+        versions = {v["evidence_version_id"]: v for v in review["evidence_versions"]}
+        self.assertEqual(len(versions), 6)
+        self.assertEqual(versions[version]["producer_type"], "MODEL")
+        self.assertEqual(
+            versions[corrected["evidence_version_id"]]["content"], "Đã sửa"
+        )
+        second_version = versions[result["evidence_version_ids"][0]]
+        self.assertEqual(
+            json.loads(second_version["locator_data"])["start_ms"], 120_000
+        )
+        self.assertIsNone(review["source_use"])
+        self.assertEqual(
+            review["latest_transcript_artifact"]["sha256"], final["sha256"]
+        )
+        corrected_again = WebDomain(root).source_audio_range(
+            {
+                "project_id": project,
+                "file_id": file["file_id"],
+                "evidence_version_id": corrected["evidence_version_id"],
+                "start_ms": 2,
+                "end_ms": 119_998,
+                "content": "Sửa sau khi hoàn tất",
+                "reason": "Nghe lại",
+            }
+        )
+        self.assertNotEqual(corrected_again["evidence_version_id"], version)
 
     def test_fail_closed_on_changed_bytes_wrong_response_and_partial_transaction(self):
         source = m4a()

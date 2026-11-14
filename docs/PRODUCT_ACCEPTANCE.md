@@ -1,3 +1,17 @@
+## B Web beta — audio khi chờ hạn mức (cập nhật 14/11/2026)
+
+- Trước mỗi lượt xử lý audio, phải chứng minh và giữ chỗ đủ cho request đang
+  chạy, usage chưa ghi nhận và mọi tài nguyên/provider liên quan, giữ 0 USD phí
+  vượt gói toàn tài khoản. Thiếu căn cứ thì chờ, không retry liên tục; thời điểm
+  cấp lại theo từng tài nguyên, không giả định mọi giới hạn reset hằng ngày.
+- Trong lúc chờ, người dùng phải có thể nghe, xem và kiểm duyệt thủ công các
+  đoạn đã có, giữ bản gốc, thời gian, bản máy và các bản chỉnh sửa. Việc đọc/ghi
+  cũng cần đủ ngân sách; chưa chứng minh được thì giữ dữ liệu và báo giới hạn.
+  Khi điều kiện thực sự đủ, chỉ tiếp tục phần chưa hoàn tất; không gửi lại đoạn
+  đã hoàn thành hoặc request chưa rõ kết quả.
+- Trạng thái: chưa nghiệm thu. Kết quả SQLite/provider giả chưa chứng minh chi
+  phí, đường Worker, UI sau đăng nhập hoặc chất lượng ASR cloud thật.
+
 ## B Web beta — phạm vi Draft tự viết do người dùng cập nhật 30/10/2026
 
 - MANUAL TEXT và IMAGE_CAPTION: người dùng tự viết, lưu, mở lại, chỉnh sửa và

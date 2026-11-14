@@ -315,6 +315,7 @@ def store_completed_chunk_journal(
     """
     with atomic_transaction(db):
         value = _read(db, run_id)
+        has_partial = any("partial_artifact" in item for item in value["chunks"])
         row = db.execute(
             """SELECT f.asset_id,f.storage_key,f.sha256,f.byte_size,f.duration_ms,
                       a.media_type,r.status,r.model_name
@@ -336,6 +337,15 @@ def store_completed_chunk_journal(
         if len(source) != row[3] or hashlib.sha256(source).hexdigest() != row[2]:
             raise ValueError("Original audio changed before transcript storage")
         transcript = merge_chunk_journal(db, run_id=run_id, source=source)
+        if has_partial:
+            # Reuse earlier machine versions and preserve any human edits.
+            # Save missing completed chunks in the same transaction, without
+            # generating another Evidence for already materialized segments.
+            for index in range(len(value["chunks"])):
+                store_received_chunk_for_review(
+                    db, data_root=data_root, run_id=run_id, file_id=file_id, index=index
+                )
+            value = _read(db, run_id)
         receipts = {
             "decoder": value["decoder"],
             "deployment": value["deployment"],
@@ -354,4 +364,133 @@ def store_completed_chunk_journal(
             native_response=receipts,
             transcript=transcript,
             artifact_format="CREATOR_CLOUD_CHUNKED_TRANSCRIPT_V1",
+            create_evidence=not has_partial,
         )
+
+
+def store_received_chunk_for_review(
+    db: sqlite3.Connection, *, data_root: Path, run_id: str, file_id: str, index: int
+) -> dict[str, Any]:
+    """Persist one received chunk for offline human review without dispatching.
+
+    This requires journal and domain tables in the same SQLite transaction.
+    The real Worker/DO adapter and cost reservation for reads/writes remain
+    prerequisites; this function is not a client endpoint or a cost guard.
+    """
+    if type(index) is not int or index < 0:
+        raise ValueError("Invalid audio chunk index")
+    with atomic_transaction(db):
+        value = _read(db, run_id)
+        if index >= len(value["chunks"]):
+            raise ValueError("Invalid audio chunk index")
+        item = value["chunks"][index]
+        if item["state"] != "RECEIVED":
+            raise ValueError("Only received chunks can be reviewed")
+        row = db.execute(
+            """SELECT f.asset_id,f.storage_key,f.sha256,f.byte_size,f.duration_ms,
+                      a.media_type,r.status,r.model_name
+               FROM asset_files f JOIN assets a USING(asset_id)
+               JOIN processing_runs r ON r.asset_id=f.asset_id AND r.input_file_id=f.file_id
+               WHERE f.file_id=? AND f.role='ORIGINAL' AND r.run_id=?
+                 AND r.tool_name='CLOUDFLARE_WORKERS_AI_SOURCE'
+                 AND r.task_type='SOURCE_TRANSCRIPTION' AND a.deleted_at IS NULL""",
+            (file_id, run_id),
+        ).fetchone()
+        if (
+            row is None
+            or row[5:] != ("AUDIO", "RUNNING", WHISPER_MODEL)
+            or value["model"] != WHISPER_MODEL
+            or (row[4] is not None and row[4] != value["duration_ms"])
+        ):
+            raise ValueError("Chunk journal does not match the active source run")
+        source = _anchor_path(data_root, "ORIGINAL", row[1]).read_bytes()
+        if len(source) != row[3] or hashlib.sha256(source).hexdigest() != row[2]:
+            raise ValueError("Original audio changed before transcript storage")
+        if row[2] != value["source_sha256"] or row[3] != value["source_size"]:
+            raise ValueError("Journal original does not match source")
+        if "partial_artifact" in item:
+            existing = item["partial_artifact"]
+            artifact = db.execute(
+                """SELECT storage_key,sha256,byte_size FROM asset_files
+                   WHERE file_id=? AND parent_file_id=? AND processing_run_id=?
+                     AND role='OTHER' AND mime_type='application/json'""",
+                (existing["artifact_file_id"], file_id, run_id),
+            ).fetchone()
+            if artifact is None or artifact[1] != existing["sha256"]:
+                raise ValueError("Retained partial artifact is missing or changed")
+            retained = _anchor_path(data_root, "OTHER", artifact[0]).read_bytes()
+            if (
+                len(retained) != artifact[2]
+                or hashlib.sha256(retained).hexdigest() != artifact[1]
+            ):
+                raise ValueError("Retained partial artifact is missing or changed")
+            manifest = json.loads(retained)
+            if (
+                not isinstance(manifest, dict)
+                or manifest.get("format") != "CREATOR_CLOUD_CHUNKED_TRANSCRIPT_V1"
+                or manifest.get("input_file_id") != file_id
+                or manifest.get("input_sha256") != row[2]
+                or manifest.get("run_id") != run_id
+                or manifest.get("evidence_version_ids")
+                != existing["evidence_version_ids"]
+                or manifest.get("native_response", {})
+                .get("chunk", {})
+                .get("request_id")
+                != item["request_id"]
+            ):
+                raise ValueError("Retained partial artifact does not match the chunk")
+            for version_id in existing["evidence_version_ids"]:
+                if not db.execute(
+                    """SELECT 1 FROM evidence_versions WHERE evidence_version_id=?
+                       AND anchor_file_id=? AND processing_run_id=? AND producer_type='MODEL'""",
+                    (version_id, file_id, run_id),
+                ).fetchone():
+                    raise ValueError("Retained partial evidence is missing or changed")
+            return {**existing, "already_stored": True}
+        parsed = parse_whisper_transcript(
+            item["envelope"]["native_response"], CloudAudioProbe(**item["probe"])
+        )
+        offset = item["start_ms"]
+        transcript = replace(
+            parsed,
+            segments=tuple(
+                replace(
+                    segment,
+                    start_ms=segment.start_ms + offset,
+                    end_ms=segment.end_ms + offset,
+                )
+                for segment in parsed.segments
+            ),
+            warnings=(*parsed.warnings, "PARTIAL_TRANSCRIPT_REQUIRES_REVIEW"),
+            untranscribed_ranges=tuple(
+                (start + offset, end + offset)
+                for start, end in parsed.untranscribed_ranges
+            ),
+        )
+        result = _store_verified_transcript(
+            db,
+            data_root=data_root,
+            file_id=file_id,
+            run_id=run_id,
+            asset_id=row[0],
+            source_sha=row[2],
+            duration_ms=value["duration_ms"],
+            model=WHISPER_MODEL,
+            native_response={
+                "decoder": value["decoder"],
+                "deployment": value["deployment"],
+                "source_to_decoded_provenance": "NOT_VERIFIED_BY_JOURNAL",
+                "chunk": item,
+            },
+            transcript=transcript,
+            artifact_format="CREATOR_CLOUD_CHUNKED_TRANSCRIPT_V1",
+            complete_run=False,
+        )
+        item["partial_artifact"] = {
+            "artifact_file_id": result["artifact_file_id"],
+            "sha256": result["sha256"],
+            "evidence_version_ids": result["evidence_version_ids"],
+            "review_state": result["review_state"],
+        }
+        _save(db, value)
+        return {**item["partial_artifact"], "already_stored": False}

@@ -483,11 +483,13 @@ def _store_verified_transcript(
     native_response: Any,
     transcript: CloudTranscript,
     artifact_format: str,
+    complete_run: bool = True,
+    create_evidence: bool = True,
 ) -> dict[str, Any]:
     """Persist internally verified responses within the caller's transaction."""
     if not db.in_transaction:
         raise ValueError("Transcript must be stored in the source transaction")
-    ids = [uuid4().hex for _ in transcript.segments]
+    ids = [uuid4().hex for _ in transcript.segments] if create_evidence else []
     artifact = {
         "format": artifact_format,
         "model": model,
@@ -554,10 +556,11 @@ def _store_verified_transcript(
                 now,
             ),
         )
-    db.execute(
-        "UPDATE processing_runs SET status='SUCCEEDED',finished_at=? WHERE run_id=?",
-        (now, run_id),
-    )
+    if complete_run:
+        db.execute(
+            "UPDATE processing_runs SET status='SUCCEEDED',finished_at=? WHERE run_id=?",
+            (now, run_id),
+        )
     return {
         "artifact_file_id": output_id,
         "sha256": sha,
@@ -631,22 +634,29 @@ def correct_cloud_audio_range(
                      AND f.mime_type='application/json'""",
                 (row[0], row[2]),
             ).fetchall()
-            if len(artifact_row) != 1:
+            if not artifact_row:
                 raise ValueError("Thiếu artifact transcript cho nguồn nén")
-            key, sha, size, machine_version = artifact_row[0]
-            artifact_raw = _anchor_path(data_root, "OTHER", key).read_bytes()
-            if (
-                len(artifact_raw) != size
-                or hashlib.sha256(artifact_raw).hexdigest() != sha
-            ):
-                raise ValueError("Artifact transcript không khớp")
-            artifact = json.loads(artifact_raw)
+            matches = []
+            for key, sha, size, machine_version in artifact_row:
+                artifact_raw = _anchor_path(data_root, "OTHER", key).read_bytes()
+                if (
+                    len(artifact_raw) != size
+                    or hashlib.sha256(artifact_raw).hexdigest() != sha
+                ):
+                    raise ValueError("Artifact transcript không khớp")
+                candidate = json.loads(artifact_raw)
+                if isinstance(candidate, dict) and machine_version in candidate.get(
+                    "evidence_version_ids", []
+                ):
+                    matches.append(candidate)
+            if len(matches) != 1:
+                raise ValueError("Artifact transcript không ràng buộc đúng nguồn")
+            artifact = matches[0]
             if (
                 not isinstance(artifact, dict)
                 or artifact.get("format") != "CREATOR_CLOUD_CHUNKED_TRANSCRIPT_V1"
                 or artifact.get("input_file_id") != row[2]
                 or artifact.get("input_sha256") != row[7]
-                or machine_version not in artifact.get("evidence_version_ids", [])
                 or type(artifact.get("source_duration_ms")) is not int
             ):
                 raise ValueError("Artifact transcript không ràng buộc đúng nguồn")
