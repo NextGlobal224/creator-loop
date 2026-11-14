@@ -6,10 +6,18 @@ import urllib.request
 from unittest.mock import patch
 
 from scripts.b_web_profiles import required_pairs
-from scripts.b_web_remote_probe import NoRedirect, probe
+from scripts.b_web_remote_probe import ORIGIN, NoRedirect, browser_probe, probe
 
 
 class BWebRemoteProbeTests(unittest.TestCase):
+    def test_legacy_probes_fail_before_network_or_browser(self):
+        with patch("urllib.request.build_opener") as network:
+            with self.assertRaisesRegex(ValueError, "Remote probe unavailable"):
+                probe(ORIGIN, [{}] * 6, "fixture-noncredential", "fixture-deployment")
+            network.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "Remote probe unavailable"):
+            browser_probe([], "fixture-noncredential")
+
     def test_manual_profile_does_not_waive_full_default(self):
         self.assertEqual(len(required_pairs()), 6)
         self.assertEqual(

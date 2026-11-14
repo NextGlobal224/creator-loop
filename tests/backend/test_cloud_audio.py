@@ -8,6 +8,7 @@ import struct
 import tempfile
 import unittest
 import wave
+from dataclasses import replace
 from pathlib import Path
 
 from creator_loop.backend.creator.web_domain import WebDomain
@@ -15,7 +16,9 @@ from creator_loop.backend.knowledge.claims import _timestamp
 from creator_loop.backend.knowledge.cloud_audio import (
     MAX_AUDIO_MS,
     WHISPER_MODEL,
+    CloudTranscriptChunk,
     correct_cloud_audio_range,
+    merge_whisper_chunks,
     parse_whisper_transcript,
     prepare_cloud_transcription,
     probe_pcm_wav,
@@ -151,6 +154,62 @@ class CloudAudioTests(unittest.TestCase):
         self.assertEqual(transcript.segments[0].end_ms, 1900)
         self.assertEqual(transcript.warnings, ())
         self.assertEqual(transcript.text, self.response["text"])
+
+    def test_ten_minute_chunk_offsets_and_native_responses_remain_unreviewed(self):
+        # Protocol fixtures only: these are not decoded audio or model output.
+        response = copy.deepcopy(self.response)
+        response["transcription_info"]["duration"] = 120
+        response["segments"][0].update(start=0, end=120)
+        probe = replace(self.probe, duration_ms=120_000)
+        chunks = tuple(
+            CloudTranscriptChunk(i * 120_000, probe, copy.deepcopy(response))
+            for i in range(5)
+        )
+        before = copy.deepcopy(chunks)
+        merged = merge_whisper_chunks(chunks, source_duration_ms=600_000)
+        self.assertEqual(chunks, before)
+        self.assertEqual(merged.review_state, "PENDING")
+        self.assertEqual(
+            [(v.start_ms, v.end_ms) for v in merged.segments],
+            [(i * 120_000, (i + 1) * 120_000) for i in range(5)],
+        )
+        # Repeated words are preserved, not silently deduplicated at boundaries.
+        self.assertEqual(merged.text.count("Đây là đoạn tiếng Việt."), 5)
+        self.assertIn("CHUNK_BOUNDARIES_REQUIRE_REVIEW", merged.warnings)
+
+    def test_chunk_merge_rejects_gaps_overlaps_bad_time_and_partial_coverage(self):
+        chunk = CloudTranscriptChunk(0, self.probe, copy.deepcopy(self.response))
+        invalid = (
+            ((), 2000),
+            ((chunk, replace(chunk, start_ms=1999)), 4000),
+            ((chunk, replace(chunk, start_ms=2001)), 4001),
+            ((chunk,), 2001),
+            ((chunk,), 1999),
+            ((replace(chunk, start_ms=True),), 2000),
+            ((replace(chunk, probe=replace(self.probe, duration_ms=120001)),), 120001),
+        )
+        for chunks, duration in invalid:
+            with (
+                self.subTest(chunks=chunks, duration=duration),
+                self.assertRaises(ValueError),
+            ):
+                merge_whisper_chunks(chunks, source_duration_ms=duration)
+        malformed = copy.deepcopy(self.response)
+        malformed["segments"][0]["end"] = 3
+        with self.assertRaises(ValueError):
+            merge_whisper_chunks(
+                (replace(chunk, native_response=malformed),), source_duration_ms=2000
+            )
+        oversized = copy.deepcopy(self.response)
+        oversized["text"] = "a" * 10_000
+        with self.assertRaisesRegex(ValueError, "giới hạn transcript"):
+            merge_whisper_chunks(
+                tuple(
+                    replace(chunk, start_ms=i * 2000, native_response=oversized)
+                    for i in range(3)
+                ),
+                source_duration_ms=6000,
+            )
 
     def test_uncertain_text_is_visible_and_missing_metrics_are_not_confidence(self):
         segment = self.response["segments"][0]

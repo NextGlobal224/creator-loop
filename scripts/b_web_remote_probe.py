@@ -22,6 +22,14 @@ except ModuleNotFoundError:
 ORIGIN = "https://creator-loop-b-web.creator-loop-ai-beta.workers.dev"
 
 
+def require_remote_probe_safety():
+    """Refuse the legacy cloud probe until cost and old-runtime fences exist."""
+    raise ValueError(
+        "Remote probe unavailable: account cost proof, legacy runtime fence "
+        "and fully bounded browser transport are required"
+    )
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise urllib.error.HTTPError(
@@ -30,6 +38,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def browser_probe(targets: list[dict], password: str) -> dict:
+    require_remote_probe_safety()
     # The browser is isolated on CI; never use/copy the user's Chrome profile.
     # No trace/HAR/video, because those may capture authentication material.
     from playwright.sync_api import sync_playwright
@@ -203,6 +212,9 @@ def probe(
         or parsed.fragment
     ):
         raise ValueError("Expected a bare deployed workers.dev HTTPS origin")
+    # The legacy probe touches the existing production object before its
+    # browser step. Its old constructor/alarm and account cost remain unbounded.
+    require_remote_probe_safety()
     base = base.rstrip("/")
     cookie = ""
     opener = urllib.request.build_opener(NoRedirect())

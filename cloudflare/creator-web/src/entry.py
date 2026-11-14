@@ -42,6 +42,12 @@ from creator_loop.backend.knowledge.cloud_video import (
     original_video,
     store_cloud_video,
 )
+from creator_loop.backend.runtime.cloud_coordination_snapshot import (
+    capture_parts,
+    capture_pinned,
+    restore_parts,
+    verify_restored,
+)
 from creator_loop.backend.runtime.database import (
     MIGRATIONS,
     _connect_write,
@@ -58,6 +64,58 @@ from workers import (
 )
 
 MAX_BODY = 16 * 1024 * 1024
+QA_SNAPSHOT_BODY_LIMIT = 512 * 1024
+QA_ISOLATED_HOSTS = frozenset(
+    {
+        "creator-loop-b-web-qa19.creator-loop-ai-beta.workers.dev",
+        "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev",
+    }
+)
+
+
+def valid_isolated_qa_host(url, env):
+    configured = getattr(env, "B_WEB_QA_HOSTNAME", "")
+    return (
+        isinstance(configured, str)
+        and configured in QA_ISOLATED_HOSTS
+        and url.scheme == "https"
+        and url.netloc == configured
+    )
+
+
+async def read_qa_snapshot_body(request):
+    """Read at most the QA limit, without trusting Content-Length."""
+    length = request.headers.get("Content-Length")
+    if length and (not length.isdigit() or int(length) > QA_SNAPSHOT_BODY_LIMIT):
+        raise ValueError("QA snapshot body too large")
+    body = getattr(request, "body", None)
+    if body is None:
+        raise ValueError("QA snapshot body required")
+    reader = body.getReader()
+    chunks = []
+    size = 0
+    while True:
+        part = await reader.read()
+        if part.done:
+            break
+        value = part.value
+        length = value.byteLength
+        if (
+            type(length) is not int
+            or length < 0
+            or size + length > QA_SNAPSHOT_BODY_LIMIT
+        ):
+            await reader.cancel()
+            raise ValueError("QA snapshot body too large")
+        chunk = bytes(value.to_py())
+        if len(chunk) != length:
+            await reader.cancel()
+            raise ValueError("Invalid QA snapshot body chunk")
+        chunks.append(chunk)
+        size += length
+    return b"".join(chunks).decode("utf-8", errors="strict")
+
+
 # Bounded operational media, distinct from the unchanged service/budget guard.
 # Base64 + max checkpoint + 512 object records still fit MAX_BODY on restore.
 MAX_MEDIA_TOTAL = 10 * 1024 * 1024 + 512 * 1024
@@ -66,6 +124,17 @@ PRESERVATION_CHUNK = 512 * 1024
 PRESERVATION_MAX = 64 * 1024 * 1024
 PRESERVATION_RESTORE_MAX = 88 * 1024 * 1024
 VERSION = "B-web/0.2.0-beta.1"
+
+
+def source_audio_quota_verified(env, job):
+    """Fail closed until an account-wide and provider proof exists.
+
+    This is deliberately not a configuration flag or a caller-supplied grant.
+    It cannot be turned on without implementing and reviewing the real guard.
+    """
+    return False
+
+
 HEADERS = {
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
@@ -251,10 +320,38 @@ def preservation_restore_preflight(reader):
     return projected
 
 
+def fixture_request_matches_version(request, env):
+    """Check this invocation's version; does not fence older deployments."""
+    requested = request.headers.get("X-QA-Expected-Version")
+    actual = getattr(getattr(env, "CREATOR_VERSION", None), "id", None)
+    return (
+        isinstance(requested, str)
+        and bool(
+            re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", requested)
+        )
+        and isinstance(actual, str)
+        and hmac.compare_digest(requested, actual)
+    )
+
+
 class Database(DurableObject):
     def __init__(self, ctx, env):
         super().__init__(ctx, env)
         self.sql = ctx.storage.sql
+        if self.observation_only():
+            name = getattr(getattr(ctx, "id", None), "name", None)
+            fixture_init = (
+                getattr(env, "B_WEB_OBSERVATION_ONLY", "") == "1"
+                and getattr(env, "B_WEB_ISOLATED_RESTORE", "") == "1"
+                and getattr(env, "B_WEB_QA_READONLY_LOGIN", "") == "1"
+                and getattr(env, "B_WEB_QA_HOSTNAME", "") in QA_ISOLATED_HOSTS
+                and isinstance(name, str)
+                and bool(re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", name))
+            )
+            # No DDL against an existing observed object. A fresh QA fixture
+            # still needs tables, and external namespace proof remains required.
+            if not fixture_init:
+                return
         # Coordination rows are not an alternative domain history/schema.
         for statement in (
             "CREATE TABLE IF NOT EXISTS checkpoint (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, payload TEXT NOT NULL, sha256 TEXT NOT NULL)",
@@ -271,13 +368,49 @@ class Database(DurableObject):
         ):
             self.sql.exec(statement)
 
-        ctx.blockConcurrencyWhile(self.recover_wakeup)
+        if not self.observation_only():
+            ctx.blockConcurrencyWhile(self.recover_wakeup)
+
+    def observation_only(self):
+        # Opt-in candidate runtime only. This flag is not proof that an older
+        # deployment or an already running invocation has stopped.
+        # An unexpected value fails closed; omission preserves the legacy mode.
+        value = getattr(getattr(self, "env", None), "B_WEB_OBSERVATION_ONLY", "")
+        return value not in ("", "0")
+
+    def _restore_hold(self):
+        # Restored QA jobs remain inert even if observation mode is later unset.
+        return bool(self.rows("SELECT 1 FROM control WHERE id='snapshot-restore-hold'"))
+
+    def _isolated_readonly_login(self, url):
+        # This is only a candidate QA read path; flags/name alone do not prove
+        # namespace provenance or authorize a cloud deployment.
+        name = getattr(getattr(self.ctx, "id", None), "name", None)
+        return (
+            getattr(self.env, "B_WEB_OBSERVATION_ONLY", "") == "1"
+            and getattr(self.env, "B_WEB_ISOLATED_RESTORE", "") == "1"
+            and getattr(self.env, "B_WEB_QA_READONLY_LOGIN", "") == "1"
+            and valid_isolated_qa_host(url, self.env)
+            and isinstance(name, str)
+            and bool(re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", name))
+        )
 
     async def recover_wakeup(self):
+        if self.observation_only() or self._restore_hold():
+            return
         pending = self.rows(
             "SELECT record,status FROM jobs WHERE status IN ('QUEUED','RUNNING') ORDER BY rowid LIMIT 1"
         )
         if pending and await self.ctx.storage.getAlarm() is None:
+            # A hold may have been installed while getAlarm was awaiting I/O.
+            if self.observation_only() or self._restore_hold():
+                return
+            # The job or its lease may also have changed during the await.
+            pending = self.rows(
+                "SELECT record,status FROM jobs WHERE status IN ('QUEUED','RUNNING') ORDER BY rowid LIMIT 1"
+            )
+            if not pending:
+                return
             record = json.loads(pending[0]["record"])
             at = (
                 time.time() + 0.1
@@ -289,6 +422,496 @@ class Database(DurableObject):
     def rows(self, statement, *args):
         value = self.sql.exec(statement, *args).toArray()
         return value.to_py() if hasattr(value, "to_py") else value
+
+    def active_job_count(self):
+        # Count the entire coordination table, including diagnostic jobs. The
+        # user-facing recent-jobs list is filtered and capped for display only.
+        return self.rows(
+            "SELECT COUNT(*) AS count FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA')"
+        )[0]["count"]
+
+    def _capture_coordination_snapshot(self, snapshot_id, revision, checkpoint_sha256):
+        """Snapshot primitive exposed only by guarded QA export; not a fence.
+
+        Caller must separately prove no in-flight writers, safe alarm handling,
+        storage budget and cloud resource headroom before invoking this method.
+        """
+        if not self.observation_only():
+            raise ValueError("Snapshot requires observation-only runtime")
+        if (
+            not isinstance(snapshot_id, str)
+            or not re.fullmatch("[a-f0-9]{32}", snapshot_id)
+            or type(revision) is not int
+            or not isinstance(checkpoint_sha256, str)
+            or not re.fullmatch("[a-f0-9]{64}", checkpoint_sha256)
+        ):
+            raise ValueError("Invalid snapshot identity")
+
+        def snapshot():
+            checkpoint = self.rows("SELECT revision,sha256 FROM checkpoint WHERE id=1")
+            if len(checkpoint) != 1 or checkpoint[0] != {
+                "revision": revision,
+                "sha256": checkpoint_sha256,
+            }:
+                raise ValueError("Checkpoint changed; snapshot refused")
+            self.sql.exec(
+                "CREATE TABLE IF NOT EXISTS snapshot_parts (snapshot_id TEXT NOT NULL, position INTEGER NOT NULL, content TEXT NOT NULL, PRIMARY KEY(snapshot_id,position))"
+            )
+            self.sql.exec(
+                "CREATE TABLE IF NOT EXISTS snapshot_manifests (id TEXT PRIMARY KEY, record TEXT NOT NULL)"
+            )
+            manifest = capture_pinned(self.rows, self.sql.exec, snapshot_id)
+            return {
+                "manifest": manifest,
+                "data_verified": False,
+                "quiescence_verified": False,
+            }
+
+        return self.ctx.storage.transactionSync(snapshot)
+
+    def _restore_coordination_snapshot_isolated(
+        self, manifest, read_part, *, receipt=None
+    ):
+        """QA-only restore primitive, reachable via guarded QA staging route.
+
+        A matching name and empty tables do not prove that an object has never
+        existed or has no pending/running alarm. External resource/fence proof is
+        still required before creating or invoking any real cloud object.
+        """
+        name = getattr(getattr(self.ctx, "id", None), "name", None)
+        if (
+            getattr(self.env, "B_WEB_OBSERVATION_ONLY", "") != "1"
+            or getattr(self.env, "B_WEB_ISOLATED_RESTORE", "") != "1"
+            or not isinstance(name, str)
+            or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", name)
+        ):
+            raise ValueError("Isolated QA restore guard refused")
+
+        def restore():
+            if self.rows("SELECT 1 FROM sessions LIMIT 1") or self.rows(
+                "SELECT 1 FROM attempts LIMIT 1"
+            ):
+                raise ValueError("Target session state is not empty")
+            for table in ("snapshot_parts", "snapshot_manifests"):
+                if self.rows(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                    table,
+                ) and self.rows("SELECT 1 FROM " + table + " LIMIT 1"):
+                    raise ValueError("Target snapshot staging is not empty")
+            restore_parts(
+                manifest,
+                read_part,
+                self.rows,
+                self.sql.exec,
+                verify=lambda: verify_restored(self.rows),
+            )
+            if self._restore_hold():
+                # Preserve the source hold and its original receipt verbatim.
+                # A distinct, collision-checked row records this new restore.
+                if not isinstance(receipt, dict) or not re.fullmatch(
+                    "[a-f0-9]{32}", receipt.get("snapshot_id", "")
+                ):
+                    raise ValueError("A distinct restore receipt is required")
+                self.sql.exec(
+                    "INSERT INTO control VALUES(?,?)",
+                    "qa-restore-receipt-" + receipt["snapshot_id"],
+                    json.dumps(receipt),
+                )
+            else:
+                self.sql.exec(
+                    "INSERT INTO control VALUES(?,?)",
+                    "snapshot-restore-hold",
+                    json.dumps(
+                        {
+                            "reason": "ISOLATED_RESTORE",
+                            "released": False,
+                            "receipt": receipt,
+                        }
+                    ),
+                )
+            if receipt is not None:
+                fingerprint = capture_parts(self.rows, lambda _position, _part: None)
+                self.sql.exec(
+                    "CREATE TABLE IF NOT EXISTS qa_restore_integrity(snapshot_id TEXT PRIMARY KEY,manifest_sha256 TEXT NOT NULL,state_sha256 TEXT NOT NULL)"
+                )
+                self.sql.exec(
+                    "INSERT INTO qa_restore_integrity VALUES(?,?,?)",
+                    receipt["snapshot_id"],
+                    receipt["manifest_sha256"],
+                    fingerprint["sha256"],
+                )
+            return {"restored": True, "jobs_held": True, "alarm_restored": False}
+
+        return self.ctx.storage.transactionSync(restore)
+
+    def _qa_snapshot_staging(self, data):
+        """Isolated QA staging only; configuration is not cloud-isolation proof."""
+        name = getattr(getattr(self.ctx, "id", None), "name", None)
+        expected_name = getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", "")
+        snapshot_id = getattr(self.env, "B_WEB_QA_RESTORE_SNAPSHOT_ID", "")
+        expected_hash = getattr(self.env, "B_WEB_QA_RESTORE_MANIFEST_SHA256", "")
+        source_name = getattr(self.env, "B_WEB_QA_SOURCE_OBJECT_NAME", "")
+        if source_name and (
+            not isinstance(source_name, str)
+            or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", source_name)
+            or source_name == expected_name
+        ):
+            raise ValueError("Invalid isolated QA source identity")
+        if source_name and name == source_name:
+            expected_name = source_name
+            snapshot_id = getattr(self.env, "B_WEB_QA_SOURCE_SNAPSHOT_ID", "")
+            expected_hash = getattr(self.env, "B_WEB_QA_SOURCE_MANIFEST_SHA256", "")
+        if (
+            getattr(self.env, "B_WEB_OBSERVATION_ONLY", "") != "1"
+            or getattr(self.env, "B_WEB_ISOLATED_RESTORE", "") != "1"
+            or getattr(self.env, "B_WEB_QA_READONLY_LOGIN", "") != "1"
+            or not isinstance(name, str)
+            or name != expected_name
+            or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", name)
+            or not isinstance(snapshot_id, str)
+            or not re.fullmatch("[a-f0-9]{32}", snapshot_id)
+            or not isinstance(expected_hash, str)
+            or not re.fullmatch("[a-f0-9]{64}", expected_hash)
+            or not isinstance(data, dict)
+            or data.get("snapshot_id") != snapshot_id
+        ):
+            raise ValueError("Isolated QA restore configuration refused")
+        operation = data.get("operation")
+        if operation == "status":
+            if set(data) != {"operation", "snapshot_id"}:
+                raise ValueError("Invalid staging status request")
+            held = self.rows(
+                "SELECT record FROM control WHERE id='snapshot-restore-hold'"
+            )
+            if held:
+                record = json.loads(held[0]["record"])
+                expected_receipt = {
+                    "snapshot_id": snapshot_id,
+                    "manifest_sha256": expected_hash,
+                }
+                if record.get("receipt") != expected_receipt:
+                    separate = self.rows(
+                        "SELECT record FROM control WHERE id=?",
+                        "qa-restore-receipt-" + snapshot_id,
+                    )
+                    if (
+                        len(separate) != 1
+                        or json.loads(separate[0]["record"]) != expected_receipt
+                    ):
+                        raise ValueError("Restore hold identity mismatch")
+                return {"restored": True, "jobs_held": True, "alarm_restored": False}
+            tables = self.rows(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='qa_restore_parts'"
+            )
+            count = (
+                self.rows(
+                    "SELECT COUNT(*) AS n FROM qa_restore_parts WHERE snapshot_id=?",
+                    snapshot_id,
+                )[0]["n"]
+                if tables
+                else 0
+            )
+            return {
+                "restored": False,
+                "staged_parts": count,
+                "mode": "OBSERVATION_ONLY",
+            }
+        if operation in ("plan", "cleanup"):
+            if set(data) != {"operation", "snapshot_id", "manifest"} or not isinstance(
+                data["manifest"], dict
+            ):
+                raise ValueError("Invalid manifest request")
+            manifest = data["manifest"]
+            encoded_manifest = json.dumps(
+                manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+            if digest(encoded_manifest) != expected_hash:
+                raise ValueError("Pinned manifest hash mismatch")
+            parts = manifest.get("parts")
+            if not isinstance(parts, list) or not 0 < len(parts) <= 384:
+                raise ValueError("Invalid manifest parts")
+            sizes = []
+            for part in parts:
+                if (
+                    not isinstance(part, dict)
+                    or type(part.get("bytes")) is not int
+                    or not 0 < part["bytes"] <= 262144
+                    or not isinstance(part.get("sha256"), str)
+                    or not re.fullmatch("[a-f0-9]{64}", part["sha256"])
+                ):
+                    raise ValueError("Invalid manifest part")
+                sizes.append(part["bytes"])
+            if sum(sizes) != manifest.get("bytes"):
+                raise ValueError("Manifest byte count mismatch")
+            if operation == "plan":
+                return {
+                    "raw_bytes": sum(sizes),
+                    "staging_base64_bytes": sum(
+                        4 * ((size + 2) // 3) for size in sizes
+                    ),
+                    "storage_overhead_and_restored_bytes": "UNKNOWN",
+                    "resource_proof_required": True,
+                }
+
+            def cleanup():
+                status = self._qa_snapshot_staging(
+                    {"operation": "status", "snapshot_id": snapshot_id}
+                )
+                if not status.get("restored") or not status.get("jobs_held"):
+                    raise ValueError("Verified held restore required")
+                verify_restored(self.rows)
+                proof = self.rows(
+                    "SELECT manifest_sha256,state_sha256 FROM qa_restore_integrity WHERE snapshot_id=?",
+                    snapshot_id,
+                )
+                if len(proof) != 1 or proof[0]["manifest_sha256"] != expected_hash:
+                    raise ValueError("Restore integrity proof missing")
+                current = capture_parts(self.rows, lambda _position, _part: None)
+                if current["sha256"] != proof[0]["state_sha256"]:
+                    raise ValueError("Restored state changed; preserve staging")
+                count = self.rows(
+                    "SELECT COUNT(*) AS n FROM qa_restore_parts WHERE snapshot_id=?",
+                    snapshot_id,
+                )[0]["n"]
+                if not count:
+                    return {"cleaned": True, "already_clean": True}
+                if count != len(parts) or self.rows(
+                    "SELECT 1 FROM qa_restore_parts WHERE snapshot_id != ? LIMIT 1",
+                    snapshot_id,
+                ):
+                    raise ValueError("Staged parts incomplete")
+                whole = hashlib.sha256()
+                for position, part in enumerate(parts):
+                    found = self.rows(
+                        "SELECT sha256,content FROM qa_restore_parts WHERE snapshot_id=? AND position=?",
+                        snapshot_id,
+                        position,
+                    )
+                    if len(found) != 1:
+                        raise ValueError("Staged part missing")
+                    row = found[0]
+                    raw = base64.b64decode(row["content"], validate=True)
+                    if (
+                        len(raw) != part["bytes"]
+                        or digest(raw) != part["sha256"]
+                        or row["sha256"] != part["sha256"]
+                    ):
+                        raise ValueError("Staged part does not match manifest")
+                    whole.update(raw)
+                if whole.hexdigest() != manifest.get("sha256"):
+                    raise ValueError("Staged stream hash mismatch")
+                self.sql.exec(
+                    "DELETE FROM qa_restore_parts WHERE snapshot_id=?", snapshot_id
+                )
+                return {"cleaned": True, "already_clean": False}
+
+            return self.ctx.storage.transactionSync(cleanup)
+        if self._restore_hold():
+            raise ValueError("Restore already completed; inspect status")
+        if operation == "put":
+            if set(data) != {
+                "operation",
+                "snapshot_id",
+                "position",
+                "sha256",
+                "content_base64",
+            }:
+                raise ValueError("Invalid staging part request")
+            position, sha, encoded = (
+                data["position"],
+                data["sha256"],
+                data["content_base64"],
+            )
+            if (
+                type(position) is not int
+                or not 0 <= position < 384
+                or not isinstance(sha, str)
+                or not re.fullmatch("[a-f0-9]{64}", sha)
+                or not isinstance(encoded, str)
+                or len(encoded) > 349528
+            ):
+                raise ValueError("Invalid staging part metadata")
+            raw = base64.b64decode(encoded, validate=True)
+            if not 0 < len(raw) <= 262144 or digest(raw) != sha:
+                raise ValueError("Staging part hash or size mismatch")
+
+            def put():
+                for table in (
+                    "checkpoint",
+                    "objects",
+                    "object_chunks",
+                    "receipts",
+                    "backups",
+                    "jobs",
+                    "control",
+                    "preservation_archives",
+                    "preservation_chunks",
+                    "sessions",
+                    "attempts",
+                ):
+                    if self.rows("SELECT 1 FROM " + table + " LIMIT 1"):
+                        raise ValueError("Isolated target is not empty")
+                self.sql.exec(
+                    "CREATE TABLE IF NOT EXISTS qa_restore_parts(snapshot_id TEXT NOT NULL, position INTEGER NOT NULL, sha256 TEXT NOT NULL, content TEXT NOT NULL, PRIMARY KEY(snapshot_id,position))"
+                )
+                existing = self.rows(
+                    "SELECT sha256,content FROM qa_restore_parts WHERE snapshot_id=? AND position=?",
+                    snapshot_id,
+                    position,
+                )
+                if existing:
+                    if existing[0] != {"sha256": sha, "content": encoded}:
+                        raise ValueError("Staging part conflicts with existing data")
+                    return {"stored": True, "duplicate": True}
+                if self.rows(
+                    "SELECT 1 FROM qa_restore_parts WHERE snapshot_id != ? LIMIT 1",
+                    snapshot_id,
+                ):
+                    raise ValueError("Unexpected staged snapshot")
+                self.sql.exec(
+                    "INSERT INTO qa_restore_parts VALUES(?,?,?,?)",
+                    snapshot_id,
+                    position,
+                    sha,
+                    encoded,
+                )
+                return {"stored": True, "duplicate": False}
+
+            return self.ctx.storage.transactionSync(put)
+        if operation == "restore":
+            if set(data) != {"operation", "snapshot_id", "manifest"} or not isinstance(
+                data["manifest"], dict
+            ):
+                raise ValueError("Invalid restore request")
+            manifest = data["manifest"]
+            encoded_manifest = json.dumps(
+                manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+            if digest(encoded_manifest) != expected_hash:
+                raise ValueError("Pinned manifest hash mismatch")
+            parts = manifest.get("parts")
+            if not isinstance(parts, list) or not 0 < len(parts) <= 384:
+                raise ValueError("Invalid manifest part count")
+            staged = self.rows(
+                "SELECT position FROM qa_restore_parts WHERE snapshot_id=? ORDER BY position",
+                snapshot_id,
+            )
+            if self.rows(
+                "SELECT 1 FROM qa_restore_parts WHERE snapshot_id != ? LIMIT 1",
+                snapshot_id,
+            ) or [row["position"] for row in staged] != list(range(len(parts))):
+                raise ValueError("Staged snapshot incomplete or contains extra parts")
+
+            def read_part(position):
+                found = self.rows(
+                    "SELECT sha256,content FROM qa_restore_parts WHERE snapshot_id=? AND position=?",
+                    snapshot_id,
+                    position,
+                )
+                if len(found) != 1:
+                    raise ValueError("Missing staged snapshot part")
+                raw = base64.b64decode(found[0]["content"], validate=True)
+                if digest(raw) != found[0]["sha256"]:
+                    raise ValueError("Staged snapshot part changed")
+                return raw
+
+            return self._restore_coordination_snapshot_isolated(
+                manifest,
+                read_part,
+                receipt={"snapshot_id": snapshot_id, "manifest_sha256": expected_hash},
+            )
+        raise ValueError("Unknown QA snapshot operation")
+
+    def _qa_snapshot_export(self, data):
+        """Authenticated QA export prototype; no production quiescence proof."""
+        name = getattr(getattr(self.ctx, "id", None), "name", None)
+        snapshot_id = getattr(self.env, "B_WEB_QA_EXPORT_SNAPSHOT_ID", "")
+        source_name = getattr(self.env, "B_WEB_QA_SOURCE_OBJECT_NAME", "")
+        target_name = getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", "")
+        if source_name and (
+            not isinstance(source_name, str)
+            or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", source_name)
+            or source_name == target_name
+        ):
+            raise ValueError("Invalid isolated QA source identity")
+        expected_name = source_name or target_name
+        if (
+            getattr(self.env, "B_WEB_OBSERVATION_ONLY", "") != "1"
+            or getattr(self.env, "B_WEB_ISOLATED_RESTORE", "") != "1"
+            or getattr(self.env, "B_WEB_QA_READONLY_LOGIN", "") != "1"
+            or getattr(self.env, "B_WEB_QA_SNAPSHOT_EXPORT", "") != "1"
+            or name != expected_name
+            or not isinstance(name, str)
+            or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", name)
+            or not isinstance(snapshot_id, str)
+            or not re.fullmatch("[a-f0-9]{32}", snapshot_id)
+            or not isinstance(data, dict)
+            or data.get("snapshot_id") != snapshot_id
+        ):
+            raise ValueError("Isolated QA export configuration refused")
+        operation = data.get("operation")
+        if operation == "capture":
+            if set(data) != {
+                "operation",
+                "snapshot_id",
+                "revision",
+                "checkpoint_sha256",
+            }:
+                raise ValueError("Invalid QA capture request")
+            return self._capture_coordination_snapshot(
+                snapshot_id, data["revision"], data["checkpoint_sha256"]
+            )
+        if operation not in ("manifest", "part"):
+            raise ValueError("Unknown QA snapshot export operation")
+        expected_fields = {"operation", "snapshot_id"} | (
+            {"position"} if operation == "part" else set()
+        )
+        if set(data) != expected_fields:
+            raise ValueError("Invalid QA export request")
+        tables = self.rows(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='snapshot_manifests'"
+        )
+        found = (
+            self.rows("SELECT record FROM snapshot_manifests WHERE id=?", snapshot_id)
+            if tables
+            else []
+        )
+        if len(found) != 1:
+            raise ValueError("Pinned QA snapshot is not available")
+        manifest = json.loads(found[0]["record"])
+        if operation == "manifest":
+            return {
+                "manifest": manifest,
+                "data_verified": False,
+                "quiescence_verified": False,
+            }
+        position = data["position"]
+        parts = manifest.get("parts")
+        if (
+            type(position) is not int
+            or not isinstance(parts, list)
+            or not 0 <= position < len(parts) <= 384
+        ):
+            raise ValueError("Invalid QA export part")
+        result = self.rows(
+            "SELECT content FROM snapshot_parts WHERE snapshot_id=? AND position=?",
+            snapshot_id,
+            position,
+        )
+        if len(result) != 1:
+            raise ValueError("QA snapshot part missing")
+        raw = base64.b64decode(result[0]["content"], validate=True)
+        if not isinstance(parts[position], dict):
+            raise ValueError("Invalid QA snapshot part metadata")
+        if len(raw) != parts[position].get("bytes") or digest(raw) != parts[
+            position
+        ].get("sha256"):
+            raise ValueError("QA snapshot part failed verification")
+        return {
+            "position": position,
+            "sha256": digest(raw),
+            "content_base64": result[0]["content"],
+        }
 
     def load(self):
         baseline = Path("/tmp/creator-web-baseline")
@@ -464,7 +1087,9 @@ class Database(DurableObject):
             raise WebInputError(
                 "Revision cloud đã đổi; đọc lại và đối chiếu trước khi nhập.", 409
             )
-        if self.rows("SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"):
+        if self.rows(
+            "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA') LIMIT 1"
+        ):
             raise WebInputError("Chờ tác vụ cloud kết thúc trước migration.", 409)
         if not isinstance(data["backup_id"], str) or not re.fullmatch(
             "[a-f0-9]{32}", data["backup_id"]
@@ -796,6 +1421,66 @@ class Database(DurableObject):
     async def fetch(self, request):
         url = urlsplit(request.url)
         path, method = url.path, request.method
+        fixture_host = "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
+        configured_host = getattr(getattr(self, "env", None), "B_WEB_QA_HOSTNAME", "")
+        if url.hostname == fixture_host or configured_host == fixture_host:
+            if configured_host != fixture_host or url.hostname != fixture_host:
+                return reply({"error": "Isolated QA object hostname mismatch"}, 503)
+            if not fixture_request_matches_version(request, self.env):
+                return reply({"error": "Isolated QA object version mismatch"}, 409)
+        if path in ("/api/qa-snapshot-staging", "/api/qa-snapshot-export"):
+            secret = getattr(self.env, "OPERATOR_KEY", "")
+            if (
+                method != "POST"
+                or not self._isolated_readonly_login(url)
+                or getattr(getattr(self.ctx, "id", None), "name", None)
+                not in (
+                    getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", ""),
+                    getattr(self.env, "B_WEB_QA_SOURCE_OBJECT_NAME", ""),
+                )
+                or not secret
+                or not hmac.compare_digest(
+                    request.headers.get("X-Operator-Key") or "", secret
+                )
+                or request.headers.get("Origin") != url.scheme + "://" + url.netloc
+                or request.headers.get("Content-Type") != "application/json"
+            ):
+                return reply(
+                    {"error": "Isolated QA operator verification required"}, 403
+                )
+            try:
+                raw = await read_qa_snapshot_body(request)
+            except (ValueError, TypeError, AttributeError):
+                return reply({"error": "Invalid or oversized staging request"}, 413)
+            try:
+                data = json.loads(raw)
+                result = (
+                    self._qa_snapshot_staging(data)
+                    if path == "/api/qa-snapshot-staging"
+                    else self._qa_snapshot_export(data)
+                )
+                if configured_host == fixture_host:
+                    result.update(
+                        qa_object=getattr(self.ctx.id, "name", None),
+                        qa_deployment=str(self.env.CREATOR_VERSION.id),
+                    )
+                return reply(result)
+            except (ValueError, TypeError, KeyError, sqlite3.Error):
+                return reply(
+                    {
+                        "error": "Staging or restore refused; inspect status before retry"
+                    },
+                    409,
+                )
+        isolated_target = getattr(
+            getattr(self, "env", None), "B_WEB_QA_RESTORE_OBJECT_NAME", ""
+        )
+        if (
+            isolated_target
+            and getattr(getattr(self.ctx, "id", None), "name", None) == isolated_target
+            and not self._restore_hold()
+        ):
+            return reply({"error": "Isolated restore is not complete"}, 503)
         if method not in ("GET", "POST"):
             return reply({"error": "Method refused"}, 405)
         if method == "POST":
@@ -819,6 +1504,8 @@ class Database(DurableObject):
         else:
             data = {}
         if path == "/api/login" and method == "POST":
+            if self._restore_hold() and not self._isolated_readonly_login(url):
+                return reply({"error": "Isolated restore is held"}, 503)
             ip = digest((request.headers.get("CF-Connecting-IP") or "local").encode())
             observed = self.rows("SELECT * FROM attempts WHERE ip=?", ip)
             if (
@@ -886,6 +1573,82 @@ class Database(DurableObject):
             )
 
     async def authorized(self, request, path, method, data):
+        if method != "GET" and (self.observation_only() or self._restore_hold()):
+            qa_logout = (
+                path == "/api/logout"
+                and method == "POST"
+                and request is not None
+                and self._restore_hold()
+                and self._isolated_readonly_login(urlsplit(request.url))
+            )
+            if not qa_logout:
+                return reply(
+                    {"error": "Observation-only runtime; changes are paused"}, 503
+                )
+        if (
+            path == "/api/source-receipts" or path.startswith("/api/source-receipts/")
+        ) and method == "GET":
+            secret = getattr(self.env, "OPERATOR_KEY", "")
+            if not secret or not hmac.compare_digest(
+                request.headers.get("X-Operator-Key") or "", secret
+            ):
+                return reply({"error": "Operator verification required"}, 403)
+            if path == "/api/source-receipts":
+                # Discovery is bounded and read-only, not a consistent snapshot:
+                # a late insert before the cursor requires a new scan after fencing.
+                query = parse_qs(urlsplit(request.url).query, keep_blank_values=True)
+                if set(query) - {"after"} or len(query.get("after", [])) > 1:
+                    return reply({"error": "Invalid source receipt cursor"}, 400)
+                cursor = query.get("after", [""])[0]
+                if cursor and not re.fullmatch("[a-f0-9]{32}-[a-f0-9]{64}", cursor):
+                    return reply({"error": "Invalid source receipt cursor"}, 400)
+                prefix = "late-source-"
+                rows = self.rows(
+                    "SELECT id FROM control WHERE id>? AND id<? ORDER BY id LIMIT 51",
+                    prefix + cursor,
+                    prefix + "~",
+                )
+                ids = [row["id"][len(prefix) :] for row in rows[:50]]
+                if any(
+                    not re.fullmatch("[a-f0-9]{32}-[a-f0-9]{64}", item) for item in ids
+                ):
+                    return reply({"error": "Source receipt identity invalid"}, 409)
+                return reply(
+                    {"ids": ids, "next_cursor": ids[-1] if len(rows) > 50 else None}
+                )
+            parts = path.removeprefix("/api/source-receipts/").split("/")
+            if not parts or not re.fullmatch("[a-f0-9]{32}", parts[0]):
+                return reply({"error": "Invalid source job ID"}, 400)
+            prefix = "late-source-" + parts[0] + "-"
+            if len(parts) == 1:
+                query = parse_qs(urlsplit(request.url).query, keep_blank_values=True)
+                if set(query) - {"after"} or len(query.get("after", [])) > 1:
+                    return reply({"error": "Invalid source receipt cursor"}, 400)
+                cursor = query.get("after", [""])[0]
+                if cursor and not re.fullmatch("[a-f0-9]{64}", cursor):
+                    return reply({"error": "Invalid source receipt cursor"}, 400)
+                rows = self.rows(
+                    "SELECT id FROM control WHERE id>? AND id<? ORDER BY id LIMIT 51",
+                    prefix + cursor,
+                    prefix + "~",
+                )
+                ids = [row["id"][len(prefix) :] for row in rows[:50]]
+                if any(not re.fullmatch("[a-f0-9]{64}", item) for item in ids):
+                    return reply({"error": "Source receipt identity invalid"}, 409)
+                return reply(
+                    {"ids": ids, "next_cursor": ids[-1] if len(rows) > 50 else None}
+                )
+            if len(parts) != 2 or not re.fullmatch("[a-f0-9]{64}", parts[1]):
+                return reply({"error": "Invalid source attempt ID"}, 400)
+            found = self.rows(
+                "SELECT record FROM control WHERE id=?", prefix + parts[1]
+            )
+            if len(found) != 1:
+                return reply({"error": "Source receipt not found"}, 404)
+            record = json.loads(found[0]["record"])
+            if not isinstance(record, dict) or record.get("job_id") != parts[0]:
+                return reply({"error": "Source receipt identity invalid"}, 409)
+            return reply(record)
         if path == "/api/diagnostics/editing":
             # This narrowly scoped operator trace is never a production API or
             # a Draft/review operation. Login/Origin checks happen in fetch().
@@ -950,8 +1713,14 @@ class Database(DurableObject):
             await self.ctx.storage.setAlarm(int(time.time() * 1000) + 1000)
 
             def queue():
+                # A hold can arrive during setAlarm. Do not reserve or queue a
+                # job after it; the already-issued alarm needs reconciliation.
+                if self.observation_only() or self._restore_hold():
+                    raise WebInputError(
+                        "Observation-only runtime; changes are paused", 503
+                    )
                 if self.rows(
-                    "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
+                    "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA') LIMIT 1"
                 ):
                     raise WebInputError(
                         "Wait for the existing job; no duplicate inference", 409
@@ -1053,6 +1822,14 @@ class Database(DurableObject):
             )[0]
             if media_type not in ("AUDIO", "IMAGE", "VIDEO"):
                 raise WebInputError("Chọn nguồn ghi âm hoặc ảnh trước khi kiểm quyền.")
+            if media_type == "AUDIO" and not source_audio_quota_verified(self.env, {}):
+                return reply(
+                    {
+                        "available": False,
+                        "code": "AUDIO_QUOTA_UNVERIFIED",
+                        "message": "Đang chờ xác minh hạn mức an toàn; chưa tạo tác vụ hoặc gửi yêu cầu mới.",
+                    }
+                )
             model = IMAGE_MODEL if media_type == "IMAGE" else WHISPER_MODEL
             found = self.rows("SELECT record FROM control WHERE id='grant'")
             grant = json.loads(found[0]["record"]) if found else {}
@@ -1093,12 +1870,17 @@ class Database(DurableObject):
             )
         if path == "/api/runtime" and method == "GET":
             sdk = import_from_javascript("creator_ai.mjs")
+            fixture = getattr(self.env, "B_WEB_QA_HOSTNAME", "") == (
+                "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
+            )
             return reply(
                 {
                     "components": json.loads(sdk.components()),
                     "version": VERSION,
                     "deployment": str(self.env.CREATOR_VERSION.id),
-                    "model": self.env.CREATOR_MODEL,
+                    "model": getattr(self.env, "CREATOR_MODEL", None)
+                    if fixture
+                    else self.env.CREATOR_MODEL,
                 }
             )
         if path == "/api/logout" and method == "POST":
@@ -1213,7 +1995,7 @@ class Database(DurableObject):
                 )
             ):
                 return reply({"error": "QA19 operator required"}, 403)
-            if found[0]["status"] in ("QUEUED", "RUNNING"):
+            if found[0]["status"] in ("QUEUED", "RUNNING", "WAITING_QUOTA"):
                 record.update(
                     status="CANCELLED",
                     message="Đã dừng các bước tiếp theo; lời gọi đã gửi có thể vẫn tiêu thụ quota",
@@ -1245,7 +2027,13 @@ class Database(DurableObject):
                     try:
                         probe_pcm_wav(raw)
                     except ValueError:
-                        pass  # Opaque/unsupported audio remains a download.
+                        from creator_loop.backend.knowledge.audio_playback import (
+                            playback_audio_type,
+                        )
+
+                        detected = playback_audio_type(raw)
+                        if detected:
+                            mime, verified_media = detected, True
                     else:
                         mime = "audio/wav"
                         verified_media = True
@@ -1392,7 +2180,9 @@ class Database(DurableObject):
                     raise WebInputError(
                         "Dữ liệu đã đổi; tải lại trước khi lưu backup cloud", 409
                     )
-                if self.rows("SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING')"):
+                if self.rows(
+                    "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA')"
+                ):
                     raise WebInputError("Chờ tác vụ kết thúc trước khi backup", 409)
                 if len(self.rows("SELECT id FROM backups")) >= 3:
                     raise WebInputError(
@@ -1444,15 +2234,18 @@ class Database(DurableObject):
                                 "Bằng chứng transcript không khớp; giữ bản gốc để đối chiếu."
                             )
                         content = json.loads(raw)
-                        if (
-                            content.get("format")
-                            != (
-                                "CREATOR_CLOUD_VIDEO_V1"
-                                if review["media_type"] == "VIDEO"
-                                else "CREATOR_CLOUD_IMAGE_V1"
-                                if review["media_type"] == "IMAGE"
-                                else "CREATOR_CLOUD_TRANSCRIPT_V1"
+                        accepted_formats = (
+                            ("CREATOR_CLOUD_VIDEO_V1",)
+                            if review["media_type"] == "VIDEO"
+                            else ("CREATOR_CLOUD_IMAGE_V1",)
+                            if review["media_type"] == "IMAGE"
+                            else (
+                                "CREATOR_CLOUD_TRANSCRIPT_V1",
+                                "CREATOR_CLOUD_CHUNKED_TRANSCRIPT_V1",
                             )
+                        )
+                        if (
+                            content.get("format") not in accepted_formats
                             or content.get("model")
                             != (
                                 VIDEO_MODEL
@@ -1485,6 +2278,7 @@ class Database(DurableObject):
                             **domain.state(project_id),
                             "revision": revision,
                             "version": VERSION,
+                            "active_job_count": self.active_job_count(),
                             "jobs": [
                                 json.loads(r["record"])
                                 for r in self.rows(
@@ -1542,7 +2336,28 @@ class Database(DurableObject):
                     await self.recover_wakeup()
                 return reply(receipt)
 
+            if path == "/api/source-jobs" and set(data) == {"project_id", "file_id"}:
+                media_type = domain._project_original(
+                    data["project_id"], data["file_id"]
+                )["media_type"]
+                if media_type == "AUDIO" and not source_audio_quota_verified(
+                    self.env, data
+                ):
+                    return reply(
+                        {
+                            "error": "Đang chờ xác minh hạn mức an toàn; chưa tạo tác vụ hoặc gửi yêu cầu mới.",
+                            "code": "AUDIO_QUOTA_UNVERIFIED",
+                        },
+                        409,
+                    )
+
             def mutate():
+                # The initial guard precedes awaits, including setAlarm on job
+                # routes. Recheck atomically before any mutation or reservation.
+                if self.observation_only() or self._restore_hold():
+                    raise WebInputError(
+                        "Observation-only runtime; changes are paused", 503
+                    )
                 with closing(_connect_write(root / "creator_loop.sqlite3")) as check:
                     schema_version = check.execute("PRAGMA user_version").fetchone()[0]
                 if schema_version == 10 and path != "/api/schema-migrate":
@@ -1592,7 +2407,7 @@ class Database(DurableObject):
                             )
                         )
                         or self.rows(
-                            "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING')"
+                            "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA')"
                         )
                     ):
                         raise WebInputError(
@@ -1650,7 +2465,7 @@ class Database(DurableObject):
                     if set(data) != {"project_id", "file_id"}:
                         raise WebInputError("Chọn đúng Project và nguồn ghi âm/ảnh.")
                     if self.rows(
-                        "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
+                        "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA') LIMIT 1"
                     ):
                         raise WebInputError(
                             "Còn tác vụ đang chạy; mở trạng thái hoặc Dừng trước.", 409
@@ -1720,8 +2535,18 @@ class Database(DurableObject):
                     "/api/source-image-regions",
                     "/api/source-use",
                 ):
+                    # A quota-waiting job is not runnable. Permit only audio
+                    # corrections against already retained evidence; selecting
+                    # sources and all edits during running jobs remain fenced.
+                    # commit() uses revision CAS inside this same transaction,
+                    # so a stale late-result projection cannot overwrite edits.
+                    statuses = (
+                        "'QUEUED','RUNNING'"
+                        if path == "/api/source-audio-ranges"
+                        else "'QUEUED','RUNNING','WAITING_QUOTA'"
+                    )
                     if self.rows(
-                        """SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') AND
+                        f"""SELECT 1 FROM jobs WHERE status IN ({statuses}) AND
                         (json_extract(record,'$.request.project_id')=? OR EXISTS(
                           SELECT 1 FROM json_each(jobs.record,'$.sources') source
                           WHERE json_extract(source.value,'$.file_id')=?)) LIMIT 1""",
@@ -1735,6 +2560,54 @@ class Database(DurableObject):
                     if path == "/api/source-ranges":
                         result = domain.source_text_range(data)
                     elif path == "/api/source-audio-ranges":
+                        # The disposable projection normally hydrates Originals
+                        # only. Audio correction verifies the machine artifact,
+                        # including every per-chunk artifact from the same run.
+                        # Load only those bounded, hash-addressed objects; never
+                        # trust a client path or bypass the active-job fence.
+                        with closing(
+                            _connect_write(root / "creator_loop.sqlite3")
+                        ) as db:
+                            artifacts = db.execute(
+                                """SELECT f.storage_key,f.sha256,f.byte_size
+                                   FROM evidence_versions v
+                                   JOIN evidence_versions first ON first.evidence_id=v.evidence_id
+                                     AND first.version_no=1 AND first.producer_type='MODEL'
+                                   JOIN asset_files f ON f.processing_run_id=first.processing_run_id
+                                   WHERE v.evidence_version_id=? AND v.anchor_file_id=?
+                                     AND f.parent_file_id=v.anchor_file_id AND f.role='OTHER'
+                                     AND f.mime_type='application/json'""",
+                                (
+                                    data.get("evidence_version_id", ""),
+                                    data.get("file_id", ""),
+                                ),
+                            ).fetchall()
+                        if (
+                            len(artifacts) > 65
+                            or sum(r[2] for r in artifacts) > 16 * 1024 * 1024
+                        ):
+                            raise WebInputError(
+                                "Artifact transcript vượt giới hạn; chưa sửa nguồn."
+                            )
+                        for storage_key, sha, size in artifacts:
+                            if (
+                                not isinstance(sha, str)
+                                or not re.fullmatch("[a-f0-9]{64}", sha)
+                                or storage_key != "storage/derived/" + sha
+                                or type(size) is not int
+                                or not 0 < size <= 256 * 1024
+                            ):
+                                raise WebInputError(
+                                    "Artifact transcript không hợp lệ; chưa sửa nguồn."
+                                )
+                            blob = self.object_bytes(sha)
+                            if len(blob) != size or digest(blob) != sha:
+                                raise WebInputError(
+                                    "Artifact transcript không khớp; chưa sửa nguồn."
+                                )
+                            destination = root / storage_key
+                            destination.parent.mkdir(parents=True, exist_ok=True)
+                            destination.write_bytes(blob)
                         result = domain.source_audio_range(data)
                     elif path == "/api/source-image-regions":
                         result = domain.source_image_region(data)
@@ -1751,7 +2624,7 @@ class Database(DurableObject):
                             409,
                         )
                     if self.rows(
-                        "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING')"
+                        "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA')"
                     ):
                         raise WebInputError(
                             "Còn tác vụ AI đang chạy. Kiểm tra/dừng và chờ tác vụ kết thúc trước khi khôi phục.",
@@ -1959,7 +2832,7 @@ class Database(DurableObject):
                     elif choices:
                         raise ValueError("Image selection belongs to IMAGE_CAPTION")
                     if self.rows(
-                        "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING') LIMIT 1"
+                        "SELECT 1 FROM jobs WHERE status IN ('QUEUED','RUNNING','WAITING_QUOTA') LIMIT 1"
                     ):
                         raise ValueError("Only one active B job")
                     grants = self.rows("SELECT record FROM control WHERE id='grant'")
@@ -2034,15 +2907,48 @@ class Database(DurableObject):
 
     async def extract_video(self, job):
         def current_job():
-            return json.loads(
-                self.rows("SELECT record FROM jobs WHERE id=?", job["id"])[0]["record"]
+            records = self.rows("SELECT record FROM jobs WHERE id=?", job["id"])
+            try:
+                current = json.loads(records[0]["record"]) if len(records) == 1 else {}
+            except (TypeError, ValueError, KeyError):
+                return {}
+            return current if isinstance(current, dict) else {}
+
+        def same_attempt(current, dispatched):
+            if current.get("status") == "CANCELLED":
+                current = {
+                    **current,
+                    "status": dispatched["status"],
+                    "message": dispatched.get("message"),
+                }
+                if "message" not in dispatched:
+                    current.pop("message", None)
+            return current == dispatched
+
+        def retain_late(stage, value):
+            # Keep the old invocation's receipt without overwriting its new owner.
+            envelope = json.dumps(
+                {"job_id": job["id"], "stage": stage, **value},
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            if len(envelope.encode()) > 768 * 1024:
+                raise ValueError("Late video receipt exceeds bounded storage")
+            identifier = digest(
+                (str(job.get("lease_until")) + stage + envelope).encode()
+            )
+            self.sql.exec(
+                "INSERT INTO control VALUES(?,?) ON CONFLICT(id) DO NOTHING",
+                "late-source-" + job["id"] + "-" + identifier,
+                envelope,
             )
 
         def allowed():
             current = current_job()
             live = self.rows("SELECT record FROM control WHERE id='grant'")
             return (
-                current["status"] == "RUNNING"
+                current.get("status") == "RUNNING"
                 and current.get("lease_until") == job.get("lease_until")
                 and current.get("request") == job["request"]
                 and live
@@ -2052,8 +2958,8 @@ class Database(DurableObject):
                 and job["grant"].get("reserved_pipeline") == job["id"]
             )
 
-        if not allowed():
-            if current_job()["status"] == "CANCELLED":
+        if not allowed() or current_job() != job:
+            if current_job().get("status") == "CANCELLED":
                 return
             raise WebInputError(
                 "Quyền video/quota đã hết hạn hoặc đổi trước xử lý; chưa gọi AI, giữ reservation."
@@ -2081,12 +2987,47 @@ class Database(DurableObject):
             "started_at": time.time(),
         }
         self.save_job(job)
+        dispatched = json.loads(json.dumps(job, ensure_ascii=False))
         sdk = import_from_javascript("creator_ai.mjs")
-        decoded = json.loads(
-            await sdk.decodeSourceVideo(
-                python_to_rpc(self.env.BROWSER), json.dumps(packet)
-            )
+        raw_decode = await sdk.decodeSourceVideo(
+            python_to_rpc(self.env.BROWSER), json.dumps(packet)
         )
+        try:
+            if not isinstance(raw_decode, str):
+                raise TypeError("Invalid video decoder envelope type")
+            decoded = json.loads(raw_decode)
+            if not isinstance(decoded, dict):
+                raise ValueError("Invalid video decoder envelope")
+        except (ValueError, TypeError):
+            if isinstance(raw_decode, str):
+                raw_bytes = raw_decode.encode()
+                retain_late(
+                    "video_decode_invalid",
+                    {
+                        "outcome": "UNKNOWN",
+                        "raw_sha256": digest(raw_bytes),
+                        "raw_bytes": len(raw_bytes),
+                    },
+                )
+            else:
+                retain_late(
+                    "video_decode_invalid",
+                    {"outcome": "UNKNOWN", "raw_type": type(raw_decode).__name__},
+                )
+            raise
+        if "browser_lifecycle" in decoded and not isinstance(
+            decoded["browser_lifecycle"], dict
+        ):
+            raw_bytes = raw_decode.encode()
+            retain_late(
+                "video_decode_invalid",
+                {
+                    "outcome": "UNKNOWN",
+                    "raw_sha256": digest(raw_bytes),
+                    "raw_bytes": len(raw_bytes),
+                },
+            )
+            raise ValueError("Invalid video browser lifecycle")
         # Retain the native lifecycle receipt even when launch/close timed out.
         # Caller deadlines do not prove the remote browser stopped billing.
         decoder_confirmed = (
@@ -2099,10 +3040,14 @@ class Database(DurableObject):
             outcome="RECEIVED" if decoder_confirmed else "UNKNOWN",
         )
         current = current_job()
+        if not same_attempt(current, dispatched):
+            retain_late("video_decode", {"browser": job["browser"]})
+            return
         current.update(browser=job["browser"])
         self.save_job(current)
-        if current["status"] != "RUNNING":
+        if current.get("status") != "RUNNING":
             return
+        dispatched = json.loads(json.dumps(current, ensure_ascii=False))
         if not decoder_confirmed:
             raise WebInputError(
                 "Chưa xác nhận giải mã hoặc đóng phiên video cloud; không gọi AI, giữ reservation."
@@ -2142,9 +3087,8 @@ class Database(DurableObject):
         # Raw derived bytes stay transient; only originals/native results and
         # decoder hashes/locators persist. Do not fill storage with base64 copies.
         current = current_job()
-        if current["status"] != "RUNNING":
-            current.update(browser=job["browser"])
-            self.save_job(current)
+        if current != dispatched:
+            retain_late("video_decode_metadata", {"browser": job["browser"]})
             return
         self.save_job(job)
         results = {}
@@ -2173,8 +3117,12 @@ class Database(DurableObject):
                 sha,
             ),
         ):
-            if not allowed():
-                if current_job()["status"] == "CANCELLED":
+            # A hold can arrive while the decoder or preceding provider call
+            # is in flight. Preserve its result but do not dispatch another.
+            if self.observation_only() or self._restore_hold():
+                return
+            if not allowed() or current_job() != job:
+                if current_job().get("status") == "CANCELLED":
                     return
                 raise WebInputError(
                     "Bằng chứng hạn mức video hết hạn trước bước tiếp; không gọi model còn lại, giữ reservation."
@@ -2192,14 +3140,40 @@ class Database(DurableObject):
             job["calls"].append(call)
             job["stage"] = len(job["calls"])
             self.save_job(job)
+            dispatched = json.loads(json.dumps(job, ensure_ascii=False))
             encoded = await reader(
                 python_to_rpc(self.env.AI),
                 json.dumps({**data, "request_id": request_id}),
                 str(self.env.CREATOR_VERSION.id),
             )
-            if len(encoded.encode()) > 512 * 1024:
-                raise ValueError("Video native response exceeds bound")
-            response = json.loads(encoded)
+            try:
+                if not isinstance(encoded, str) or len(encoded.encode()) > 512 * 1024:
+                    raise ValueError("Video native response exceeds bound")
+                response = json.loads(encoded)
+                if not isinstance(response, dict):
+                    raise ValueError("Invalid video native envelope")
+            except (ValueError, TypeError):
+                if isinstance(encoded, str):
+                    raw_bytes = encoded.encode()
+                    retain_late(
+                        stage + "_invalid",
+                        {
+                            "call": call,
+                            "outcome": "UNKNOWN",
+                            "raw_sha256": digest(raw_bytes),
+                            "raw_bytes": len(raw_bytes),
+                        },
+                    )
+                else:
+                    retain_late(
+                        stage + "_invalid",
+                        {
+                            "call": call,
+                            "outcome": "UNKNOWN",
+                            "raw_type": type(encoded).__name__,
+                        },
+                    )
+                raise
             call.update(
                 outcome="UNKNOWN" if response.get("unknown_outcome") else "RECEIVED",
                 finished_at=time.time(),
@@ -2210,6 +3184,9 @@ class Database(DurableObject):
             if response.get("unknown_outcome"):
                 job["unknown_outcome"] = True
             current = current_job()
+            if not same_attempt(current, dispatched):
+                retain_late(stage, {"call": call, "response": response})
+                return
             if current["status"] != "RUNNING":
                 current.update(
                     calls=job["calls"],
@@ -2219,6 +3196,10 @@ class Database(DurableObject):
                 self.save_job(current)
                 return
             self.save_job(job)
+            # A result can arrive after a hold. Preserve its receipt in the job
+            # but do not validate/finalize or dispatch another stage yet.
+            if self.observation_only() or self._restore_hold():
+                return
             if (
                 not response.get("ok")
                 or response.get("model") != model
@@ -2256,6 +3237,122 @@ class Database(DurableObject):
         finally:
             self.discard_projection(root)
 
+    def retain_audio_chunk_response(self, job_id, envelope):
+        """Retain a reserved receipt before attempting review materialization.
+
+        Internal callback only. It never starts a provider request, changes a
+        grant, schedules an alarm, or treats an UNKNOWN request as retriable.
+        """
+        from creator_loop.backend.knowledge.audio_chunk_journal import (
+            record_chunk_response,
+            store_received_chunk_for_review,
+        )
+
+        if not isinstance(job_id, str) or not re.fullmatch(r"[a-f0-9]{32}", job_id):
+            raise ValueError("Invalid chunk job")
+        key = "audio-chunks-" + job_id
+
+        def journal_receipt():
+            rows = self.rows("SELECT record FROM jobs WHERE id=?", job_id)
+            journals = self.rows("SELECT record FROM control WHERE id=?", key)
+            if len(rows) != 1 or len(journals) != 1:
+                raise ValueError("Chunk job or journal missing")
+            job = json.loads(rows[0]["record"])
+            if (
+                job.get("kind") != "SOURCE_TRANSCRIPTION"
+                or job.get("status")
+                not in ("RUNNING", "WAITING_QUOTA", "CANCELLED", "FAILED")
+                or not isinstance(job.get("request"), dict)
+                or not isinstance(job["request"].get("file_id"), str)
+            ):
+                raise ValueError("Chunk job is not eligible for receipt")
+            with closing(sqlite3.connect(":memory:")) as db:
+                db.execute(
+                    "CREATE TABLE control(id TEXT PRIMARY KEY, record TEXT NOT NULL)"
+                )
+                db.execute(
+                    "INSERT INTO control VALUES(?,?)", (key, journals[0]["record"])
+                )
+                db.commit()
+                outcome = record_chunk_response(db, run_id=job_id, envelope=envelope)
+                saved = db.execute(
+                    "SELECT record FROM control WHERE id=?", (key,)
+                ).fetchone()[0]
+            self.sql.exec("UPDATE control SET record=? WHERE id=?", saved, key)
+            return outcome
+
+        # The provider response is durable even if projection, media capacity,
+        # hash checks or the later checkpoint transaction fail.
+        outcome = self.ctx.storage.transactionSync(journal_receipt)
+        if outcome != "RECEIVED" or self.observation_only() or self._restore_hold():
+            return {"outcome": outcome, "partial": None}
+        root, revision = self.load()
+        try:
+
+            def retain():
+                rows = self.rows("SELECT record FROM jobs WHERE id=?", job_id)
+                journals = self.rows("SELECT record FROM control WHERE id=?", key)
+                if len(rows) != 1 or len(journals) != 1:
+                    raise ValueError("Chunk job or journal missing")
+                job = json.loads(rows[0]["record"])
+                if (
+                    job.get("kind") != "SOURCE_TRANSCRIPTION"
+                    or job.get("status")
+                    not in ("RUNNING", "WAITING_QUOTA", "CANCELLED", "FAILED")
+                    or not isinstance(job.get("request"), dict)
+                    or not isinstance(job["request"].get("file_id"), str)
+                ):
+                    raise ValueError("Chunk job is not eligible for receipt")
+                with closing(_connect_write(root / "creator_loop.sqlite3")) as db:
+                    db.execute(
+                        "CREATE TEMP TABLE control(id TEXT PRIMARY KEY, record TEXT NOT NULL)"
+                    )
+                    db.execute(
+                        "INSERT INTO control VALUES(?,?)", (key, journals[0]["record"])
+                    )
+                    db.commit()
+                    journal = json.loads(
+                        db.execute(
+                            "SELECT record FROM control WHERE id=?", (key,)
+                        ).fetchone()[0]
+                    )
+                    matches = [
+                        i
+                        for i, part in enumerate(journal["chunks"])
+                        if part["request_id"] == envelope["request_id"]
+                    ]
+                    if len(matches) != 1:
+                        raise ValueError("Chunk receipt identity changed")
+                    part = journal["chunks"][matches[0]]
+                    partial = part.get("partial_artifact")
+                    if (
+                        partial is None
+                        and job["status"] in ("RUNNING", "WAITING_QUOTA")
+                        and not self.observation_only()
+                        and not self._restore_hold()
+                    ):
+                        partial = store_received_chunk_for_review(
+                            db,
+                            data_root=root,
+                            run_id=job_id,
+                            file_id=job["request"]["file_id"],
+                            index=matches[0],
+                        )
+                        raw = (
+                            root / ("storage/derived/" + partial["sha256"])
+                        ).read_bytes()
+                        self.put_object(partial["sha256"], raw)
+                        self.commit(root, revision)
+                    saved = db.execute(
+                        "SELECT record FROM control WHERE id=?", (key,)
+                    ).fetchone()[0]
+                self.sql.exec("UPDATE control SET record=? WHERE id=?", saved, key)
+                return {"outcome": outcome, "partial": partial}
+
+            return self.ctx.storage.transactionSync(retain)
+        finally:
+            self.discard_projection(root)
+
     async def extract_source(self, job):
         image = job.get("kind") == "SOURCE_IMAGE_ANALYSIS"
         model = IMAGE_MODEL if image else WHISPER_MODEL
@@ -2288,6 +3385,14 @@ class Database(DurableObject):
             }
         finally:
             self.discard_projection(root)
+        # alarm() awaits persistence of the lease wakeup before reaching this
+        # path. A cancel or ownership change can occur during that await; never
+        # overwrite the newer record or cross the provider boundary with the
+        # stale RUNNING object. There is no await between this check and the
+        # persisted call reservation below.
+        live_job = self.rows("SELECT record FROM jobs WHERE id=?", job["id"])
+        if len(live_job) != 1 or json.loads(live_job[0]["record"]) != job:
+            return
         grant = job.get("grant", {})
         if (
             not valid_included_grant(grant, model, time.time())
@@ -2297,6 +3402,9 @@ class Database(DurableObject):
             raise WebInputError(
                 "Quyền đọc nguồn/quota đã hết hạn trước khi gửi. Chưa gọi AI; giữ reservation, không tự thử lại."
             )
+        live_grant = self.rows("SELECT record FROM control WHERE id='grant'")
+        if len(live_grant) != 1 or json.loads(live_grant[0]["record"]) != grant:
+            raise WebInputError("Reservation đã thay đổi; chưa gọi AI, không tự retry.")
         call = {
             "stage": "image_analysis" if image else "transcription",
             "request_id": job["id"],
@@ -2307,6 +3415,8 @@ class Database(DurableObject):
         job["calls"].append(call)
         job["stage"] = 1
         self.save_job(job)
+        dispatched_call = dict(call)
+        dispatched_job = json.loads(json.dumps(job, ensure_ascii=False))
         sdk = import_from_javascript("creator_ai.mjs")
         reader = sdk.analyzeSourceImage if image else sdk.transcribeSource
         encoded = await reader(
@@ -2317,6 +3427,35 @@ class Database(DurableObject):
         if len(encoded.encode()) > 512 * 1024:
             raise ValueError("Source response exceeds retained protocol")
         response = json.loads(encoded)
+        chunk = job.get("audio_chunk_receipt")
+        if chunk is not None:
+            # Only a previously reserved internal chunk can reach this branch.
+            # Chunk planning/dispatch remains disabled until a real quota guard
+            # and a verified decoder adapter are implemented.
+            if (
+                image
+                or not isinstance(chunk, dict)
+                or not response.get("ok")
+                or response.get("model_calls") != 1
+                or response.get("request_id") != chunk.get("request_id")
+                or response.get("input_sha256") != chunk.get("input_sha256")
+                or response.get("model") != chunk.get("model")
+                or response.get("worker_version") != chunk.get("deployment")
+            ):
+                raise ValueError("Chunk provider response binding rejected")
+            self.retain_audio_chunk_response(
+                job["id"],
+                {
+                    "request_id": chunk["request_id"],
+                    "source_sha256": chunk["source_sha256"],
+                    "input_sha256": chunk["input_sha256"],
+                    "model": chunk["model"],
+                    "deployment": chunk["deployment"],
+                    "native_response": response.get("native_response"),
+                    "native_usage": response.get("native_usage"),
+                },
+            )
+            return
         call.update(
             outcome="UNKNOWN" if response.get("unknown_outcome") else "RECEIVED",
             finished_at=time.time(),
@@ -2326,14 +3465,61 @@ class Database(DurableObject):
         if response.get("unknown_outcome"):
             job["unknown_outcome"] = True
         job["stage_outputs"] = [response]
-        current = json.loads(
-            self.rows("SELECT record FROM jobs WHERE id=?", job["id"])[0]["record"]
-        )
+        live = self.rows("SELECT record FROM jobs WHERE id=?", job["id"])
+        try:
+            current = json.loads(live[0]["record"]) if len(live) == 1 else {}
+        except (TypeError, ValueError, KeyError):
+            current = {}
+        if not isinstance(current, dict):
+            current = {}
+        attempts = current.get("calls", [])
+        if (
+            current.get("lease_until") != job.get("lease_until")
+            or current.get("request") != job.get("request")
+            or current.get("sources") != job.get("sources")
+            or current.get("grant") != job.get("grant")
+            or current.get("kind") != job.get("kind")
+            or not isinstance(attempts, list)
+            or len(attempts) != 1
+            or not isinstance(attempts[0], dict)
+            or attempts[0] != dispatched_call
+            or current.get("status") not in ("RUNNING", "CANCELLED", "FAILED")
+            or (current.get("status") == "RUNNING" and current != dispatched_job)
+        ):
+            # An old invocation may return after another owner takes over.
+            # Preserve the bounded envelope separately; do not replace the new
+            # job, create source evidence, or interpret it as settled usage.
+            attempt = digest(
+                json.dumps(
+                    [
+                        job["id"],
+                        call["reserved_at"],
+                        job.get("lease_until"),
+                        digest(encoded.encode()),
+                    ],
+                    separators=(",", ":"),
+                ).encode()
+            )
+            self.sql.exec(
+                "INSERT INTO control VALUES(?,?) ON CONFLICT(id) DO NOTHING",
+                "late-source-" + job["id"] + "-" + attempt,
+                json.dumps(
+                    {"call": call, "response": response, "job_id": job["id"]},
+                    ensure_ascii=False,
+                ),
+            )
+            return
         if current["status"] != "RUNNING":
             current.update(calls=job["calls"], stage_outputs=job["stage_outputs"])
+            if job.get("unknown_outcome"):
+                current["unknown_outcome"] = True
             self.save_job(current)
             return
         self.save_job(job)
+        # Retain a response that arrived during a hold, without creating domain
+        # evidence or treating this as a complete snapshot of late writes.
+        if self.observation_only() or self._restore_hold():
+            return
         if (
             not response.get("ok")
             or response.get("model") != model
@@ -2548,6 +3734,17 @@ class Database(DurableObject):
         self.save_job(current)
 
     async def alarm(self):
+        if self.observation_only() or self._restore_hold():
+            # Record that an event was consumed before returning. This is not
+            # its scheduled timestamp and does not fence an old invocation.
+            # Every delivery gets a separate marker; this is not proof that a
+            # particular maintenance window was fenced or the event was unique.
+            self.sql.exec(
+                "INSERT INTO control VALUES(?,?)",
+                "observation-alarm-" + uuid4().hex,
+                json.dumps({"observed_at": time.time(), "scheduled_at": None}),
+            )
+            return
         pending = self.rows(
             "SELECT record FROM jobs WHERE status IN ('QUEUED','RUNNING') ORDER BY rowid LIMIT 1"
         )
@@ -2565,9 +3762,27 @@ class Database(DurableObject):
             )
             self.sync_run(job)
             return
+        if job.get(
+            "kind"
+        ) == "SOURCE_TRANSCRIPTION" and not source_audio_quota_verified(self.env, job):
+            # A caller-declared grant does not prove account-wide pending usage
+            # or provider overage. Keep the queued domain run and reservation;
+            # do not issue, retry, or schedule an inference. Reopening requires
+            # a future verified per-resource reservation, not a clock reset.
+            job.update(
+                status="WAITING_QUOTA",
+                message="Đang chờ xác minh hạn mức an toàn; chưa gửi yêu cầu mới.",
+                resume_requires="VERIFIED_ACCOUNT_AND_PROVIDER_RESERVATION",
+            )
+            self.save_job(job)
+            return
         job.update(status="RUNNING", lease_until=time.time() + 600, stage_outputs=[])
         self.sync_run(job)
         await self.ctx.storage.setAlarm(int(job["lease_until"] * 1000) + 1)
+        # A restore hold may be written while setAlarm is awaiting storage.
+        # Keep the RUNNING record and its lease alarm; do not dispatch work.
+        if self.observation_only() or self._restore_hold():
+            return
         try:
             if job.get("kind") == "QA_EDITING_DIAGNOSTIC":
                 await self.probe_editing(job)
@@ -2596,12 +3811,16 @@ class Database(DurableObject):
             for index, stage in enumerate(
                 ("analysis", "writing", "editing", "source_audit")
             ):
+                # The prior stage may have returned after a hold was installed.
+                # Its receipt was persisted below; do not cross another boundary.
+                if self.observation_only() or self._restore_hold():
+                    return
                 current = json.loads(
                     self.rows("SELECT record FROM jobs WHERE id=?", job["id"])[0][
                         "record"
                     ]
                 )
-                if current["status"] == "CANCELLED":
+                if current != job:
                     return
                 packet = {
                     "prompt": prompt,
@@ -2627,14 +3846,43 @@ class Database(DurableObject):
                 job["calls"].append(call)
                 job["stage"] = index + 1
                 self.save_job(job)
-                result = json.loads(
-                    await sdk.stage(
-                        python_to_rpc(self.env.AI),
-                        self.env.CREATOR_MODEL,
-                        encoded,
-                        str(self.env.CREATOR_VERSION.id),
-                    )
+                dispatched = json.loads(json.dumps(job, ensure_ascii=False))
+                raw_stage = await sdk.stage(
+                    python_to_rpc(self.env.AI),
+                    self.env.CREATOR_MODEL,
+                    encoded,
+                    str(self.env.CREATOR_VERSION.id),
                 )
+                try:
+                    if not isinstance(raw_stage, str):
+                        raise TypeError("Invalid native stage envelope type")
+                    result = json.loads(raw_stage)
+                    if not isinstance(result, dict) or "model_calls" not in result:
+                        raise ValueError("Invalid native stage envelope")
+                except (TypeError, ValueError):
+                    details = {
+                        "job_id": job["id"],
+                        "stage": stage,
+                        "call": call,
+                        "outcome": "UNKNOWN",
+                    }
+                    if isinstance(raw_stage, str):
+                        raw_bytes = raw_stage.encode()
+                        details.update(
+                            raw_sha256=digest(raw_bytes), raw_bytes=len(raw_bytes)
+                        )
+                    else:
+                        details["raw_type"] = type(raw_stage).__name__
+                    envelope = json.dumps(
+                        details, sort_keys=True, separators=(",", ":")
+                    )
+                    attempt = digest((call["request_id"] + envelope).encode())
+                    self.sql.exec(
+                        "INSERT INTO control VALUES(?,?) ON CONFLICT(id) DO NOTHING",
+                        "late-source-" + job["id"] + "-" + attempt,
+                        envelope,
+                    )
+                    raise
                 call.update(
                     outcome="RECEIVED",
                     finished_at=time.time(),
@@ -2645,17 +3893,62 @@ class Database(DurableObject):
                     measured_usage=result.get("native_usage"),
                 )
                 job["stage_outputs"].append(result)
-                current = json.loads(
-                    self.rows("SELECT record FROM jobs WHERE id=?", job["id"])[0][
-                        "record"
-                    ]
-                )
+                live = self.rows("SELECT record FROM jobs WHERE id=?", job["id"])
+                try:
+                    current = json.loads(live[0]["record"]) if len(live) == 1 else {}
+                except (TypeError, ValueError, KeyError):
+                    current = {}
+                if not isinstance(current, dict):
+                    current = {}
+                same = current == dispatched
+                if current.get("status") == "CANCELLED":
+                    candidate = {
+                        **current,
+                        "status": dispatched["status"],
+                        "message": dispatched.get("message"),
+                    }
+                    if "message" not in dispatched:
+                        candidate.pop("message", None)
+                    same = candidate == dispatched
+                if not same:
+                    envelope = json.dumps(
+                        {
+                            "job_id": job["id"],
+                            "stage": stage,
+                            "call": call,
+                            "response": result,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    if len(envelope.encode()) > 768 * 1024:
+                        envelope = json.dumps(
+                            {
+                                "job_id": job["id"],
+                                "stage": stage,
+                                "call": call,
+                                "outcome": "UNKNOWN",
+                                "response_sha256": digest(envelope.encode()),
+                            },
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                    attempt = digest((call["request_id"] + envelope).encode())
+                    self.sql.exec(
+                        "INSERT INTO control VALUES(?,?) ON CONFLICT(id) DO NOTHING",
+                        "late-source-" + job["id"] + "-" + attempt,
+                        envelope,
+                    )
+                    return
                 if current["status"] == "CANCELLED":
                     current["calls"] = job["calls"]
                     current["stage_outputs"] = job["stage_outputs"]
                     self.save_job(current)
                     return
                 self.save_job(job)
+                if self.observation_only() or self._restore_hold():
+                    return
                 if (
                     not result.get("ok")
                     or result.get("model") != self.env.CREATOR_MODEL
@@ -2761,20 +4054,140 @@ class Database(DurableObject):
             finally:
                 self.discard_projection(root)
         except Exception as error:
-            current = json.loads(
-                self.rows("SELECT record FROM jobs WHERE id=?", job["id"])[0]["record"]
-            )
-            if current["status"] != "CANCELLED":
-                job.update(
+            live = self.rows("SELECT record FROM jobs WHERE id=?", job["id"])
+            if len(live) != 1:
+                return
+            try:
+                current = json.loads(live[0]["record"])
+            except (TypeError, ValueError, KeyError):
+                return
+            if not isinstance(current, dict):
+                return
+            same_source_attempt = False
+            if (
+                current.get("status") == "RUNNING"
+                and job.get("kind") in ("SOURCE_TRANSCRIPTION", "SOURCE_IMAGE_ANALYSIS")
+                and all(
+                    current.get(k) == job.get(k)
+                    for k in (
+                        "id",
+                        "kind",
+                        "lease_until",
+                        "request",
+                        "sources",
+                        "grant",
+                    )
+                )
+                and isinstance(current.get("calls"), list)
+                and isinstance(job.get("calls"), list)
+                and len(current["calls"]) == len(job["calls"]) == 1
+                and isinstance(current["calls"][0], dict)
+                and isinstance(job["calls"][0], dict)
+            ):
+                completed = job["calls"][0]
+                reserved = {
+                    k: completed.get(k)
+                    for k in ("stage", "request_id", "reserved_at", "input_sha256")
+                }
+                reserved["outcome"] = "UNKNOWN"
+                same_source_attempt = current["calls"][0] == reserved
+                if same_source_attempt:
+                    current["calls"] = job["calls"]
+                    current["stage_outputs"] = job.get("stage_outputs", [])
+                    if job.get("unknown_outcome"):
+                        current["unknown_outcome"] = True
+            if (
+                not same_source_attempt
+                and current.get("status") == "RUNNING"
+                and job.get("kind") in ("SOURCE_TRANSCRIPTION", "SOURCE_IMAGE_ANALYSIS")
+                and isinstance(job.get("calls"), list)
+                and len(job["calls"]) == 1
+                and current == {**job, "calls": [], "stage": 0, "stage_outputs": []}
+            ):
+                # A failed atomic finalization can roll back its uncommitted
+                # reservation write together with the failed transaction. Only
+                # an otherwise exact owner snapshot may receive the envelope.
+                same_source_attempt = True
+                current["calls"] = job["calls"]
+                current["stage"] = job["stage"]
+                current["stage_outputs"] = job.get("stage_outputs", [])
+                if job.get("unknown_outcome"):
+                    current["unknown_outcome"] = True
+            if current.get("status") == "RUNNING" and (
+                current == job or same_source_attempt
+            ):
+                current.update(
                     status="FAILED",
                     finished_at=time.time(),
                     message=str(error)
                     if isinstance(error, WebInputError)
                     else "Không hoàn tất; không tự retry/fallback. Kiểm kết quả từng request trước lượt mới.",
                 )
-                self.sync_run(job)
+                self.sync_run(current)
 
 
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
-        return await self.env.DATABASE.getByName("private-owner-v1").fetch(request)
+        # This is only an ingress gate in this deployed version. It cannot fence
+        # old Worker versions, alarms, or external calls already dispatched.
+        ingress = getattr(self.env, "B_WEB_BLOCK_INGRESS", "")
+        if ingress not in ("", "0"):
+            return reply({"error": "Worker ingress is temporarily paused"}, 503)
+        name = getattr(self.env, "B_WEB_QA_RESTORE_OBJECT_NAME", "")
+        fixture_mode = getattr(self.env, "B_WEB_QA_HOSTNAME", "") == (
+            "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
+        )
+        if (
+            urlsplit(request.url).hostname
+            == "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev"
+            and not fixture_mode
+        ):
+            return reply({"error": "Isolated QA hostname is not configured"}, 503)
+        if fixture_mode:
+            source = getattr(self.env, "B_WEB_QA_SOURCE_OBJECT_NAME", "")
+            if (
+                not isinstance(name, str)
+                or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", name)
+                or not isinstance(source, str)
+                or not re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", source)
+                or source == name
+                or not valid_isolated_qa_host(urlsplit(request.url), self.env)
+            ):
+                return reply({"error": "Isolated QA objects are not configured"}, 503)
+            secret = getattr(self.env, "OPERATOR_KEY", "")
+            if not secret or not hmac.compare_digest(
+                request.headers.get("X-Operator-Key") or "", secret
+            ):
+                return reply({"error": "Isolated QA operator required"}, 403)
+            if not fixture_request_matches_version(request, self.env):
+                return reply({"error": "Isolated QA Worker version mismatch"}, 409)
+            path = urlsplit(request.url).path
+            if path in ("/api/qa-snapshot-staging", "/api/qa-snapshot-export"):
+                parsed = urlsplit(request.url)
+                if (
+                    request.method != "POST"
+                    or request.headers.get("Origin")
+                    != parsed.scheme + "://" + parsed.netloc
+                    or request.headers.get("Content-Type") != "application/json"
+                ):
+                    return reply({"error": "Isolated QA operator required"}, 403)
+                role = request.headers.get("X-QA-Object")
+                if role not in ("source", "target") or (
+                    path == "/api/qa-snapshot-export" and role != "source"
+                ):
+                    return reply({"error": "Isolated QA object role required"}, 403)
+                name = source if role == "source" else name
+        if name:
+            allowed = (
+                isinstance(name, str)
+                and re.fullmatch("qa-isolated-restore-[a-f0-9]{32}", name)
+                and getattr(self.env, "B_WEB_OBSERVATION_ONLY", "") == "1"
+                and getattr(self.env, "B_WEB_ISOLATED_RESTORE", "") == "1"
+                and getattr(self.env, "B_WEB_QA_READONLY_LOGIN", "") == "1"
+                and valid_isolated_qa_host(urlsplit(request.url), self.env)
+            )
+            if not allowed:
+                return reply({"error": "Invalid isolated restore routing"}, 503)
+        else:
+            name = "private-owner-v1"
+        return await self.env.DATABASE.getByName(name).fetch(request)
