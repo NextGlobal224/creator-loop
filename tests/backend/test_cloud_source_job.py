@@ -425,6 +425,27 @@ class CloudSourceJobTests(unittest.TestCase):
         job = self.job()
         self.assertEqual(job["audio_chunk_receipt"], packet)
         self.assertEqual(job["sources"][0]["request_id"], packet["request_id"])
+        with self.assertRaisesRegex(ValueError, "identity mismatch"):
+            asyncio.run(self.api.extract_source(job))
+        with self.assertRaisesRegex(ValueError, "decoded chunk changed"):
+            asyncio.run(self.api.extract_source(job, decoded_chunk=pcm(1)))
+        self.api.env.CREATOR_VERSION.id = "wrong-deployment"
+        try:
+            with self.assertRaisesRegex(ValueError, "identity mismatch"):
+                asyncio.run(self.api.extract_source(job, decoded_chunk=raw))
+        finally:
+            self.api.env.CREATOR_VERSION.id = "fixture-deployment"
+        self.api._restore_hold = lambda: True
+        try:
+            with self.assertRaisesRegex(WebInputError, "Chunk guard"):
+                asyncio.run(self.api.extract_source(job, decoded_chunk=raw))
+        finally:
+            self.api._restore_hold = restore_hold
+        namespace["source_audio_quota_verified"] = lambda env, job: False
+        with self.assertRaisesRegex(WebInputError, "Chunk guard"):
+            asyncio.run(self.api.extract_source(job, decoded_chunk=raw))
+        self.assertEqual(self.calls, 0)
+        namespace["source_audio_quota_verified"] = lambda env, job: True
         original_provider = namespace["import_from_javascript"](
             "creator_ai.mjs"
         ).transcribeSource
@@ -432,6 +453,10 @@ class CloudSourceJobTests(unittest.TestCase):
         async def fake_provider(binding, encoded, deployment):
             result = await original_provider(binding, encoded, deployment)
             waiting = self.job()
+            # A crash/restart after the durable UNKNOWN call record must not
+            # permit dispatching the same request a second time.
+            with self.assertRaisesRegex(ValueError, "not dispatchable"):
+                await self.api.extract_source(waiting, decoded_chunk=raw)
             waiting["status"] = "WAITING_QUOTA"
             self.api.save_job(waiting)
             return result
@@ -439,7 +464,7 @@ class CloudSourceJobTests(unittest.TestCase):
         namespace["import_from_javascript"] = lambda _: SimpleNamespace(
             transcribeSource=fake_provider
         )
-        asyncio.run(self.api.extract_source(job))
+        asyncio.run(self.api.extract_source(job, decoded_chunk=raw))
         journal = json.loads(
             self.api.rows(
                 "SELECT record FROM control WHERE id=?", "audio-chunks-" + job["id"]
@@ -451,6 +476,9 @@ class CloudSourceJobTests(unittest.TestCase):
         self.assertTrue(
             journal["chunks"][0]["partial_artifact"]["evidence_version_ids"]
         )
+        with self.assertRaisesRegex(ValueError, "identity mismatch"):
+            asyncio.run(self.api.extract_source(self.job(), decoded_chunk=raw))
+        self.assertEqual(self.calls, 1)
 
     def test_partial_compressed_artifact_edit_and_relogin_through_worker(self):
         """Real Worker handlers; synthetic job/receipts, no cloud or AI."""
@@ -483,6 +511,11 @@ class CloudSourceJobTests(unittest.TestCase):
         ).value
         file_id, run_id = item["file_id"], "e" * 32
         chunk = pcm(2)
+        self.grant()
+        grant = json.loads(
+            self.api.rows("SELECT record FROM control WHERE id='grant'")[0]["record"]
+        )
+        grant.update(remaining_calls=0, reserved_pipeline=run_id)
 
         def response(packet):
             value = fake_response(packet)
@@ -527,13 +560,27 @@ class CloudSourceJobTests(unittest.TestCase):
                 self.api.sql.exec(
                     "INSERT INTO control VALUES(?,?)", "audio-chunks-" + run_id, journal
                 )
+                self.api.sql.exec(
+                    "UPDATE control SET record=? WHERE id='grant'", json.dumps(grant)
+                )
                 self.api.save_job(
                     {
                         "id": run_id,
                         "kind": "SOURCE_TRANSCRIPTION",
                         "status": "RUNNING",
                         "request": {"project_id": self.project, "file_id": file_id},
-                        "sources": [{"file_id": file_id}],
+                        "sources": [
+                            {
+                                "file_id": file_id,
+                                "input_sha256": hashlib.sha256(source).hexdigest(),
+                                "request_id": first["request_id"],
+                                "model": WHISPER_MODEL,
+                            }
+                        ],
+                        "audio_chunk_receipt": first,
+                        "grant": grant,
+                        "calls": [],
+                        "stage_outputs": [],
                     }
                 )
 
@@ -541,14 +588,47 @@ class CloudSourceJobTests(unittest.TestCase):
         finally:
             self.api.discard_projection(root)
 
-        # Fake-provider response goes through the real Worker internal callback.
+        # The M4A bytes are fixture input; the decoded PCM is synthetic. Route
+        # it through the actual Worker dispatch and receipt code using no network.
+        async def fake_chunk_provider(binding, encoded, deployment):
+            packet = json.loads(encoded)
+            self.assertEqual(base64.b64decode(packet["audio"]), chunk)
+            self.assertEqual(packet["input_sha256"], hashlib.sha256(chunk).hexdigest())
+            self.calls += 1
+            result = response(first)
+            return json.dumps(
+                {
+                    "ok": True,
+                    "model_calls": 1,
+                    "worker_version": deployment,
+                    **{
+                        k: result[k]
+                        for k in (
+                            "request_id",
+                            "input_sha256",
+                            "model",
+                            "native_response",
+                            "native_usage",
+                        )
+                    },
+                }
+            )
+
+        namespace["import_from_javascript"] = lambda _: SimpleNamespace(
+            transcribeSource=fake_chunk_provider
+        )
         put_object = self.api.put_object
         self.api.put_object = lambda *_: (_ for _ in ()).throw(
             ValueError("fixture capacity")
         )
         try:
             with self.assertRaisesRegex(ValueError, "fixture capacity"):
-                self.api.retain_audio_chunk_response(run_id, response(first))
+                job = json.loads(
+                    self.api.rows("SELECT record FROM jobs WHERE id=?", run_id)[0][
+                        "record"
+                    ]
+                )
+                asyncio.run(self.api.extract_source(job, decoded_chunk=chunk))
         finally:
             self.api.put_object = put_object
         retained_journal = json.loads(
@@ -558,6 +638,7 @@ class CloudSourceJobTests(unittest.TestCase):
         )
         self.assertEqual(retained_journal["chunks"][0]["state"], "RECEIVED")
         self.assertNotIn("partial_artifact", retained_journal["chunks"][0])
+        self.assertEqual(self.calls, 1)
         # Replay a retained receipt locally, never the provider request.
         received = self.api.retain_audio_chunk_response(run_id, response(first))
         self.assertEqual(received["outcome"], "RECEIVED")
@@ -759,7 +840,7 @@ class CloudSourceJobTests(unittest.TestCase):
         self.assertEqual(
             after.value["source_extraction"]["artifact_sha256"], summary["sha256"]
         )
-        self.assertEqual(self.calls, 0)
+        self.assertEqual(self.calls, 1)  # One in-process fake-provider call only.
 
     def test_provider_unknown_keeps_call_reservation_and_never_retries(self):
         async def failure(binding, packet, deployment):

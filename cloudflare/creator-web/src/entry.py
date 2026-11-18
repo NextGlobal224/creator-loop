@@ -3416,9 +3416,12 @@ class Database(DurableObject):
         finally:
             self.discard_projection(root)
 
-    async def extract_source(self, job):
+    async def extract_source(self, job, *, decoded_chunk=None):
         image = job.get("kind") == "SOURCE_IMAGE_ANALYSIS"
         model = IMAGE_MODEL if image else WHISPER_MODEL
+        chunk = job.get("audio_chunk_receipt")
+        if decoded_chunk is not None and chunk is None:
+            raise ValueError("Decoded audio requires a reserved chunk")
         root, _ = self.load()
         try:
             material = WebDomain(root)._project_original(
@@ -3434,18 +3437,72 @@ class Database(DurableObject):
             if row is None or row[0] != "storage/originals/" + row[1]:
                 raise ValueError("Source original changed")
             raw = (root / row[0]).read_bytes()
-            probe = probe_image(raw) if image else probe_pcm_wav(raw)
             source = job["sources"][0]
-            if probe.sha256 != source["input_sha256"] or (
-                probe.mime_type != source["mime_type"]
-                if image
-                else probe.duration_ms != source["duration_ms"]
-            ):
-                raise ValueError("Source identity changed after reservation")
-            packet = {
-                **{k: v for k, v in source.items() if k != "file_id"},
-                ("image" if image else "audio"): base64.b64encode(raw).decode(),
-            }
+            if chunk is not None:
+                if (
+                    image
+                    or job.get("kind") != "SOURCE_TRANSCRIPTION"
+                    or job.get("status") != "RUNNING"
+                    or not isinstance(chunk, dict)
+                    or not isinstance(decoded_chunk, bytes)
+                    or digest(raw) != row[1]
+                    or digest(raw) != source.get("input_sha256")
+                    or digest(raw) != chunk.get("source_sha256")
+                    or source.get("request_id") != chunk.get("request_id")
+                    or source.get("model") != model
+                    or chunk.get("model") != model
+                    or chunk.get("deployment") != str(self.env.CREATOR_VERSION.id)
+                ):
+                    raise ValueError("Reserved chunk or original identity mismatch")
+                probe = probe_pcm_wav(decoded_chunk)
+                if probe.sha256 != chunk.get("input_sha256"):
+                    raise ValueError("Reserved decoded chunk changed")
+                journals = self.rows(
+                    "SELECT record FROM control WHERE id=?", "audio-chunks-" + job["id"]
+                )
+                if len(journals) != 1:
+                    raise ValueError("Reserved chunk journal missing")
+                journal = json.loads(journals[0]["record"])
+                matches = [
+                    item
+                    for item in journal.get("chunks", [])
+                    if item.get("request_id") == chunk["request_id"]
+                ]
+                if (
+                    journal.get("source_sha256") != chunk["source_sha256"]
+                    or journal.get("model") != chunk["model"]
+                    or journal.get("deployment") != chunk["deployment"]
+                    or len(matches) != 1
+                    or matches[0].get("state") != "UNKNOWN"
+                    or matches[0].get("start_ms") != chunk.get("start_ms")
+                    or matches[0].get("probe", {}).get("sha256") != probe.sha256
+                    or matches[0].get("probe", {}).get("duration_ms")
+                    != probe.duration_ms
+                    # The existing grant reserves only one call for the entire
+                    # job. A new per-chunk budget protocol is needed before a
+                    # second chunk can ever cross the provider boundary.
+                    or bool(job["calls"])
+                ):
+                    raise ValueError("Reserved chunk is not dispatchable")
+                raw = decoded_chunk
+                packet = {
+                    **{k: v for k, v in source.items() if k != "file_id"},
+                    "input_sha256": probe.sha256,
+                    "duration_ms": probe.duration_ms,
+                    "audio": base64.b64encode(raw).decode(),
+                }
+            else:
+                probe = probe_image(raw) if image else probe_pcm_wav(raw)
+                if probe.sha256 != source["input_sha256"] or (
+                    probe.mime_type != source["mime_type"]
+                    if image
+                    else probe.duration_ms != source["duration_ms"]
+                ):
+                    raise ValueError("Source identity changed after reservation")
+                packet = {
+                    **{k: v for k, v in source.items() if k != "file_id"},
+                    ("image" if image else "audio"): base64.b64encode(raw).decode(),
+                }
         finally:
             self.discard_projection(root)
         # alarm() awaits persistence of the lease wakeup before reaching this
@@ -3468,12 +3525,18 @@ class Database(DurableObject):
         live_grant = self.rows("SELECT record FROM control WHERE id='grant'")
         if len(live_grant) != 1 or json.loads(live_grant[0]["record"]) != grant:
             raise WebInputError("Reservation đã thay đổi; chưa gọi AI, không tự retry.")
+        if chunk is not None and (
+            self.observation_only()
+            or self._restore_hold()
+            or not source_audio_quota_verified(self.env, job)
+        ):
+            raise WebInputError("Chunk guard chưa đủ điều kiện; chưa gọi AI.")
         call = {
             "stage": "image_analysis" if image else "transcription",
-            "request_id": job["id"],
+            "request_id": chunk["request_id"] if chunk is not None else job["id"],
             "reserved_at": time.time(),
             "outcome": "UNKNOWN",
-            "input_sha256": source["input_sha256"],
+            "input_sha256": packet["input_sha256"],
         }
         job["calls"].append(call)
         job["stage"] = 1
@@ -3490,7 +3553,6 @@ class Database(DurableObject):
         if len(encoded.encode()) > 512 * 1024:
             raise ValueError("Source response exceeds retained protocol")
         response = json.loads(encoded)
-        chunk = job.get("audio_chunk_receipt")
         if chunk is not None:
             # Only a previously reserved internal chunk can reach this branch.
             # Chunk planning/dispatch remains disabled until a real quota guard
