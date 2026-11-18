@@ -3237,6 +3237,69 @@ class Database(DurableObject):
         finally:
             self.discard_projection(root)
 
+    def reserve_audio_chunk(self, job_id, source, chunk):
+        """Reserve exactly one internal chunk before any provider dispatch.
+
+        This adapter does not create a plan, schedule work or make a request.
+        The production quota verifier remains closed until account-wide proof
+        and a compatible reservation mechanism are implemented.
+        """
+        from creator_loop.backend.knowledge.audio_chunk_journal import (
+            reserve_next_chunk,
+        )
+
+        if not isinstance(job_id, str) or not re.fullmatch(r"[a-f0-9]{32}", job_id):
+            raise ValueError("Invalid chunk job")
+        key = "audio-chunks-" + job_id
+
+        def reserve():
+            if self.observation_only() or self._restore_hold():
+                raise ValueError("Chunk reservation unavailable during hold")
+            rows = self.rows("SELECT record FROM jobs WHERE id=?", job_id)
+            journals = self.rows("SELECT record FROM control WHERE id=?", key)
+            if len(rows) != 1 or len(journals) != 1:
+                raise ValueError("Chunk job or journal missing")
+            job = json.loads(rows[0]["record"])
+            if (
+                job.get("kind") != "SOURCE_TRANSCRIPTION"
+                or job.get("status") != "RUNNING"
+                or not source_audio_quota_verified(self.env, job)
+            ):
+                raise ValueError("Chunk quota or active job is not verified")
+            sources = job.get("sources")
+            if (
+                not isinstance(source, bytes)
+                or not isinstance(sources, list)
+                or len(sources) != 1
+                or not isinstance(sources[0], dict)
+                or sources[0].get("input_sha256") != digest(source)
+            ):
+                raise ValueError("Chunk source identity mismatch")
+            with closing(sqlite3.connect(":memory:")) as db:
+                db.execute(
+                    "CREATE TABLE control(id TEXT PRIMARY KEY,record TEXT NOT NULL)"
+                )
+                db.execute(
+                    "INSERT INTO control VALUES(?,?)", (key, journals[0]["record"])
+                )
+                db.commit()
+                packet = reserve_next_chunk(
+                    db, run_id=job_id, source=source, chunk=chunk
+                )
+                saved = db.execute(
+                    "SELECT record FROM control WHERE id=?", (key,)
+                ).fetchone()[0]
+            self.sql.exec("UPDATE control SET record=? WHERE id=?", saved, key)
+            # Keep the callback binding in the same durable transaction as
+            # UNKNOWN. A crash cannot leave a dispatchable packet without its
+            # job identity, and a repeated reservation remains refused.
+            job["audio_chunk_receipt"] = packet
+            job["sources"][0]["request_id"] = packet["request_id"]
+            self.save_job(job)
+            return packet
+
+        return self.ctx.storage.transactionSync(reserve)
+
     def retain_audio_chunk_response(self, job_id, envelope):
         """Retain a reserved receipt before attempting review materialization.
 

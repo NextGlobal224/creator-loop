@@ -70,6 +70,7 @@ class CloudSourceJobTests(unittest.TestCase):
             "sync_run",
             "fetch",
             "authenticated",
+            "reserve_audio_chunk",
             "retain_audio_chunk_response",
         }
         for node in tree.body:
@@ -360,18 +361,70 @@ class CloudSourceJobTests(unittest.TestCase):
                 model=WHISPER_MODEL,
                 deployment="fixture-deployment",
             )
-            packet = reserve_next_chunk(db, run_id=job["id"], source=raw, chunk=raw)
             journal = db.execute(
                 "SELECT record FROM control WHERE id=?", ("audio-chunks-" + job["id"],)
             ).fetchone()[0]
-        job["audio_chunk_receipt"] = packet
-        job["sources"][0]["request_id"] = packet["request_id"]
         with self.fixture.coord:
             self.api.sql.exec(
                 "INSERT INTO control VALUES(?,?)", "audio-chunks-" + job["id"], journal
             )
-            self.api.save_job(job)
+        job.update(status="RUNNING", lease_until=time.time() + 600, stage_outputs=[])
+        self.api.sync_run(job)
         namespace = self.api.authorized.__func__.__globals__
+        namespace["source_audio_quota_verified"] = lambda env, job: False
+        with self.assertRaisesRegex(ValueError, "not verified"):
+            self.api.reserve_audio_chunk(job["id"], raw, raw)
+        namespace["source_audio_quota_verified"] = lambda env, job: True
+        restore_hold = self.api._restore_hold
+        self.api._restore_hold = lambda: True
+        try:
+            with self.assertRaisesRegex(ValueError, "during hold"):
+                self.api.reserve_audio_chunk(job["id"], raw, raw)
+        finally:
+            self.api._restore_hold = restore_hold
+        with self.assertRaisesRegex(ValueError, "identity mismatch"):
+            self.api.reserve_audio_chunk(job["id"], raw + b"x", raw)
+        execute = self.api.sql.exec
+
+        def fail_update(query, *args):
+            if query.startswith("UPDATE control SET record="):
+                raise RuntimeError("fixture storage failure")
+            return execute(query, *args)
+
+        self.api.sql.exec = fail_update
+        try:
+            with self.assertRaisesRegex(RuntimeError, "fixture storage failure"):
+                self.api.reserve_audio_chunk(job["id"], raw, raw)
+        finally:
+            self.api.sql.exec = execute
+        retained = json.loads(
+            self.api.rows(
+                "SELECT record FROM control WHERE id=?", "audio-chunks-" + job["id"]
+            )[0]["record"]
+        )
+        self.assertEqual(retained["chunks"][0]["state"], "READY")
+        self.assertEqual(self.calls, 0)
+        save_job = self.api.save_job
+        self.api.save_job = lambda _job: (_ for _ in ()).throw(
+            RuntimeError("fixture job failure")
+        )
+        try:
+            with self.assertRaisesRegex(RuntimeError, "fixture job failure"):
+                self.api.reserve_audio_chunk(job["id"], raw, raw)
+        finally:
+            self.api.save_job = save_job
+        retained = json.loads(
+            self.api.rows(
+                "SELECT record FROM control WHERE id=?", "audio-chunks-" + job["id"]
+            )[0]["record"]
+        )
+        self.assertEqual(retained["chunks"][0]["state"], "READY")
+        packet = self.api.reserve_audio_chunk(job["id"], raw, raw)
+        with self.assertRaisesRegex(ValueError, "outcome unknown"):
+            self.api.reserve_audio_chunk(job["id"], raw, raw)
+        job = self.job()
+        self.assertEqual(job["audio_chunk_receipt"], packet)
+        self.assertEqual(job["sources"][0]["request_id"], packet["request_id"])
         original_provider = namespace["import_from_javascript"](
             "creator_ai.mjs"
         ).transcribeSource
@@ -386,7 +439,7 @@ class CloudSourceJobTests(unittest.TestCase):
         namespace["import_from_javascript"] = lambda _: SimpleNamespace(
             transcribeSource=fake_provider
         )
-        asyncio.run(self.api.alarm())
+        asyncio.run(self.api.extract_source(job))
         journal = json.loads(
             self.api.rows(
                 "SELECT record FROM control WHERE id=?", "audio-chunks-" + job["id"]
