@@ -16,6 +16,7 @@ class WebRuntimePackageTests(unittest.TestCase):
         web = repo / "cloudflare/creator-web"
         files = {
             "cloudflare/creator-web/wrangler.jsonc": "{}",
+            "cloudflare/creator-web/wrangler.snapshot-qa.jsonc": "{}",
             "cloudflare/creator-web/src/entry.py": "# fixture",
             "cloudflare/creator-web/src/creator_ai.mjs": "// fixture",
             "cloudflare/creator-web/src/migrations/001.sql": "SELECT 1;",
@@ -71,6 +72,7 @@ class WebRuntimePackageTests(unittest.TestCase):
             self.package(web)
             with zipfile.ZipFile(web / "b-web-runtime.zip") as archive:
                 manifest = json.loads(archive.read("runtime.json"))
+                self.assertIn("worker/wrangler.snapshot-qa.jsonc", manifest["files"])
                 self.assertIn("worker/public/login.js", manifest["files"])
                 self.assertIn("worker/public/pending.mjs", manifest["files"])
                 self.assertIn("worker/public/operator-grant.mjs", manifest["files"])
@@ -82,6 +84,11 @@ class WebRuntimePackageTests(unittest.TestCase):
                 )
 
     def test_missing_required_or_referenced_file_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            web = self.fixture(directory)
+            (web / "wrangler.snapshot-qa.jsonc").unlink()
+            with self.assertRaises((AssertionError, FileNotFoundError)):
+                self.package(web)
         for name in (
             "login.js",
             "pending.mjs",

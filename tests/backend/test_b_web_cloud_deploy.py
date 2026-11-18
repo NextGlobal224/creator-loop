@@ -5,9 +5,16 @@ import hashlib
 import io
 import json
 import os
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import threading
 import unittest
 import zipfile
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from scripts.b_web_cloud_deploy import (
@@ -21,6 +28,7 @@ from scripts.b_web_cloud_deploy import (
     observe_activated_runtime,
     read_included_usage,
     read_json,
+    require_idle_jobs,
     runtime_files,
     static_header_policy,
     storage_compatible,
@@ -30,6 +38,2548 @@ from scripts.b_web_cloud_deploy import (
 
 
 class CloudDeploymentTests(unittest.TestCase):
+    def setUp(self):
+        # Deployment unit tests must never contact Cloudflare, even when a mock
+        # is accidentally installed after an adapter is constructed.
+        for target in ("socket.create_connection", "socket.socket.connect"):
+            guard = patch(
+                target, side_effect=AssertionError("network forbidden in unit test")
+            )
+            guard.start()
+            self.addCleanup(guard.stop)
+
+    def test_fixture_full_request_forecast_and_screen_fail_closed(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_full_request_forecast,
+            fixture_request_usage_screen,
+        )
+
+        plan = fixture_full_request_forecast(
+            384, 384, body_limit=4, cleanup=6, browser=20
+        )
+        self.assertEqual(
+            plan,
+            {"core": 2324, "body_limit": 4, "cleanup": 6, "browser": 20, "total": 2354},
+        )
+        self.assertTrue(fixture_request_usage_screen(plan, 100, 100, 50, 50, 100, 100))
+        self.assertFalse(fixture_request_usage_screen(plan, 100, 997_646, 0, 0, 0, 0))
+        with self.assertRaisesRegex(ValueError, "Unknown"):
+            fixture_request_usage_screen(plan, 0, 0, None, 0, 0, 0)
+        with self.assertRaisesRegex(ValueError, "Inconsistent"):
+            fixture_request_usage_screen({**plan, "total": 1}, 0, 0, 0, 0, 0, 0)
+        for missing in (None, -1, True):
+            with self.assertRaisesRegex(ValueError, "finite integer"):
+                fixture_full_request_forecast(
+                    1, 1, body_limit=1, cleanup=1, browser=missing
+                )
+
+    def test_fixture_cleanup_uses_shared_budget_and_checks_identity(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_cleanup_adapter,
+            fixture_full_request_forecast,
+            fixture_request_budget,
+        )
+
+        manifest = {"parts": [{"bytes": 1, "sha256": "a" * 64}], "bytes": 1}
+        digest = hashlib.sha256(
+            json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        config = {
+            "vars": {
+                "B_WEB_QA_HOSTNAME": "fixture.invalid",
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "target",
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "snapshot",
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": digest,
+            }
+        }
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+            patch("scripts.b_web_cloud_deploy.read_json") as network,
+        ):
+            plan = fixture_full_request_forecast(
+                1, None, body_limit=2, cleanup=2, browser=0
+            )
+            start, request = fixture_request_budget(
+                Path(temp) / "budget.sqlite", "a" * 64, "https://fixture.invalid", plan
+            )
+            start()
+            cleanup = fixture_cleanup_adapter(config, "operator", manifest, request)
+            network.return_value = (
+                {"cleaned": True, "qa_object": "wrong", "qa_deployment": candidate},
+                {},
+            )
+            with self.assertRaisesRegex(ValueError, "identity"):
+                cleanup(candidate)
+            network.return_value = (
+                {"cleaned": True, "qa_object": "target", "qa_deployment": candidate},
+                {},
+            )
+            for _ in range(plan["total"] - 1):
+                self.assertTrue(cleanup(candidate)["cleaned"])
+            with self.assertRaisesRegex(ValueError, "budget exhausted"):
+                cleanup(candidate)
+            self.assertEqual(network.call_count, plan["total"])
+
+    def test_fixture_browser_route_reserves_before_fetch_and_refuses_redirect(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_browser_route,
+            fixture_full_request_forecast,
+            fixture_request_budget,
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            plan = fixture_full_request_forecast(
+                1, None, body_limit=0, cleanup=0, browser=2
+            )
+            start, request = fixture_request_budget(
+                Path(temp) / "journal.sqlite", "a" * 64, "https://fixture.invalid", plan
+            )
+            start()
+            route = MagicMock()
+            route.request.url = "https://fixture.invalid/static/app.js"
+            route.fetch.return_value.status = 200
+            fixture_browser_route(route, request.reserve_browser_url)
+            route.fetch.assert_called_once_with(max_redirects=0, max_retries=0)
+            route.fulfill.assert_called_once()
+            route.reset_mock()
+            route.request.url = "https://other.invalid/"
+            with self.assertRaisesRegex(ValueError, "target"):
+                fixture_browser_route(route, request.reserve_browser_url)
+            route.fetch.assert_not_called()
+            route.reset_mock()
+            route.request.url = "https://fixture.invalid/redirect"
+            route.fetch.return_value.status = 302
+            fixture_browser_route(route, request.reserve_browser_url)
+            route.abort.assert_called_once()
+            route.fulfill.assert_not_called()
+            route.reset_mock()
+            route.request.url = "https://fixture.invalid/asset"
+            with self.assertRaisesRegex(ValueError, "browser budget exhausted"):
+                fixture_browser_route(route, request.reserve_browser_url)
+            route.fetch.assert_not_called()
+            _, resumed = fixture_request_budget(
+                Path(temp) / "journal.sqlite", "a" * 64, "https://fixture.invalid", plan
+            )
+            with self.assertRaisesRegex(ValueError, "browser budget exhausted"):
+                resumed.reserve_browser_url("https://fixture.invalid/after-restart")
+
+    def test_fixture_browser_api_get_counts_before_send_and_refuses_redirect(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_browser_api_get,
+            fixture_full_request_forecast,
+            fixture_request_budget,
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            plan = fixture_full_request_forecast(
+                1, None, body_limit=0, cleanup=0, browser=1
+            )
+            start, request = fixture_request_budget(
+                Path(temp) / "journal.sqlite", "a" * 64, "https://fixture.invalid", plan
+            )
+            start()
+            api = MagicMock()
+            api.get.return_value.status = 302
+            with self.assertRaisesRegex(ValueError, "redirect refused"):
+                fixture_browser_api_get(
+                    api, "https://fixture.invalid/redirect", request.reserve_browser_url
+                )
+            api.get.assert_called_once_with(
+                "https://fixture.invalid/redirect",
+                max_redirects=0,
+                max_retries=0,
+                timeout=30000,
+            )
+            api.get.return_value.dispose.assert_called_once()
+            with self.assertRaisesRegex(ValueError, "browser budget exhausted"):
+                fixture_browser_api_get(
+                    api, "https://fixture.invalid/next", request.reserve_browser_url
+                )
+            self.assertEqual(api.get.call_count, 1)
+
+    def test_fixture_browser_budget_is_atomic_across_competing_threads(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_full_request_forecast,
+            fixture_request_budget,
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "journal.sqlite"
+            plan = fixture_full_request_forecast(
+                1, None, body_limit=0, cleanup=0, browser=1
+            )
+            start, request = fixture_request_budget(
+                journal, "a" * 64, "https://fixture.invalid", plan
+            )
+            start()
+            barrier = threading.Barrier(8)
+            results = []
+
+            def reserve():
+                barrier.wait(timeout=5)
+                try:
+                    request.reserve_browser_url("https://fixture.invalid/asset")
+                    results.append("allowed")
+                except ValueError:
+                    results.append("refused")
+
+            threads = [threading.Thread(target=reserve) for _ in range(8)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+                self.assertFalse(thread.is_alive())
+            self.assertEqual(results.count("allowed"), 1)
+            self.assertEqual(results.count("refused"), 7)
+            with closing(sqlite3.connect(str(journal))) as db:
+                self.assertEqual(
+                    db.execute("SELECT used FROM fixture_browser_budget").fetchone(),
+                    (1,),
+                )
+                self.assertEqual(
+                    db.execute("SELECT used FROM fixture_request_budget").fetchone(),
+                    (1,),
+                )
+
+    def test_fixture_request_budget_survives_restart_and_refuses_unknown_calls(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_core_request_plan,
+            fixture_request_budget,
+        )
+
+        self.assertEqual(
+            fixture_core_request_plan(384, 384),
+            {"per_attempt": 1162, "max_attempts": 2, "total": 2324},
+        )
+        plan = fixture_core_request_plan(1)
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "requests.sqlite"
+            start, request = fixture_request_budget(
+                journal, "a" * 64, "https://fixture.invalid", plan
+            )
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                side_effect=TimeoutError("unknown"),
+            ) as network:
+                with self.assertRaisesRegex(ValueError, "Unexpected fixture"):
+                    request("https://other.invalid/api/login", {})
+                start()
+                with self.assertRaises(TimeoutError):
+                    request("https://fixture.invalid/api/login", {})
+                start2, request2 = fixture_request_budget(
+                    journal, "a" * 64, "https://fixture.invalid", plan
+                )
+                start2()
+                with self.assertRaisesRegex(ValueError, "attempt budget exhausted"):
+                    start2()
+                for _ in range(plan["total"] - 1):
+                    with self.assertRaises(TimeoutError):
+                        request2("https://fixture.invalid/api/runtime", {})
+                with self.assertRaisesRegex(ValueError, "request budget exhausted"):
+                    request2("https://fixture.invalid/api/runtime", {})
+                self.assertEqual(network.call_count, plan["total"])
+            other, _ = fixture_request_budget(
+                journal, "b" * 64, "https://fixture.invalid", plan
+            )
+            with self.assertRaisesRegex(ValueError, "budget changed"):
+                other()
+
+    def test_fixture_request_budget_reserves_atomically_across_threads(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_core_request_plan,
+            fixture_request_budget,
+        )
+
+        plan = fixture_core_request_plan(1)
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "requests.sqlite"
+            start, request = fixture_request_budget(
+                journal, "a" * 64, "https://fixture.invalid", plan
+            )
+            start()
+            results = []
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json", return_value=({}, {})
+            ) as network:
+                for _ in range(plan["total"] - 1):
+                    request("https://fixture.invalid/api/runtime", {})
+
+                def invoke():
+                    try:
+                        request("https://fixture.invalid/api/runtime", {})
+                        results.append("sent")
+                    except ValueError:
+                        results.append("blocked")
+
+                threads = [threading.Thread(target=invoke) for _ in range(2)]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(timeout=10)
+                    self.assertFalse(thread.is_alive())
+                self.assertCountEqual(results, ["sent", "blocked"])
+                self.assertEqual(network.call_count, plan["total"])
+
+    def test_fixture_request_budget_reserves_atomically_across_processes(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_core_request_plan,
+            fixture_request_budget,
+        )
+
+        plan = fixture_core_request_plan(1)
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "requests.sqlite"
+            start, request = fixture_request_budget(
+                journal, "a" * 64, "https://fixture.invalid", plan
+            )
+            start()
+            with patch("scripts.b_web_cloud_deploy.read_json", return_value=({}, {})):
+                for _ in range(plan["total"] - 1):
+                    request("https://fixture.invalid/api/runtime", {})
+            code = (
+                "import socket,sys; "
+                "socket.create_connection=lambda *a,**k: (_ for _ in ()).throw(AssertionError('network forbidden')); "
+                "import scripts.b_web_cloud_deploy as m; "
+                "m.read_json=lambda *a,**k: ({},{}); "
+                "_,request=m.fixture_request_budget(sys.argv[1],'a'*64,'https://fixture.invalid',m.fixture_core_request_plan(1)); "
+                "exec(\"try:\\n request('https://fixture.invalid/api/runtime',{})\\n print('sent')\\nexcept ValueError:\\n print('blocked')\")"
+            )
+            processes = [
+                subprocess.Popen(
+                    [sys.executable, "-c", code, str(journal)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                for _ in range(2)
+            ]
+            outcomes = []
+            for process in processes:
+                try:
+                    stdout, stderr = process.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                    self.fail("fixture request counter process timed out")
+                self.assertEqual(process.returncode, 0, stderr)
+                outcomes.append(stdout.strip())
+            self.assertCountEqual(outcomes, ["sent", "blocked"])
+
+    def test_fixture_bootstrap_from_ci_refuses_before_cloud_when_artifact_invalid(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_from_ci
+
+        args = (
+            "account",
+            {},
+            {},
+            "42",
+            "a" * 40,
+            Path("journal.sqlite"),
+            lambda _: None,
+            lambda: True,
+            lambda _: True,
+            lambda _: None,
+            "operator",
+            "password",
+            {},
+        )
+        with (
+            patch(
+                "scripts.b_web_cloud_deploy.fetch_fixture_ci_artifact",
+                side_effect=ValueError("bad artifact"),
+            ),
+            patch("scripts.b_web_cloud_deploy.fixture_bootstrap_cloud") as cloud,
+        ):
+            with self.assertRaisesRegex(ValueError, "bad artifact"):
+                fixture_bootstrap_from_ci(*args)
+            cloud.assert_not_called()
+        with (
+            patch(
+                "scripts.b_web_cloud_deploy.fetch_fixture_ci_artifact",
+                return_value=(b"artifact", "digest"),
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_bootstrap_cloud",
+                return_value="namespace",
+            ) as cloud,
+        ):
+            self.assertEqual(fixture_bootstrap_from_ci(*args), "namespace")
+            self.assertEqual(
+                cloud.call_args.args[3:6], (b"artifact", "a" * 40, "digest")
+            )
+
+    def test_fetch_fixture_ci_artifact_uses_authenticated_run_and_current_main(self):
+        from scripts.b_web_cloud_deploy import fetch_fixture_ci_artifact
+
+        commit = "a" * 40
+        run = {
+            "id": 42,
+            "head_sha": commit,
+            "head_branch": "main",
+            "event": "push",
+            "workflow_id": 9,
+            "status": "completed",
+            "conclusion": "success",
+            "repository": {"full_name": REPO},
+        }
+        jobs = {
+            "total_count": len(CHECKS),
+            "jobs": [{"name": name, "conclusion": "success"} for name in CHECKS],
+        }
+        listing = {
+            "total_count": 1,
+            "artifacts": [{"id": 13, "name": "b-web-runtime", "expired": False}],
+        }
+        responses = [run, jobs, {"id": 9}, listing, {"sha": commit}]
+
+        def transport(command, limit, timeout):
+            self.assertEqual(command[:2], ["gh", "api"])
+            self.assertEqual((limit, timeout), (72 * 1024**2, 45))
+            path = command[2]
+            if path.endswith("/actions/artifacts/13/zip"):
+                return b"wrapper"
+            return json.dumps(responses.pop(0)).encode()
+
+        with (
+            patch(
+                "scripts.b_web_cloud_deploy.read_bounded_process", side_effect=transport
+            ) as call,
+            patch(
+                "scripts.b_web_cloud_deploy.verify_fixture_ci_artifact",
+                return_value=(b"runtime", "digest"),
+            ) as verify,
+        ):
+            self.assertEqual(
+                fetch_fixture_ci_artifact("42", commit, {}), (b"runtime", "digest")
+            )
+            self.assertEqual(call.call_count, 6)
+            self.assertEqual(
+                verify.call_args.args[:5], (run, jobs, {"id": 9}, listing, b"wrapper")
+            )
+        with (
+            patch("scripts.b_web_cloud_deploy.read_bounded_process") as call,
+            self.assertRaises(ValueError),
+        ):
+            fetch_fixture_ci_artifact("../../bad", commit, {})
+        call.assert_not_called()
+
+    def test_bounded_process_limits_output_and_timeout(self):
+        from scripts.b_web_cloud_deploy import read_bounded_process
+
+        self.assertEqual(
+            read_bounded_process(
+                [sys.executable, "-c", "print('ok')"], 128, 10
+            ).strip(),
+            b"ok",
+        )
+        with self.assertRaisesRegex(RuntimeError, "exceeded limit"):
+            read_bounded_process([sys.executable, "-c", "print('x'*10000)"], 100, 10)
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            read_bounded_process(
+                [sys.executable, "-c", "import time; time.sleep(10)"], 100, 0.3
+            )
+
+    def test_fixture_ci_artifact_requires_main_run_and_matching_digest(self):
+        from scripts.b_web_cloud_deploy import verify_fixture_ci_artifact
+
+        commit = "a" * 40
+        run = {
+            "id": 42,
+            "head_sha": commit,
+            "head_branch": "main",
+            "event": "push",
+            "workflow_id": 9,
+            "status": "completed",
+            "conclusion": "success",
+            "repository": {"full_name": REPO},
+        }
+        jobs = {
+            "total_count": len(CHECKS),
+            "jobs": [{"name": name, "conclusion": "success"} for name in CHECKS],
+        }
+        workflow = {"id": 9}
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("b-web-runtime.zip", b"trusted-runtime")
+        wrapper = buffer.getvalue()
+        listing = {
+            "total_count": 1,
+            "artifacts": [
+                {
+                    "name": "b-web-runtime",
+                    "expired": False,
+                    "workflow_run": {"id": 42},
+                    "digest": "sha256:" + hashlib.sha256(wrapper).hexdigest(),
+                }
+            ],
+        }
+        with (
+            patch("scripts.b_web_cloud_deploy.fixture_artifact_files", return_value={}),
+            patch("scripts.b_web_cloud_deploy.verify_fixture_artifact_config"),
+        ):
+            raw, digest = verify_fixture_ci_artifact(
+                run, jobs, workflow, listing, wrapper, commit, {}
+            )
+            self.assertEqual(raw, b"trusted-runtime")
+            self.assertEqual(digest, hashlib.sha256(raw).hexdigest())
+            for changed in (
+                {**listing, "total_count": 2},
+                {
+                    "total_count": 1,
+                    "artifacts": [
+                        {**listing["artifacts"][0], "workflow_run": {"id": 43}}
+                    ],
+                },
+                {
+                    "total_count": 1,
+                    "artifacts": [
+                        {**listing["artifacts"][0], "digest": "sha256:" + "0" * 64}
+                    ],
+                },
+            ):
+                with self.assertRaises(ValueError):
+                    verify_fixture_ci_artifact(
+                        run, jobs, workflow, changed, wrapper, commit, {}
+                    )
+            with self.assertRaises(ValueError):
+                verify_fixture_ci_artifact(
+                    {**run, "head_branch": "feature"},
+                    jobs,
+                    workflow,
+                    listing,
+                    wrapper,
+                    commit,
+                    {},
+                )
+
+    def test_fixture_unknown_phase_keeps_reservation_after_restart(self):
+        from scripts.b_web_cloud_deploy import (
+            fixture_activation_reservation,
+            fixture_create_reservation,
+            fixture_phase_journal,
+            fixture_upload_reservation,
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "journal.sqlite"
+            for phase_name, factory in (
+                ("worker", fixture_create_reservation),
+                ("candidate", fixture_upload_reservation),
+                ("activation", fixture_activation_reservation),
+            ):
+                self.assertTrue(factory(path)())
+                # Simulate interruption after mutation but before a phase result is saved.
+                self.assertIsNone(fixture_phase_journal(path, "a" * 64)(phase_name))
+                self.assertFalse(factory(path)())
+
+    def test_fixture_seed_capture_reconciles_timeout_without_repeating(self):
+        from scripts.b_web_cloud_deploy import fixture_seed_capture_adapter
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        manifest = {
+            "parts": [{"bytes": 1, "sha256": hashlib.sha256(b"x").hexdigest()}],
+            "bytes": 1,
+        }
+        digest = hashlib.sha256(
+            json.dumps(
+                manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
+        source = "qa-isolated-restore-" + "b" * 32
+        config["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "qa-isolated-restore-" + "a" * 32,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": source,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": digest,
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "d" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "e" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": digest,
+            }
+        )
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        events = []
+        restored = False
+
+        def request(url, headers, payload):
+            nonlocal restored
+            operation = payload["operation"]
+            events.append(operation)
+            body = {"qa_object": source, "qa_deployment": candidate}
+            if operation == "status":
+                body.update(
+                    {"restored": True, "jobs_held": True, "alarm_restored": False}
+                    if restored
+                    else {"restored": False}
+                )
+            elif operation == "put":
+                body.update(stored=True, duplicate=False)
+            elif operation == "restore":
+                restored = True
+                body.update(restored=True, jobs_held=True, alarm_restored=False)
+            elif operation == "capture":
+                raise TimeoutError()
+            else:
+                body["manifest"] = manifest
+            return body, {}
+
+        with patch("scripts.b_web_cloud_deploy.read_json", side_effect=request):
+            seed = fixture_seed_capture_adapter(
+                config,
+                "operator",
+                manifest,
+                [b"x"],
+                1,
+                "a" * 64,
+                lambda *_: True,
+                MagicMock(side_effect=[True, False]),
+            )
+            self.assertEqual(seed(candidate), manifest)
+            self.assertEqual(seed(candidate), manifest)
+        self.assertEqual(
+            events,
+            ["status", "put", "restore", "capture", "manifest", "status", "manifest"],
+        )
+
+    def test_fixture_phase_journal_binds_identity_and_preserves_results(self):
+        from scripts.b_web_cloud_deploy import fixture_phase_journal
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "journal.sqlite"
+            phase = fixture_phase_journal(path, "a" * 64)
+            candidate = "12345678-1234-1234-1234-123456789abc"
+            self.assertIsNone(phase("worker"))
+            self.assertEqual(phase("worker", "worker-id"), "worker-id")
+            self.assertEqual(phase("candidate", candidate), candidate)
+            self.assertEqual(
+                fixture_phase_journal(path, "a" * 64)("worker"), "worker-id"
+            )
+            with self.assertRaisesRegex(ValueError, "result changed"):
+                phase("worker", "other-id")
+            with self.assertRaisesRegex(ValueError, "another configuration"):
+                fixture_phase_journal(path, "b" * 64)("worker")
+            with self.assertRaisesRegex(ValueError, "Invalid confirmed"):
+                phase("activation", "bad-version")
+
+    def test_fixture_cloud_bootstrap_real_adapters_with_mock_transport(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_cloud
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        content = hashlib.sha256(b"x").hexdigest()
+        manifest = {"parts": [{"bytes": 1, "sha256": content}], "bytes": 1}
+        digest = hashlib.sha256(
+            json.dumps(
+                manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
+        target = "qa-isolated-restore-" + "a" * 32
+        source = "qa-isolated-restore-" + "b" * 32
+        config["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": target,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": source,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": digest,
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "d" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "e" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": "f" * 64,
+            }
+        )
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        files = {
+            "worker/wrangler.snapshot-qa.jsonc": b"{}",
+            "worker/src/entry.py": b"pass",
+        }
+        observe = MagicMock(
+            return_value=({}, {}, [{"version_id": candidate, "percentage": 100}])
+        )
+        events = []
+        restored = False
+
+        def request(url, headers, payload=None):
+            nonlocal restored
+            operation = (payload or {}).get("operation")
+            if url.startswith("https://api.cloudflare.com/"):
+                self.assertNotIn("X-Auth-Key", headers)
+            if url.endswith("/workers/workers"):
+                events.append("create")
+                return {
+                    "success": True,
+                    "result": {"name": "creator-loop-b-snapshot-qa", "id": "id"},
+                }, {}
+            if url.endswith("/workers/workers/creator-loop-b-snapshot-qa"):
+                return {
+                    "success": True,
+                    "result": {"name": "creator-loop-b-snapshot-qa", "id": "id"},
+                }, {}
+            if url.endswith("/deployments"):
+                if payload is None:
+                    return {
+                        "success": True,
+                        "result": {
+                            "deployments": [
+                                {
+                                    "versions": [
+                                        {"version_id": candidate, "percentage": 100}
+                                    ]
+                                }
+                            ]
+                        },
+                    }, {}
+                events.append("activate")
+                return {
+                    "success": True,
+                    "result": {
+                        "versions": [{"version_id": candidate, "percentage": 100}]
+                    },
+                }, {}
+            if url.endswith("/api/qa-snapshot-export"):
+                body = {"qa_object": source, "qa_deployment": candidate}
+                body.update(
+                    {"manifest": manifest}
+                    if operation == "manifest"
+                    else {"position": 0, "sha256": content, "content_base64": "eA=="}
+                )
+                return body, {}
+            if url.endswith("/api/qa-snapshot-staging"):
+                events.append(operation)
+                body = {"qa_object": target, "qa_deployment": candidate}
+                if operation == "restore":
+                    restored = True
+                if operation == "cleanup":
+                    body["cleaned"] = True
+                body.update(
+                    (
+                        {"restored": True, "jobs_held": True, "alarm_restored": False}
+                        if restored
+                        else {"restored": False, "staged_parts": 1}
+                    )
+                    if operation == "status"
+                    else {"stored": True, "duplicate": False}
+                    if operation == "put"
+                    else {"restored": True, "jobs_held": True, "alarm_restored": False}
+                )
+                return body, {}
+            if url.endswith("/api/login"):
+                events.append("login")
+                return {"ok": True}, {"Set-Cookie": "__Host-creator=" + "a" * 64}
+            return {"deployment": candidate}, {}
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch(
+                "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+                hashlib.sha256(b"fixture").hexdigest(),
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_artifact_files", return_value=files
+            ),
+            patch("scripts.b_web_cloud_deploy.verify_fixture_artifact_config"),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_cloud_observer",
+                return_value=observe,
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.verify_fixture_namespace_ownership",
+                return_value="c" * 32,
+            ),
+            patch("scripts.b_web_cloud_deploy.read_json", side_effect=request),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_raw_body_limit_request",
+                return_value=413,
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.subprocess.run",
+                return_value=MagicMock(
+                    returncode=0, stdout=("Worker Version ID: " + candidate).encode()
+                ),
+            ),
+        ):
+            args = (
+                "fixture",
+                {
+                    "Authorization": "Bearer fake-test-credential",
+                    "X-Auth-Key": "fake-conflict",
+                },
+                config,
+                b"artifact",
+                "a" * 40,
+                "b" * 64,
+                Path(temp) / "journal.sqlite",
+                lambda _: ("a" * 32, "b" * 32),
+                lambda: True,
+                lambda _: True,
+                lambda _: None,
+                "operator",
+                "password",
+                manifest,
+                None,
+                lambda: dict.fromkeys(
+                    (
+                        "observed_workers",
+                        "observed_do",
+                        "pending_workers",
+                        "pending_do",
+                        "reserve_workers",
+                        "reserve_do",
+                    ),
+                    1,
+                ),
+            )
+            self.assertEqual(fixture_bootstrap_cloud(*args), "c" * 32)
+            self.assertEqual(fixture_bootstrap_cloud(*args), "c" * 32)
+            with closing(sqlite3.connect(str(Path(temp) / "journal.sqlite"))) as db:
+                self.assertEqual(
+                    db.execute(
+                        "SELECT maximum, attempts, used FROM fixture_request_budget"
+                    ).fetchone(),
+                    (20, 2, 16),
+                )
+            with self.assertRaisesRegex(ValueError, "attempt budget exhausted"):
+                fixture_bootstrap_cloud(*args)
+        self.assertEqual(
+            events,
+            [
+                "create",
+                "activate",
+                "status",
+                "put",
+                "status",
+                "restore",
+                "login",
+                "cleanup",
+                "status",
+                "status",
+                "login",
+                "cleanup",
+            ],
+        )
+
+    def test_fixture_cloud_bootstrap_composes_management_adapters_in_order(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_cloud
+
+        config = {
+            "vars": {
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "source",
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "target",
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "snapshot",
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": "manifest",
+                "B_WEB_QA_HOSTNAME": "fixture.invalid",
+            }
+        }
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        steps = []
+        observe = MagicMock(
+            return_value=({}, {}, [{"version_id": candidate, "percentage": 100}])
+        )
+
+        def restore(version):
+            return {
+                "restored": True,
+                "jobs_held": True,
+                "alarm_restored": False,
+                "target": "target",
+                "snapshot_id": "snapshot",
+                "manifest_sha256": "manifest",
+                "deployment": version,
+            }
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_raw_body_limit_request",
+                return_value=413,
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_cloud_observer",
+                return_value=observe,
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.verify_fixture_namespace_ownership",
+                return_value="c" * 32,
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_transfer_adapter",
+                return_value=lambda _: steps.append("transfer"),
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_restore_adapter",
+                return_value=restore,
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_login_adapter",
+                return_value=lambda version: {
+                    "authenticated": True,
+                    "deployment": version,
+                },
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_cleanup_adapter",
+                return_value=lambda _: {"cleaned": True},
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.create_fixture_worker_metadata",
+                side_effect=lambda *args: steps.append("create") or "worker",
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.upload_fixture_worker_version",
+                side_effect=lambda *args: steps.append("upload") or candidate,
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.activate_fixture_worker_version",
+                side_effect=lambda *args: steps.append("activate") or candidate,
+            ),
+        ):
+            result = fixture_bootstrap_cloud(
+                "account",
+                {
+                    "Authorization": "Bearer fake-test-credential",
+                    "X-Auth-Key": "fake-conflict",
+                },
+                config,
+                b"artifact",
+                "a" * 40,
+                "b" * 64,
+                Path(temp) / "journal.sqlite",
+                lambda _: ("a" * 32, "b" * 32),
+                lambda: True,
+                lambda _: True,
+                lambda _: None,
+                "operator",
+                "password",
+                {"parts": [{"bytes": 1, "sha256": "a" * 64}]},
+                None,
+                lambda: dict.fromkeys(
+                    (
+                        "observed_workers",
+                        "observed_do",
+                        "pending_workers",
+                        "pending_do",
+                        "reserve_workers",
+                        "reserve_do",
+                    ),
+                    1,
+                ),
+            )
+        self.assertEqual(result, "c" * 32)
+        self.assertEqual(steps, ["create", "upload", "activate", "transfer"])
+
+    def test_fixture_missing_request_usage_fails_before_creation(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_cloud
+
+        config = {
+            "vars": {
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "source",
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "target",
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "snapshot",
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": "manifest",
+                "B_WEB_QA_HOSTNAME": "fixture.invalid",
+            }
+        }
+        observe = MagicMock()
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_cloud_observer",
+                return_value=observe,
+            ),
+            patch("scripts.b_web_cloud_deploy.fixture_restore_adapter"),
+            patch("scripts.b_web_cloud_deploy.fixture_transfer_adapter"),
+            patch("scripts.b_web_cloud_deploy.fixture_login_adapter"),
+            patch("scripts.b_web_cloud_deploy.fixture_cleanup_adapter"),
+            patch(
+                "scripts.b_web_cloud_deploy.create_fixture_worker_metadata"
+            ) as create,
+        ):
+            with self.assertRaisesRegex(ValueError, "usage evidence missing"):
+                fixture_bootstrap_cloud(
+                    "account",
+                    {"Authorization": "Bearer fake"},
+                    config,
+                    b"artifact",
+                    "a" * 40,
+                    "b" * 64,
+                    Path(temp) / "journal.sqlite",
+                    lambda _: ("a" * 32, "b" * 32),
+                    lambda: True,
+                    lambda _: True,
+                    lambda _: None,
+                    "operator",
+                    "password",
+                    {"parts": [{"bytes": 1, "sha256": "a" * 64}]},
+                )
+            create.assert_not_called()
+
+    def test_fixture_upload_checks_gates_and_unknown_result(self):
+        from scripts.b_web_cloud_deploy import upload_fixture_worker_version
+
+        account = "fixture"
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        files = {
+            "worker/wrangler.snapshot-qa.jsonc": b"{}",
+            "worker/src/entry.py": b"pass",
+        }
+        args = (
+            account,
+            {"Authorization": "Bearer fake-test-credential"},
+            {},
+            b"artifact",
+            "a" * 40,
+            "b" * 64,
+            "worker-id",
+            lambda: True,
+            lambda: True,
+        )
+        with (
+            patch(
+                "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+                hashlib.sha256(account.encode()).hexdigest(),
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.fixture_artifact_files", return_value=files
+            ),
+            patch("scripts.b_web_cloud_deploy.verify_fixture_artifact_config"),
+            patch.dict(
+                os.environ,
+                {"CLOUDFLARE_API_KEY": "fake-conflict", "CF_FAKE": "fake-conflict"},
+            ),
+            patch(
+                "scripts.b_web_cloud_deploy.inspect_fixture_worker_after_ambiguous_create",
+                return_value={"state": "present", "worker_id": "worker-id"},
+            ),
+        ):
+            with patch(
+                "scripts.b_web_cloud_deploy.subprocess.run",
+                return_value=MagicMock(
+                    returncode=0, stdout=("Worker Version ID: " + candidate).encode()
+                ),
+            ) as run:
+                self.assertEqual(upload_fixture_worker_version(*args), candidate)
+                self.assertIn("upload", run.call_args.args[0])
+                self.assertEqual(
+                    run.call_args.kwargs["env"]["CLOUDFLARE_API_TOKEN"],
+                    "fake-test-credential",
+                )
+                self.assertNotIn("CLOUDFLARE_API_KEY", run.call_args.kwargs["env"])
+                self.assertNotIn("CF_FAKE", run.call_args.kwargs["env"])
+            with (
+                patch(
+                    "scripts.b_web_cloud_deploy.subprocess.run",
+                    side_effect=TimeoutError(),
+                ),
+                patch(
+                    "scripts.b_web_cloud_deploy.read_json",
+                    return_value=({"success": True}, {}),
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError, "metadata=available; do not retry"
+                ):
+                    upload_fixture_worker_version(*args)
+            with patch("scripts.b_web_cloud_deploy.subprocess.run") as run:
+                with self.assertRaisesRegex(ValueError, "safety checks"):
+                    upload_fixture_worker_version(
+                        *args[:-2], lambda: False, lambda: True
+                    )
+                run.assert_not_called()
+            with patch("scripts.b_web_cloud_deploy.subprocess.run") as run:
+                with self.assertRaisesRegex(ValueError, "bearer credential"):
+                    upload_fixture_worker_version(account, {}, *args[2:])
+                run.assert_not_called()
+            with patch("scripts.b_web_cloud_deploy.subprocess.run") as run:
+                with self.assertRaisesRegex(ValueError, "shell not confirmed"):
+                    upload_fixture_worker_version(
+                        *args[:6], "other-worker-id", *args[7:]
+                    )
+                run.assert_not_called()
+
+    def test_real_fixture_worker_metadata_create_never_retries_unknown(self):
+        from scripts.b_web_cloud_deploy import create_fixture_worker_metadata
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        account = "fixture-account"
+        account_hash = hashlib.sha256(account.encode()).hexdigest()
+        with patch("scripts.b_web_cloud_deploy.ACCOUNT_SHA", account_hash):
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                return_value=(
+                    {
+                        "success": True,
+                        "result": {
+                            "name": "creator-loop-b-snapshot-qa",
+                            "id": "worker-id",
+                        },
+                    },
+                    {},
+                ),
+            ) as read:
+                self.assertEqual(
+                    create_fixture_worker_metadata(account, {}, config, lambda: True),
+                    "worker-id",
+                )
+                self.assertEqual(
+                    read.call_args.args[2], {"name": "creator-loop-b-snapshot-qa"}
+                )
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                side_effect=[
+                    TimeoutError(),
+                    RuntimeError("HTTPS operation refused: HTTP404"),
+                ],
+            ) as read:
+                with self.assertRaisesRegex(
+                    RuntimeError, "metadata=not_found; do not retry"
+                ):
+                    create_fixture_worker_metadata(account, {}, config, lambda: True)
+                self.assertEqual(read.call_count, 2)
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                side_effect=[
+                    ({"success": False}, {}),
+                    RuntimeError("HTTPS operation refused: HTTP404"),
+                ],
+            ) as read:
+                with self.assertRaisesRegex(
+                    RuntimeError, "metadata=not_found; do not retry"
+                ):
+                    create_fixture_worker_metadata(account, {}, config, lambda: True)
+                self.assertEqual(read.call_count, 2)
+            with patch("scripts.b_web_cloud_deploy.read_json") as read:
+                with self.assertRaisesRegex(ValueError, "already attempted"):
+                    create_fixture_worker_metadata(account, {}, config, lambda: False)
+                read.assert_not_called()
+
+    def test_fixture_activation_requires_checks_and_never_retries_timeout(self):
+        from scripts.b_web_cloud_deploy import activate_fixture_worker_version
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        versions = [{"version_id": candidate, "percentage": 100}]
+        with patch(
+            "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+            hashlib.sha256(b"fixture").hexdigest(),
+        ):
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                return_value=({"success": True, "result": {"versions": versions}}, {}),
+            ) as read:
+                self.assertEqual(
+                    activate_fixture_worker_version(
+                        "fixture", {}, config, candidate, lambda: True, lambda: True
+                    ),
+                    candidate,
+                )
+                self.assertEqual(
+                    read.call_args.args[2]["code_update_strategy"],
+                    {"mode": "immediate"},
+                )
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                side_effect=[
+                    TimeoutError(),
+                    (
+                        {
+                            "success": True,
+                            "result": {"deployments": [{"versions": versions}]},
+                        },
+                        {},
+                    ),
+                ],
+            ) as read:
+                with self.assertRaisesRegex(
+                    RuntimeError, "metadata=candidate; do not retry"
+                ):
+                    activate_fixture_worker_version(
+                        "fixture", {}, config, candidate, lambda: True, lambda: True
+                    )
+                self.assertEqual(read.call_count, 2)
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                side_effect=[TimeoutError(), TimeoutError()],
+            ) as read:
+                with self.assertRaisesRegex(
+                    RuntimeError, "metadata=unavailable; do not retry"
+                ):
+                    activate_fixture_worker_version(
+                        "fixture", {}, config, candidate, lambda: True, lambda: True
+                    )
+                self.assertEqual(read.call_count, 2)
+            with patch("scripts.b_web_cloud_deploy.read_json") as read:
+                with self.assertRaisesRegex(ValueError, "safety checks"):
+                    activate_fixture_worker_version(
+                        "fixture", {}, config, candidate, lambda: False, lambda: True
+                    )
+                read.assert_not_called()
+
+    def test_fixture_activation_reservation_persists(self):
+        from scripts.b_web_cloud_deploy import fixture_activation_reservation
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "journal.sqlite"
+            self.assertTrue(fixture_activation_reservation(path)())
+            self.assertFalse(fixture_activation_reservation(path)())
+
+    def test_fixture_creation_reservation_across_processes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = str(Path(temp) / "create.sqlite")
+            code = (
+                "import sys; from scripts.b_web_cloud_deploy import fixture_create_reservation; "
+                "print(fixture_create_reservation(sys.argv[1])())"
+            )
+            processes = [
+                subprocess.Popen(
+                    [sys.executable, "-c", code, path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                for _ in range(2)
+            ]
+            outcomes = []
+            for process in processes:
+                try:
+                    stdout, stderr = process.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                    self.fail("fixture creation reservation process timed out")
+                self.assertEqual(process.returncode, 0, stderr)
+                outcomes.append(stdout.strip())
+            self.assertCountEqual(outcomes, ["True", "False"])
+            replay = subprocess.run(
+                [sys.executable, "-c", code, path],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+            self.assertEqual(replay.stdout.strip(), "False")
+
+    def test_fixture_reservation_is_shared_across_processes_and_restart(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = str(Path(temp) / "journal.sqlite")
+            code = (
+                "import sys; from scripts.b_web_cloud_deploy import fixture_restore_reservation; "
+                "print(fixture_restore_reservation(sys.argv[1])("
+                "'11111111-1111-1111-1111-111111111111', "
+                "'qa-isolated-restore-'+'a'*32, 'b'*32, 'c'*64))"
+            )
+            processes = [
+                subprocess.Popen(
+                    [sys.executable, "-c", code, path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                for _ in range(2)
+            ]
+            outcomes = []
+            for process in processes:
+                try:
+                    stdout, stderr = process.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                    self.fail("fixture reservation process timed out")
+                self.assertEqual(process.returncode, 0, stderr)
+                outcomes.append(stdout.strip())
+            self.assertCountEqual(outcomes, ["True", "False"])
+            replay = subprocess.run(
+                [sys.executable, "-c", code, path],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+            self.assertEqual(replay.stdout.strip(), "False")
+
+    def test_transfer_rejects_invalid_late_part_before_any_network(self):
+        from scripts.b_web_cloud_deploy import fixture_transfer_adapter
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        manifest = {
+            "parts": [
+                {"bytes": 1, "sha256": hashlib.sha256(b"x").hexdigest()},
+                {"bytes": 262145, "sha256": "a" * 64},
+            ]
+        }
+        digest = hashlib.sha256(
+            json.dumps(
+                manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
+        config["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "qa-isolated-restore-" + "a" * 32,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "qa-isolated-restore-" + "b" * 32,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": digest,
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "d" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "e" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": "f" * 64,
+            }
+        )
+        with patch("scripts.b_web_cloud_deploy.read_json") as cloud:
+            with self.assertRaisesRegex(ValueError, "Invalid fixture part metadata"):
+                fixture_transfer_adapter(config, "operator", manifest)
+            cloud.assert_not_called()
+
+    def test_bootstrap_wires_restore_and_login_adapters(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_with_adapters
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        part_hash = hashlib.sha256(b"x").hexdigest()
+        manifest = {"parts": [{"bytes": 1, "sha256": part_hash}], "bytes": 1}
+        digest = hashlib.sha256(
+            json.dumps(
+                manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
+        target = "qa-isolated-restore-" + "a" * 32
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        config["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": target,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "qa-isolated-restore-" + "b" * 32,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": digest,
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "d" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "e" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": "f" * 64,
+            }
+        )
+        calls = []
+
+        def request(url, headers, payload=None):
+            calls.append((url.rsplit("/", 1)[-1], payload and payload.get("operation")))
+            if url.endswith("/api/qa-snapshot-export"):
+                body = {
+                    "qa_object": config["vars"]["B_WEB_QA_SOURCE_OBJECT_NAME"],
+                    "qa_deployment": candidate,
+                }
+                if payload["operation"] == "manifest":
+                    body["manifest"] = manifest
+                else:
+                    body.update(position=0, sha256=part_hash, content_base64="eA==")
+                return body, {}
+            if url.endswith("/api/qa-snapshot-staging"):
+                body = {"qa_object": target, "qa_deployment": candidate}
+                if payload["operation"] == "status":
+                    body.update(restored=False, staged_parts=1)
+                elif payload["operation"] == "put":
+                    body.update(stored=True, duplicate=False)
+                else:
+                    body.update(restored=True, jobs_held=True, alarm_restored=False)
+                return body, {}
+            if url.endswith("/api/login"):
+                return {"ok": True}, {
+                    "Set-Cookie": "__Host-creator=" + "a" * 64 + "; Secure"
+                }
+            return {"deployment": candidate}, {}
+
+        observe = MagicMock(
+            return_value=({}, {}, [{"version_id": candidate, "percentage": 100}])
+        )
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch("scripts.b_web_cloud_deploy.read_json", side_effect=request),
+            patch(
+                "scripts.b_web_cloud_deploy.verify_fixture_namespace_ownership",
+                return_value="c" * 32,
+            ),
+        ):
+            result = fixture_bootstrap_with_adapters(
+                lambda _: ("a" * 32, "b" * 32),
+                lambda _: candidate,
+                observe,
+                lambda _: None,
+                config,
+                "operator",
+                "password",
+                manifest,
+                Path(temp) / "journal.sqlite",
+            )
+            create = MagicMock(side_effect=TimeoutError("unknown creation outcome"))
+            args = (
+                lambda _: ("a" * 32, "b" * 32),
+                create,
+                observe,
+                lambda _: None,
+                config,
+                "operator",
+                "password",
+                manifest,
+                Path(temp) / "unknown.sqlite",
+            )
+            with self.assertRaises(TimeoutError):
+                fixture_bootstrap_with_adapters(*args)
+            with self.assertRaisesRegex(ValueError, "Prior fixture creation attempt"):
+                fixture_bootstrap_with_adapters(*args)
+            create.assert_called_once()
+            from scripts.b_web_cloud_deploy import (
+                fixture_restore_adapter,
+                fixture_transfer_adapter,
+            )
+
+            restored = {
+                "qa_object": target,
+                "qa_deployment": candidate,
+                "restored": True,
+                "jobs_held": True,
+                "alarm_restored": False,
+            }
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json", return_value=(restored, {})
+            ) as read:
+                self.assertEqual(
+                    fixture_transfer_adapter(config, "operator", manifest)(candidate), 0
+                )
+                receipt = fixture_restore_adapter(
+                    config,
+                    "operator",
+                    manifest,
+                    lambda *_: self.fail("must not reserve again"),
+                )(candidate)
+                self.assertTrue(receipt["restored"])
+                self.assertEqual(read.call_count, 2)
+        self.assertEqual(result, "c" * 32)
+        self.assertEqual(
+            calls,
+            [
+                ("qa-snapshot-staging", "status"),
+                ("qa-snapshot-export", "manifest"),
+                ("qa-snapshot-export", "part"),
+                ("qa-snapshot-staging", "put"),
+                ("qa-snapshot-staging", "status"),
+                ("qa-snapshot-staging", "restore"),
+                ("login", None),
+                ("runtime", None),
+            ],
+        )
+
+    def test_fixture_restore_reservation_survives_restart_and_race(self):
+        from scripts.b_web_cloud_deploy import fixture_restore_reservation
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "restore-journal.sqlite"
+            identity = (
+                "11111111-1111-1111-1111-111111111111",
+                "qa-isolated-restore-" + "a" * 32,
+                "b" * 32,
+                "c" * 64,
+            )
+            barrier = threading.Barrier(2)
+            outcomes = []
+
+            def attempt():
+                reserve = fixture_restore_reservation(path)
+                barrier.wait()
+                outcomes.append(reserve(*identity))
+
+            workers = [threading.Thread(target=attempt) for _ in range(2)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(timeout=10)
+                self.assertFalse(worker.is_alive())
+            self.assertCountEqual(outcomes, [True, False])
+            reserve = fixture_restore_reservation(path)
+            self.assertFalse(reserve(*identity))
+            self.assertFalse(reserve(identity[0], identity[1], identity[2], "d" * 64))
+            with self.assertRaises(ValueError):
+                reserve(identity[0], "production", identity[2], identity[3])
+        with self.assertRaises(ValueError):
+            fixture_restore_reservation(Path("relative.sqlite"))
+
+    def test_ambiguous_fixture_create_metadata_never_authorizes_retry(self):
+        from scripts.b_web_cloud_deploy import (
+            inspect_fixture_worker_after_ambiguous_create,
+        )
+
+        account = "fixture-account"
+        with patch(
+            "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+            hashlib.sha256(account.encode()).hexdigest(),
+        ):
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                side_effect=RuntimeError("HTTPS operation refused: HTTP404"),
+            ):
+                self.assertEqual(
+                    inspect_fixture_worker_after_ambiguous_create(account, {}),
+                    {"state": "not_found", "retry_permitted": False},
+                )
+            with patch(
+                "scripts.b_web_cloud_deploy.read_json",
+                return_value=(
+                    {
+                        "success": True,
+                        "result": {
+                            "name": "creator-loop-b-snapshot-qa",
+                            "id": "fixture-id",
+                        },
+                    },
+                    {},
+                ),
+            ):
+                observed = inspect_fixture_worker_after_ambiguous_create(account, {})
+                self.assertEqual(observed["state"], "present")
+                self.assertIs(observed["retry_permitted"], False)
+            for response in (
+                RuntimeError("HTTPS operation refused: HTTP403"),
+                (
+                    {"success": True, "result": {"name": "other", "id": "fixture-id"}},
+                    {},
+                ),
+            ):
+                with (
+                    patch(
+                        "scripts.b_web_cloud_deploy.read_json",
+                        side_effect=response
+                        if isinstance(response, Exception)
+                        else None,
+                        return_value=response,
+                    ),
+                    self.assertRaises((RuntimeError, ValueError)),
+                ):
+                    inspect_fixture_worker_after_ambiguous_create(account, {})
+
+    def test_fixture_restore_adapter_status_reservation_and_no_blind_retry(self):
+        from scripts.b_web_cloud_deploy import fixture_restore_adapter
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        manifest = {"parts": [{"bytes": 1, "sha256": "a" * 64}], "bytes": 1}
+        encoded = json.dumps(
+            manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()
+        target = "qa-isolated-restore-" + "a" * 32
+        config["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": target,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "qa-isolated-restore-" + "b" * 32,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": hashlib.sha256(encoded).hexdigest(),
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "d" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "e" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": "f" * 64,
+            }
+        )
+        version = "11111111-1111-1111-1111-111111111111"
+        status = {
+            "qa_object": target,
+            "qa_deployment": version,
+            "restored": False,
+            "staged_parts": 1,
+        }
+        completed = {
+            "qa_object": target,
+            "qa_deployment": version,
+            "restored": True,
+            "jobs_held": True,
+            "alarm_restored": False,
+        }
+        oversized = {**manifest, "padding": "x" * (512 * 1024)}
+        oversized_config = copy.deepcopy(config)
+        oversized_config["vars"]["B_WEB_QA_RESTORE_MANIFEST_SHA256"] = hashlib.sha256(
+            json.dumps(
+                oversized, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
+        with self.assertRaisesRegex(ValueError, "body limit"):
+            fixture_restore_adapter(
+                oversized_config, "fixture-key", oversized, MagicMock()
+            )
+        for scenario in (
+            "success",
+            "already",
+            "timeout",
+            "timeout_reconciled",
+            "wrong_object",
+            "missing_parts",
+            "no_reservation",
+        ):
+            with self.subTest(scenario=scenario):
+                first = copy.deepcopy(completed if scenario == "already" else status)
+                if scenario == "wrong_object":
+                    first["qa_object"] = "other"
+                if scenario == "missing_parts":
+                    first["staged_parts"] = 0
+                second = (
+                    TimeoutError("unknown")
+                    if scenario in ("timeout", "timeout_reconciled")
+                    else (completed, {})
+                )
+                reserve = MagicMock(return_value=scenario != "no_reservation")
+                adapter = fixture_restore_adapter(
+                    config, "fixture-key", manifest, reserve
+                )
+                with patch(
+                    "scripts.b_web_cloud_deploy.read_json",
+                    side_effect=[
+                        (first, {}),
+                        second,
+                        (completed if scenario == "timeout_reconciled" else status, {}),
+                    ],
+                ) as request:
+                    if scenario in ("success", "already"):
+                        self.assertEqual(adapter(version)["target"], target)
+                    else:
+                        with self.assertRaises((ValueError, TimeoutError)):
+                            adapter(version)
+                    if scenario == "timeout":
+                        with self.assertRaisesRegex(ValueError, "no retry"):
+                            adapter(version)
+                        self.assertEqual(request.call_count, 3)
+                        reserve.assert_called_once()
+                    if scenario == "timeout_reconciled":
+                        self.assertEqual(adapter(version)["target"], target)
+                        self.assertEqual(request.call_count, 3)
+                        reserve.assert_called_once()
+                    if scenario in ("already", "wrong_object", "missing_parts"):
+                        reserve.assert_not_called()
+
+    def test_fixture_login_adapter_checks_cookie_and_runtime_version(self):
+        from scripts.b_web_cloud_deploy import fixture_login_adapter
+
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        candidate = "11111111-1111-1111-1111-111111111111"
+        for scenario in ("success", "bad_login", "bad_cookie", "wrong_version"):
+            with self.subTest(scenario=scenario):
+                login = {"ok": scenario != "bad_login"}
+                cookie = (
+                    "bad"
+                    if scenario == "bad_cookie"
+                    else "__Host-creator=" + "a" * 64 + "; Secure"
+                )
+                runtime = {
+                    "deployment": "22222222-2222-2222-2222-222222222222"
+                    if scenario == "wrong_version"
+                    else candidate
+                }
+                with patch(
+                    "scripts.b_web_cloud_deploy.read_json",
+                    side_effect=[(login, {"Set-Cookie": cookie}), (runtime, {})],
+                ) as request:
+                    adapter = fixture_login_adapter(
+                        config, "fixture-operator", "fixture-password"
+                    )
+                    if scenario == "success":
+                        self.assertEqual(
+                            adapter(candidate),
+                            {"authenticated": True, "deployment": candidate},
+                        )
+                        self.assertEqual(request.call_count, 2)
+                        self.assertEqual(
+                            request.call_args_list[0].args[1]["X-QA-Expected-Version"],
+                            candidate,
+                        )
+                        self.assertEqual(
+                            request.call_args_list[1].args[1]["Cookie"],
+                            "__Host-creator=" + "a" * 64,
+                        )
+                    else:
+                        with self.assertRaises(ValueError):
+                            adapter(candidate)
+                        self.assertEqual(
+                            request.call_count, 2 if scenario == "wrong_version" else 1
+                        )
+
+    def test_unverified_qa_targets_refuse_before_network_or_login(self):
+        env = {
+            "GITHUB_REPOSITORY": REPO,
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_SHA": "a" * 40,
+            "B_CI_RUN": "8",
+            "B_OPERATION": "deploy",
+            "B_EXPECTED_DEPLOYMENT": "12345678-1234-1234-1234-123456789abc",
+        }
+        for target, reason in (("qa19", "quiescence"),):
+            with (
+                self.subTest(target=target),
+                patch.dict(os.environ, {**env, "B_TARGET": target}),
+                patch("scripts.b_web_cloud_deploy.read_json") as http,
+                patch("scripts.b_web_cloud_deploy.subprocess.check_output") as gh,
+            ):
+                with self.assertRaisesRegex(ValueError, reason):
+                    main()
+                http.assert_not_called()
+                gh.assert_not_called()
+
+    def test_fixture_first_create_needs_no_previous_deployment_but_stays_closed(self):
+        env = {
+            "GITHUB_REPOSITORY": REPO,
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_SHA": "a" * 40,
+            "B_CI_RUN": "8",
+            "B_OPERATION": "deploy",
+            "B_TARGET": "qa-fixture",
+            "CLOUDFLARE_ACCOUNT_ID": "fixture-account",
+            "CLOUDFLARE_API_TOKEN": "fixture-token",
+        }
+        with (
+            patch.dict(os.environ, env, clear=True),
+            patch(
+                "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+                hashlib.sha256(b"fixture-account").hexdigest(),
+            ),
+            patch("scripts.b_web_cloud_deploy.fetch_fixture_ci_artifact") as artifact,
+            patch("scripts.b_web_cloud_deploy.read_json") as cloud,
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "resource, permission and deployment fence"
+            ):
+                main()
+            artifact.assert_called_once()
+            cloud.assert_not_called()
+
+        for changed in (
+            {"CLOUDFLARE_ACCOUNT_ID": "wrong"},
+            {"CLOUDFLARE_API_TOKEN": ""},
+            {"B_OPERATION": "rollback"},
+        ):
+            with (
+                patch.dict(os.environ, {**env, **changed}, clear=True),
+                patch(
+                    "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+                    hashlib.sha256(b"fixture-account").hexdigest(),
+                ),
+                patch(
+                    "scripts.b_web_cloud_deploy.fetch_fixture_ci_artifact"
+                ) as artifact,
+            ):
+                with self.assertRaises(ValueError):
+                    main()
+                artifact.assert_not_called()
+
+    def test_fixture_configuration_cannot_bind_production_or_ai(self):
+        from pathlib import Path
+
+        from scripts.b_web_cloud_deploy import TARGETS, validate_fixture_config
+
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+        )
+        config = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(config["name"], TARGETS["qa-fixture"])
+        self.assertNotIn(config["name"], (TARGETS["production"], TARGETS["qa19"]))
+        self.assertEqual(
+            config["migrations"], [{"tag": "v1", "new_sqlite_classes": ["Database"]}]
+        )
+        self.assertEqual(
+            config["durable_objects"]["bindings"],
+            [{"name": "DATABASE", "class_name": "Database"}],
+        )
+        self.assertNotIn("ai", config)
+        self.assertNotIn("browser", config)
+        self.assertEqual(config["vars"]["B_WEB_OBSERVATION_ONLY"], "1")
+        self.assertEqual(
+            config["vars"]["B_WEB_QA_HOSTNAME"],
+            "creator-loop-b-snapshot-qa.creator-loop-ai-beta.workers.dev",
+        )
+        validate_fixture_config(config)
+        expected = expected_binding_types(
+            "qa-fixture", {"resources": {"bindings": []}}, config
+        )
+        self.assertNotIn("AI", expected)
+        self.assertNotIn("BROWSER", expected)
+        self.assertEqual(expected["OPERATOR_KEY"], "secret_text")
+        self.assertEqual(expected["LOGIN_PASSWORD_HASH"], "secret_text")
+        with self.assertRaises(ValueError):
+            expected_binding_types("qa-fixture", {"resources": {"bindings": []}})
+        configured = copy.deepcopy(config)
+        configured["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "qa-isolated-restore-" + "d" * 32,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "a" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": "b" * 64,
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "qa-isolated-restore-" + "e" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "f" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": "1" * 64,
+            }
+        )
+        expected_configured = expected_binding_types(
+            "qa-fixture", {"resources": {"bindings": []}}, configured
+        )
+        self.assertEqual(
+            expected_configured["B_WEB_QA_RESTORE_MANIFEST_SHA256"], "plain_text"
+        )
+        incomplete = copy.deepcopy(configured)
+        del incomplete["vars"]["B_WEB_QA_EXPORT_SNAPSHOT_ID"]
+        with self.assertRaises(ValueError):
+            validate_fixture_config(incomplete)
+        same = copy.deepcopy(configured)
+        same["vars"]["B_WEB_QA_SOURCE_OBJECT_NAME"] = same["vars"][
+            "B_WEB_QA_RESTORE_OBJECT_NAME"
+        ]
+        with self.assertRaises(ValueError):
+            validate_fixture_config(same)
+        configured["vars"]["B_WEB_QA_RESTORE_OBJECT_NAME"] = "private-owner-v1"
+        with self.assertRaises(ValueError):
+            validate_fixture_config(configured)
+        for field, value in (
+            ("name", TARGETS["production"]),
+            ("ai", {"binding": "AI"}),
+            ("compatibility_flags", []),
+        ):
+            bad = copy.deepcopy(config)
+            bad[field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_fixture_config(bad)
+
+    def test_fixture_namespace_must_be_distinct_and_have_no_external_service(self):
+        from scripts.b_web_cloud_deploy import validate_fixture_namespace
+
+        production, qa19, fixture = "a" * 32, "b" * 32, "c" * 32
+        binding = {
+            "name": "DATABASE",
+            "type": "durable_object_namespace",
+            "namespace_id": fixture,
+            "class_name": "Database",
+        }
+        self.assertEqual(
+            validate_fixture_namespace({"bindings": [binding]}, production, qa19),
+            fixture,
+        )
+        for change in (
+            {**binding, "namespace_id": production},
+            {**binding, "namespace_id": qa19},
+            {**binding, "script_name": "creator-loop-b-web"},
+        ):
+            with self.subTest(binding=change), self.assertRaises(ValueError):
+                validate_fixture_namespace({"bindings": [change]}, production, qa19)
+        with self.assertRaises(ValueError):
+            validate_fixture_namespace(
+                {"bindings": [binding, {"name": "AI", "type": "ai"}]}, production, qa19
+            )
+        for extra in (
+            {"name": "UNEXPECTED"},
+            {"name": "UNEXPECTED", "type": None},
+            {"name": None, "type": None},
+            {"name": "ASSETS"},
+        ):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                validate_fixture_namespace(
+                    {"bindings": [binding, extra]}, production, qa19
+                )
+
+    def test_fixture_runtime_binding_proof_requires_exact_values_and_secrets(self):
+        from pathlib import Path
+
+        from scripts.b_web_cloud_deploy import (
+            expected_binding_types,
+            verify_fixture_bindings,
+            verify_fixture_namespace_ownership,
+        )
+
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+        )
+        config = json.loads(path.read_text(encoding="utf-8"))
+        with self.assertRaisesRegex(ValueError, "identities"):
+            verify_fixture_bindings(
+                {
+                    "bindings": [
+                        {
+                            "name": "DATABASE",
+                            "type": "durable_object_namespace",
+                            "namespace_id": "c" * 32,
+                            "class_name": "Database",
+                        }
+                    ]
+                },
+                config,
+                "a" * 32,
+                "b" * 32,
+            )
+        config["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "qa-isolated-restore-" + "d" * 32,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "a" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": "b" * 64,
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "qa-isolated-restore-" + "e" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "f" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": "1" * 64,
+            }
+        )
+        expected = expected_binding_types(
+            "qa-fixture", {"resources": {"bindings": []}}, config
+        )
+        bindings = [{"name": name, "type": kind} for name, kind in expected.items()]
+        for binding in bindings:
+            name = binding["name"]
+            if name in config["vars"]:
+                binding["text"] = config["vars"][name]
+            if name == "DATABASE":
+                binding.update(namespace_id="c" * 32, class_name="Database")
+
+        def verify(value):
+            return verify_fixture_bindings(value, config, "a" * 32, "b" * 32)
+
+        self.assertEqual(verify({"bindings": bindings}), "c" * 32)
+        namespace_rows = [
+            {"id": name * 32, "script": script, "class": "Database", "use_sqlite": True}
+            for name, script in (
+                ("a", "creator-loop-b-web"),
+                ("b", "creator-loop-b-web-qa19"),
+                ("c", "creator-loop-b-snapshot-qa"),
+            )
+        ]
+        observed = {
+            "success": True,
+            "result": namespace_rows,
+            "result_info": {"total_count": 3},
+        }
+
+        def verify_owner(value):
+            return verify_fixture_namespace_ownership(
+                {"bindings": bindings}, config, "a" * 32, "b" * 32, value
+            )
+
+        self.assertEqual(verify_owner(observed), "c" * 32)
+        for changed in (
+            {**observed, "result": namespace_rows[:-1]},
+            {**observed, "result_info": {"total_count": 3, "cursor": "next"}},
+            {**observed, "result_info": {"total_count": 3, "cursor": []}},
+            {**observed, "result_info": {"total_count": 3, "has_more": 0}},
+            {**observed, "result_info": {"total_count": 3, "total_pages": True}},
+            {
+                **observed,
+                "result": [
+                    *namespace_rows[:2],
+                    {**namespace_rows[2], "script": "other-worker"},
+                ],
+            },
+            {
+                **observed,
+                "result": [
+                    *namespace_rows[:2],
+                    {**namespace_rows[2], "use_sqlite": False},
+                ],
+            },
+        ):
+            with self.subTest(metadata=changed), self.assertRaises(ValueError):
+                verify_owner(changed)
+        for missing in (
+            "OPERATOR_KEY",
+            "LOGIN_PASSWORD_HASH",
+            "B_WEB_OBSERVATION_ONLY",
+        ):
+            with self.subTest(missing=missing), self.assertRaises(ValueError):
+                verify({"bindings": [b for b in bindings if b["name"] != missing]})
+        bad = copy.deepcopy(bindings)
+        next(b for b in bad if b["name"] == "B_WEB_OBSERVATION_ONLY")["text"] = "0"
+        with self.assertRaises(ValueError):
+            verify({"bindings": bad})
+
+    def test_production_fails_before_any_network_or_activation(self):
+        env = {
+            "GITHUB_REPOSITORY": REPO,
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_SHA": "a" * 40,
+            "B_CI_RUN": "8",
+            "B_TARGET": "production",
+            "B_EXPECTED_DEPLOYMENT": "12345678-1234-1234-1234-123456789abc",
+            "B_VERIFY_SOURCE_COMMIT": "a" * 40,
+        }
+        for operation in ("deploy", "rollback", "verify"):
+            with (
+                self.subTest(operation=operation),
+                patch.dict(os.environ, {**env, "B_OPERATION": operation}),
+                patch("scripts.b_web_cloud_deploy.read_json") as http,
+                patch("scripts.b_web_cloud_deploy.subprocess.check_output") as gh,
+                patch("scripts.b_web_cloud_deploy.activate_once") as activate,
+            ):
+                with self.assertRaisesRegex(ValueError, "non-activating"):
+                    main()
+                http.assert_not_called()
+                gh.assert_not_called()
+                activate.assert_not_called()
+
+    def test_fixture_bootstrap_orders_creation_verification_and_login(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_sequence
+
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        config = {
+            "vars": {
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "fixture",
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "target",
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "snapshot",
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": "manifest",
+            }
+        }
+        steps = []
+        preflight = MagicMock(
+            side_effect=lambda _: steps.append("preflight") or ("a" * 32, "b" * 32)
+        )
+        create = MagicMock(side_effect=lambda _: steps.append("create") or candidate)
+        observe = MagicMock(
+            return_value=({}, {}, [{"version_id": candidate, "percentage": 100}])
+        )
+        restore = MagicMock(
+            side_effect=lambda version: (
+                steps.append("restore")
+                or {
+                    "restored": True,
+                    "jobs_held": True,
+                    "alarm_restored": False,
+                    "target": "target",
+                    "snapshot_id": "snapshot",
+                    "manifest_sha256": "manifest",
+                    "deployment": candidate,
+                }
+            )
+        )
+        login = MagicMock(
+            side_effect=lambda version: (
+                steps.append("login")
+                or {"authenticated": True, "deployment": candidate}
+            )
+        )
+        record = MagicMock(side_effect=lambda event: steps.append(event["state"]))
+        with (
+            patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+            patch(
+                "scripts.b_web_cloud_deploy.verify_fixture_namespace_ownership",
+                return_value="c" * 32,
+            ) as verify,
+        ):
+            self.assertEqual(
+                fixture_bootstrap_sequence(
+                    preflight, create, observe, restore, login, record, config
+                ),
+                "c" * 32,
+            )
+            verify.assert_called_once()
+        self.assertEqual(
+            steps,
+            [
+                "preflight",
+                "creation_attempting",
+                "create",
+                "creation_returned",
+                "metadata_verified",
+                "restore",
+                "restore_verified",
+                "login",
+                "login_verified",
+            ],
+        )
+        create.assert_called_once_with(config)
+        observe.assert_called_once_with(candidate, "a" * 32, "b" * 32)
+        restore.assert_called_once_with(candidate)
+        login.assert_called_once_with(candidate)
+
+    def test_bootstrap_real_cloud_observer_refuses_wrong_account_before_object_use(
+        self,
+    ):
+        from scripts.b_web_cloud_deploy import (
+            fixture_bootstrap_sequence,
+            fixture_cloud_observer,
+        )
+
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        config = {"vars": {"B_WEB_QA_SOURCE_OBJECT_NAME": "fixture"}}
+        create = MagicMock(return_value=candidate)
+        restore, login, record = MagicMock(), MagicMock(), MagicMock()
+        with (
+            patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+            self.assertRaisesRegex(ValueError, "Wrong Cloudflare account"),
+        ):
+            observer = fixture_cloud_observer(
+                "wrong-account", {}, config, b"archive", "a" * 40, "b" * 64
+            )
+            fixture_bootstrap_sequence(
+                lambda _: ("a" * 32, "b" * 32),
+                create,
+                observer,
+                restore,
+                login,
+                record,
+                config,
+            )
+        restore.assert_not_called()
+        login.assert_not_called()
+        create.assert_not_called()
+        record.assert_not_called()
+
+    def test_fixture_observer_rejects_bad_artifact_before_worker_creation(self):
+        from scripts.b_web_cloud_deploy import fixture_cloud_observer
+
+        account = "fixture-account"
+        with (
+            patch(
+                "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+                hashlib.sha256(account.encode()).hexdigest(),
+            ),
+            self.assertRaisesRegex(ValueError, "Fixture artifact identity mismatch"),
+        ):
+            fixture_cloud_observer(account, {}, {}, b"bad", "a" * 40, "0" * 64)
+
+    def test_fixture_precreate_rejects_configuration_mutation(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_sequence
+
+        for mutator in ("preflight", "record"):
+            with self.subTest(mutator=mutator):
+                config = {"vars": {"B_WEB_QA_SOURCE_OBJECT_NAME": "fixture"}}
+                expected = copy.deepcopy(config)
+                observer = MagicMock()
+
+                def precreate(value):
+                    if value != expected:
+                        raise ValueError(
+                            "Fixture configuration changed before creation"
+                        )
+
+                observer.precreate.side_effect = precreate
+
+                def preflight(value):
+                    if mutator == "preflight":
+                        value["untrusted"] = True
+                    return "a" * 32, "b" * 32
+
+                def record(event):
+                    if mutator == "record" and event["state"] == "creation_attempting":
+                        config["untrusted"] = True
+
+                create = MagicMock()
+                with (
+                    patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+                    self.assertRaisesRegex(ValueError, "configuration changed"),
+                ):
+                    fixture_bootstrap_sequence(
+                        preflight,
+                        create,
+                        observer,
+                        MagicMock(),
+                        MagicMock(),
+                        record,
+                        config,
+                    )
+                create.assert_not_called()
+
+    def test_fixture_bootstrap_fails_closed_before_or_after_creation(self):
+        from scripts.b_web_cloud_deploy import fixture_bootstrap_sequence
+
+        config = {
+            "vars": {
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "fixture",
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "target",
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "snapshot",
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": "manifest",
+            }
+        }
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        for failure in (
+            "missing_config",
+            "permission",
+            "resource",
+            "bad_ids",
+            "creation",
+            "namespace",
+            "version",
+            "restore",
+            "restore_target",
+            "restore_snapshot",
+            "restore_manifest",
+            "restore_deployment",
+            "login",
+            "login_false",
+        ):
+            with self.subTest(failure=failure):
+                preflight = MagicMock(return_value=("a" * 32, "b" * 32))
+                create = MagicMock(return_value=candidate)
+                observe = MagicMock(
+                    return_value=(
+                        {},
+                        {},
+                        [{"version_id": candidate, "percentage": 100}],
+                    )
+                )
+                login = MagicMock(
+                    return_value={"authenticated": True, "deployment": candidate}
+                )
+                restore = MagicMock(
+                    return_value={
+                        "restored": True,
+                        "jobs_held": True,
+                        "alarm_restored": False,
+                        "target": "target",
+                        "snapshot_id": "snapshot",
+                        "manifest_sha256": "manifest",
+                        "deployment": candidate,
+                    }
+                )
+                record = MagicMock()
+                if failure in ("permission", "resource"):
+                    preflight.side_effect = ValueError(failure)
+                if failure == "bad_ids":
+                    preflight.return_value = ("a" * 32, "a" * 32)
+                if failure == "creation":
+                    create.side_effect = TimeoutError("unknown")
+                if failure == "version":
+                    observe.return_value = (
+                        {},
+                        {},
+                        [{"version_id": candidate, "percentage": 50}],
+                    )
+                if failure == "login":
+                    login.side_effect = ValueError("login refused")
+                if failure == "restore":
+                    restore.return_value = {
+                        "restored": False,
+                        "jobs_held": True,
+                        "alarm_restored": False,
+                    }
+                if failure.startswith("restore_"):
+                    field = {
+                        "restore_target": "target",
+                        "restore_snapshot": "snapshot_id",
+                        "restore_manifest": "manifest_sha256",
+                        "restore_deployment": "deployment",
+                    }[failure]
+                    restore.return_value[field] = "wrong"
+                if failure == "login_false":
+                    login.return_value = {
+                        "authenticated": False,
+                        "deployment": candidate,
+                    }
+                with (
+                    patch("scripts.b_web_cloud_deploy.validate_fixture_config"),
+                    patch(
+                        "scripts.b_web_cloud_deploy.verify_fixture_namespace_ownership",
+                        side_effect=ValueError("wrong namespace")
+                        if failure == "namespace"
+                        else None,
+                        return_value="c" * 32,
+                    ),
+                    self.assertRaises((ValueError, TimeoutError)),
+                ):
+                    fixture_bootstrap_sequence(
+                        preflight,
+                        create,
+                        observe,
+                        restore,
+                        login,
+                        record,
+                        {"vars": {}} if failure == "missing_config" else config,
+                    )
+                if failure in ("login", "login_false"):
+                    login.assert_called_once()
+                else:
+                    login.assert_not_called()
+                if failure in ("missing_config", "permission", "resource", "bad_ids"):
+                    create.assert_not_called()
+                else:
+                    create.assert_called_once()
+                    self.assertIn(
+                        record.call_args_list[-1].args[0]["state"],
+                        (
+                            "creation_unknown",
+                            "postcreate_unverified",
+                            "restore_unverified",
+                            "login_unverified",
+                        ),
+                    )
+
+    def test_fixture_cloud_observer_reads_only_management_metadata(self):
+        from pathlib import Path
+
+        from scripts.b_web_cloud_deploy import (
+            expected_binding_types,
+            observe_fixture_cloud,
+        )
+
+        account = "fixture-account"
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[2]
+                / "cloudflare/creator-web/wrangler.snapshot-qa.jsonc"
+            ).read_text(encoding="utf-8")
+        )
+        artifact_config = copy.deepcopy(config)
+        config["vars"].update(
+            {
+                "B_WEB_QA_RESTORE_OBJECT_NAME": "qa-isolated-restore-" + "d" * 32,
+                "B_WEB_QA_RESTORE_SNAPSHOT_ID": "a" * 32,
+                "B_WEB_QA_RESTORE_MANIFEST_SHA256": "b" * 64,
+                "B_WEB_QA_EXPORT_SNAPSHOT_ID": "c" * 32,
+                "B_WEB_QA_SOURCE_OBJECT_NAME": "qa-isolated-restore-" + "e" * 32,
+                "B_WEB_QA_SOURCE_SNAPSHOT_ID": "f" * 32,
+                "B_WEB_QA_SOURCE_MANIFEST_SHA256": "1" * 64,
+            }
+        )
+        bindings = [
+            {"name": name, "type": kind}
+            for name, kind in expected_binding_types(
+                "qa-fixture", {"resources": {"bindings": []}}, config
+            ).items()
+        ]
+        for item in bindings:
+            if item["name"] in config["vars"]:
+                item["text"] = config["vars"][item["name"]]
+            if item["name"] == "DATABASE":
+                item.update(namespace_id="c" * 32, class_name="Database")
+        candidate = "12345678-1234-1234-1234-123456789abc"
+        settings = {
+            "id": candidate,
+            "compatibility_date": "2026-10-13",
+            "compatibility_flags": ["python_workers"],
+            "modules": [
+                {
+                    "name": "entry.py",
+                    "content_base64": "c291cmNl",
+                    "content_type": "text/x-python",
+                }
+            ],
+            "bindings": bindings,
+        }
+        namespaces = {
+            "success": True,
+            "result_info": {"total_count": 3},
+            "result": [
+                {
+                    "id": name * 32,
+                    "script": script,
+                    "class": "Database",
+                    "use_sqlite": True,
+                }
+                for name, script in (
+                    ("a", "creator-loop-b-web"),
+                    ("b", "creator-loop-b-web-qa19"),
+                    ("c", "creator-loop-b-snapshot-qa"),
+                )
+            ],
+        }
+        deployment = {
+            "success": True,
+            "result": {
+                "deployments": [
+                    {"versions": [{"version_id": candidate, "percentage": 100}]}
+                ]
+            },
+        }
+        for scenario in (
+            "valid_but_unfenced",
+            "wrong_traffic",
+            "wrong_version",
+            "missing_version",
+            "missing_modules",
+            "wrong_bytes",
+            "invalid_encoding",
+            "duplicate_modules",
+            "artifact_collision",
+            "invalid_artifact_bytes",
+            "wrong_content_type",
+            "missing_content_type",
+            "wrong_artifact_config",
+            "changed_traffic",
+        ):
+            with self.subTest(scenario=scenario):
+                first = copy.deepcopy(deployment)
+                final = copy.deepcopy(deployment)
+                body = copy.deepcopy(settings)
+                files = {
+                    "worker/src/entry.py": b"source",
+                    "worker/src/creator_ai.mjs": b"js",
+                    "worker/src/migrations/001.sql": b"sql",
+                    "worker/python_modules/workers/workflows.js": b"sdk",
+                    "worker/python_modules/workers/__init__.py": b"init",
+                    "worker/wrangler.snapshot-qa.jsonc": json.dumps(
+                        artifact_config
+                    ).encode(),
+                }
+                body["modules"].extend(
+                    [
+                        {
+                            "name": "creator_ai.mjs",
+                            "content_base64": "anM=",
+                            "content_type": "application/javascript+module",
+                        },
+                        {
+                            "name": "migrations/001.sql",
+                            "content_base64": "c3Fs",
+                            "content_type": "text/plain",
+                        },
+                        {
+                            "name": "python_modules/workers/workflows.js",
+                            "content_base64": "c2Rr",
+                            "content_type": "application/javascript+module",
+                        },
+                        {
+                            "name": "python_modules/workers/__init__.py",
+                            "content_base64": "aW5pdA==",
+                            "content_type": "application/octet-stream",
+                        },
+                    ]
+                )
+                if scenario == "wrong_traffic":
+                    first["result"]["deployments"][0]["versions"][0]["version_id"] = (
+                        "other"
+                    )
+                if scenario == "wrong_version":
+                    body["id"] = "other"
+                if scenario == "missing_version":
+                    del body["id"]
+                if scenario == "missing_modules":
+                    del body["modules"]
+                if scenario == "wrong_bytes":
+                    body["modules"][0]["content_base64"] = "d3Jvbmc="
+                if scenario == "invalid_encoding":
+                    body["modules"][0]["content_base64"] = "!invalid!"
+                if scenario == "duplicate_modules":
+                    body["modules"].append(copy.deepcopy(body["modules"][0]))
+                if scenario == "artifact_collision":
+                    files.update(
+                        {
+                            "worker/src/python_modules/x.py": b"a",
+                            "worker/python_modules/x.py": b"b",
+                        }
+                    )
+                if scenario == "invalid_artifact_bytes":
+                    files["worker/src/entry.py"] = "source"
+                if scenario == "wrong_content_type":
+                    body["modules"][0]["content_type"] = "text/plain"
+                if scenario == "missing_content_type":
+                    del body["modules"][0]["content_type"]
+                if scenario == "wrong_artifact_config":
+                    changed_config = copy.deepcopy(artifact_config)
+                    changed_config["compatibility_date"] = "2020-01-01"
+                    files["worker/wrangler.snapshot-qa.jsonc"] = json.dumps(
+                        changed_config
+                    ).encode()
+                if scenario == "changed_traffic":
+                    final["result"]["deployments"][0]["versions"][0]["percentage"] = 50
+                replies = [
+                    (first, {}),
+                    ({"success": True, "result": body}, {}),
+                    (namespaces, {}),
+                    (final, {}),
+                ]
+                with (
+                    patch(
+                        "scripts.b_web_cloud_deploy.ACCOUNT_SHA",
+                        hashlib.sha256(account.encode()).hexdigest(),
+                    ),
+                    patch(
+                        "scripts.b_web_cloud_deploy.read_json", side_effect=replies
+                    ) as read,
+                    patch(
+                        "scripts.b_web_cloud_deploy.fixture_artifact_files",
+                        return_value=files,
+                    ),
+                    self.assertRaisesRegex(
+                        ValueError,
+                        {
+                            "valid_but_unfenced": "fence and static asset",
+                            "wrong_traffic": "not receiving all traffic",
+                            "wrong_version": "version metadata unavailable",
+                            "missing_version": "version metadata unavailable",
+                            "missing_modules": "Version-bound modules missing",
+                            "wrong_bytes": "modules differ",
+                            "invalid_encoding": "Invalid version-bound module encoding",
+                            "duplicate_modules": "Invalid version-bound module",
+                            "artifact_collision": "Ambiguous or invalid artifact module",
+                            "invalid_artifact_bytes": "Ambiguous or invalid artifact module",
+                            "wrong_content_type": "content type mismatch",
+                            "missing_content_type": "content type mismatch",
+                            "wrong_artifact_config": "artifact configuration mismatch",
+                            "changed_traffic": "deployment changed",
+                        }[scenario],
+                    ),
+                ):
+                    observe_fixture_cloud(
+                        account,
+                        {},
+                        config,
+                        "a" * 32,
+                        "b" * 32,
+                        b"artifact",
+                        "a" * 40,
+                        "b" * 64,
+                        candidate,
+                    )
+                if scenario == "wrong_traffic":
+                    self.assertEqual(read.call_count, 1)
+                if scenario == "valid_but_unfenced":
+                    self.assertEqual(read.call_count, 4)
+                    self.assertIn(
+                        "/versions/" + candidate + "?include=modules",
+                        read.call_args_list[1].args[0],
+                    )
+
+    def test_idle_check_requires_complete_native_count(self):
+        require_idle_jobs({"jobs": [], "active_job_count": 0})
+        for count in (None, True, -1, 1, "0"):
+            with self.subTest(count=count), self.assertRaises(ValueError):
+                require_idle_jobs({"jobs": [], "active_job_count": count})
+
+    def test_sql_storage_screen_uses_decimal_gb_and_retains_reserve(self):
+        from scripts.b_web_cloud_deploy import included_sql_storage_screen
+
+        def storage(value):
+            return [{"max": {"storedBytes": value}}]
+
+        limit = 5_000_000_000 - 512 * 1024**2
+        self.assertTrue(included_sql_storage_screen(storage(limit - 1)))
+        self.assertFalse(included_sql_storage_screen(storage(limit)))
+        # This passes the old 5 GiB comparison despite exceeding 5 decimal GB.
+        self.assertFalse(included_sql_storage_screen(storage(4_600_000_000)))
+        self.assertFalse(included_sql_storage_screen([]))
+
+    def test_old_qa_runtime_without_count_fails_closed(self):
+        # The installed QA runtime cannot yet report the exhaustive count.
+        # Do not bootstrap by interpreting its filtered UI list as complete.
+        with self.assertRaises(ValueError):
+            require_idle_jobs({"revision": 5, "jobs": []})
+
     NODES = (
         "workersInvocationsAdaptive",
         "durableObjectsInvocationsAdaptiveGroups",
@@ -108,6 +2658,36 @@ class CloudDeploymentTests(unittest.TestCase):
         self.assertEqual(
             sum(r["max"]["storedBytes"] for r in result[self.NODES[-1]]), 130
         )
+
+    def test_storage_error_records_only_validated_aggregates_and_stays_closed(self):
+        def read(url, headers, data):
+            if self.NODES[-1] + "(" in data["query"]:
+                return {
+                    "errors": [
+                        {"message": "rate limiter", "extensions": {"code": "budget"}}
+                    ]
+                }, {}
+            return self.fixture_read(url, headers, data)
+
+        first = datetime.now(timezone.utc) - timedelta(days=31)
+        last = first + timedelta(days=31)
+        with (
+            patch("scripts.b_web_cloud_deploy.read_json", side_effect=read) as query,
+            patch("scripts.b_web_cloud_deploy.time.sleep"),
+            patch("scripts.b_web_cloud_deploy.Path.write_text") as write,
+        ):
+            with self.assertRaisesRegex(ValueError, "durableObjectsSqlStorageGroups"):
+                read_included_usage(
+                    "private-account", {}, first.isoformat(), last.isoformat()
+                )
+        packet = json.loads(write.call_args.args[0])
+        self.assertFalse(packet["guard_pass"])
+        self.assertEqual(packet["attempt"], 5)
+        self.assertEqual(query.call_count, 5)
+        self.assertEqual(set(packet["completed_aggregates"]), set(self.NODES[:-1]))
+        self.assertEqual(packet["completed_aggregates"][self.NODES[0]]["requests"], 7)
+        self.assertNotIn("private-account", write.call_args.args[0])
+        self.assertNotIn(self.NODES[-1], packet["completed_aggregates"])
 
     def test_full_window_keeps_historical_and_current_namespace_peaks(self):
         storage = self.NODES[-1]
@@ -376,6 +2956,8 @@ class CloudDeploymentTests(unittest.TestCase):
                 "mode": "account-based",
                 "window": {},
                 "model_calls": 0,
+                "guard_pass": False,
+                "completed_aggregates": {},
             },
         )
 
@@ -533,7 +3115,7 @@ class CloudDeploymentTests(unittest.TestCase):
             if url.endswith("/api/login"):
                 return {}, {"Set-Cookie": "__Host-creator=fixture; Secure"}
             if url.endswith("/api/state"):
-                return {"revision": 5, "jobs": []}, {}
+                return {"revision": 5, "jobs": [], "active_job_count": 0}, {}
             if url.endswith("/api/runtime"):
                 return {"deployment": version, "model": MODEL}, {}
             if url.endswith("/deployments"):
@@ -602,11 +3184,12 @@ class CloudDeploymentTests(unittest.TestCase):
         }
         with (
             patch.dict(os.environ, env),
+            patch.object(deploy, "require_legacy_qa_fence"),
             patch.object(deploy, "ACCOUNT_SHA", deploy.sha(account.encode())),
             patch.object(deploy.subprocess, "check_output", side_effect=gh),
             patch.object(deploy.subprocess, "run") as upload,
             patch.object(deploy, "activate_once") as activate,
-            patch.object(deploy, "read_json", side_effect=read),
+            patch.object(deploy, "read_json", side_effect=read) as read_mock,
             patch.object(deploy.time, "sleep"),
             patch.object(
                 deploy,
@@ -626,6 +3209,11 @@ class CloudDeploymentTests(unittest.TestCase):
             main()
         upload.assert_not_called()
         activate.assert_not_called()
+        urls = [call.args[0] for call in read_mock.call_args_list]
+        self.assertLess(
+            next(i for i, url in enumerate(urls) if url.endswith("/graphql")),
+            next(i for i, url in enumerate(urls) if url.endswith("/api/login")),
+        )
         receipt = json.loads(write.call_args.args[0])
         self.assertFalse(receipt["activation_attempted"])
         self.assertTrue(receipt["live_runtime_confirmed"])
@@ -875,6 +3463,101 @@ class CloudDeploymentTests(unittest.TestCase):
         ):
             with self.subTest(mutate=mutate), self.assertRaises(ValueError):
                 runtime_files(self.archive(mutate), "a" * 40)
+
+    def test_fixture_artifact_requires_commit_digest_and_bundle_closure(self):
+        from scripts.b_web_cloud_deploy import fixture_artifact_files
+
+        def prepare(files, manifest):
+            files.update(
+                {
+                    "worker/wrangler.snapshot-qa.jsonc": b"{}",
+                    "worker/python_modules/workers/__init__.py": b"sdk",
+                    "worker/public/login.html": b"login",
+                    "worker/public/login.js": b"js",
+                    "worker/public/style.css": b"css",
+                    "worker/public/_headers": b"headers",
+                    "worker/public/index.html": b"index",
+                    "worker/public/app.js": b"app",
+                    "worker/public/pending.mjs": b"pending",
+                    "worker/public/operator-grant.mjs": b"grant",
+                    "worker/public/intake.mjs": b"intake",
+                    "worker/public/source-review.mjs": b"review",
+                    "worker/src/migrations/0001_one.sql": b"sql",
+                    "worker/src/migrations/0002_two.sql": b"sql2",
+                    "worker/python_modules/creator_loop/backend/runtime/database.py": b'MIGRATIONS = ("0001_one", "0002_two")',
+                }
+            )
+            files["worker/bundle-manifest.json"] = json.dumps(
+                {
+                    "files": [
+                        {
+                            "path": "workers/__init__.py",
+                            "sha256": hashlib.sha256(b"sdk").hexdigest(),
+                        },
+                        {
+                            "path": "creator_ai.mjs",
+                            "sha256": hashlib.sha256(b"fixture").hexdigest(),
+                        },
+                        {
+                            "path": "creator_loop/backend/runtime/database.py",
+                            "sha256": hashlib.sha256(
+                                b'MIGRATIONS = ("0001_one", "0002_two")'
+                            ).hexdigest(),
+                        },
+                    ]
+                }
+            ).encode()
+            manifest["files"] = {
+                name: hashlib.sha256(data).hexdigest() for name, data in files.items()
+            }
+
+        raw = self.archive(prepare)
+        self.assertIn(
+            "worker/public/login.html",
+            fixture_artifact_files(raw, "a" * 40, hashlib.sha256(raw).hexdigest()),
+        )
+        for commit, digest in (
+            ("b" * 40, hashlib.sha256(raw).hexdigest()),
+            ("a" * 40, "0" * 64),
+        ):
+            with (
+                self.subTest(commit=commit, digest=digest),
+                self.assertRaises(ValueError),
+            ):
+                fixture_artifact_files(raw, commit, digest)
+
+        def missing(files, manifest):
+            prepare(files, manifest)
+            del files["worker/public/login.js"]
+            del manifest["files"]["worker/public/login.js"]
+
+        incomplete = self.archive(missing)
+        with self.assertRaisesRegex(ValueError, "missing required files"):
+            fixture_artifact_files(
+                incomplete, "a" * 40, hashlib.sha256(incomplete).hexdigest()
+            )
+
+        def unlisted(files, manifest):
+            prepare(files, manifest)
+            files["worker/python_modules/unlisted.py"] = b"extra"
+            manifest["files"]["worker/python_modules/unlisted.py"] = hashlib.sha256(
+                b"extra"
+            ).hexdigest()
+
+        extra = self.archive(unlisted)
+        with self.assertRaisesRegex(ValueError, "bundle closure"):
+            fixture_artifact_files(extra, "a" * 40, hashlib.sha256(extra).hexdigest())
+
+        def missing_migration(files, manifest):
+            prepare(files, manifest)
+            del files["worker/src/migrations/0002_two.sql"]
+            del manifest["files"]["worker/src/migrations/0002_two.sql"]
+
+        incomplete = self.archive(missing_migration)
+        with self.assertRaisesRegex(ValueError, "bundle closure"):
+            fixture_artifact_files(
+                incomplete, "a" * 40, hashlib.sha256(incomplete).hexdigest()
+            )
 
     def test_rollback_refuses_different_namespace_class_or_model(self):
         current = {

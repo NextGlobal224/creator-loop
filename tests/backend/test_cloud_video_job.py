@@ -66,8 +66,19 @@ class CloudVideoJobTests(unittest.TestCase):
         self.calls = []
         self.cancel_decode = False
         self.cancel_audio = False
+        self.hold_decode = False
+        self.hold_audio = False
+        self.hold_vision = False
         self.fail_audio = False
         self.fail_decode_close = False
+        self.reassign_decode = False
+        self.reassign_audio = False
+        self.delete_during_decode = False
+        self.corrupt_during_audio = False
+        self.invalid_decode = False
+        self.invalid_audio = False
+        self.invalid_lifecycle = False
+        self.binary_decode = False
         raw = b"\0\0\0\x18ftypisom" + b"\0" * 32
         self.original_sha = hashlib.sha256(raw).hexdigest()
         self.file = self.fixture.call(
@@ -93,6 +104,21 @@ class CloudVideoJobTests(unittest.TestCase):
             self.assertEqual(json.loads(encoded)["browser_reserved_seconds"], 60)
             if self.cancel_decode:
                 await cancel()
+            if self.hold_decode:
+                self.api._restore_hold = lambda: True
+            if self.reassign_decode:
+                current = self.job()
+                current["lease_until"] += 1000
+                current["new_owner_marker"] = "decode"
+                self.api.save_job(current)
+            if self.delete_during_decode:
+                self.api.sql.exec("DELETE FROM jobs WHERE id=?", self.key)
+            if self.invalid_decode:
+                return "{bad"
+            if self.invalid_lifecycle:
+                return '{"ok":true,"browser_lifecycle":null}'
+            if self.binary_decode:
+                return b'{"ok":true,"browser_lifecycle":null}'
             return json.dumps(
                 {
                     "ok": not self.fail_decode_close,
@@ -127,6 +153,19 @@ class CloudVideoJobTests(unittest.TestCase):
             self.assertEqual(self.job()["calls"][-1]["outcome"], "UNKNOWN")
             if self.cancel_audio:
                 await cancel()
+            if self.hold_audio:
+                self.api._restore_hold = lambda: True
+            if self.reassign_audio:
+                current = self.job()
+                current["lease_until"] += 1000
+                current["new_owner_marker"] = "audio"
+                self.api.save_job(current)
+            if self.corrupt_during_audio:
+                self.api.sql.exec(
+                    "UPDATE jobs SET record=? WHERE id=?", "{bad", self.key
+                )
+            if self.invalid_audio:
+                return "{bad"
             return json.dumps(
                 {
                     "ok": not self.fail_audio,
@@ -143,6 +182,8 @@ class CloudVideoJobTests(unittest.TestCase):
 
         async def vision(binding, encoded, deployment):
             self.calls.append("vision")
+            if self.hold_vision:
+                self.api._restore_hold = lambda: True
             p = json.loads(encoded)
             return json.dumps(
                 {
@@ -250,6 +291,36 @@ class CloudVideoJobTests(unittest.TestCase):
         self.assertEqual(self.calls, ["audio"])
         self.assertEqual(len(self.job()["stage_outputs"]), 1)
 
+    def test_hold_during_decode_keeps_receipt_without_model_calls(self):
+        self.hold_decode = True
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        self.assertEqual(self.job()["status"], "RUNNING")
+        self.assertEqual(self.job()["browser"]["outcome"], "RECEIVED")
+        self.assertEqual(self.calls, [])
+
+    def test_hold_during_audio_preserves_receipt_and_stops_vision(self):
+        self.hold_audio = True
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        self.assertEqual(self.job()["status"], "RUNNING")
+        self.assertEqual(self.calls, ["audio"])
+        self.assertEqual(self.job()["calls"][0]["outcome"], "RECEIVED")
+        self.assertEqual(len(self.job()["stage_outputs"]), 1)
+
+    def test_hold_during_vision_preserves_both_receipts_without_finalizing(self):
+        self.hold_vision = True
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        self.assertEqual(self.job()["status"], "RUNNING")
+        self.assertEqual(self.calls, ["audio", "vision"])
+        self.assertEqual(len(self.job()["stage_outputs"]), 2)
+        self.assertEqual(self.job()["calls"][-1]["outcome"], "RECEIVED")
+        self.assertNotIn("evidence_version_ids", self.job())
+
     def test_unknown_audio_stops_vision_without_refund(self):
         self.fail_audio = True
         self.grant()
@@ -259,6 +330,60 @@ class CloudVideoJobTests(unittest.TestCase):
         self.assertEqual(self.calls, ["audio"])
         self.assertEqual(self.job()["calls"][0]["outcome"], "UNKNOWN")
         self.assertIsNone(self.job()["calls"][0]["measured_usage"])
+
+    def test_reassigned_owner_during_decode_keeps_late_browser_receipt(self):
+        self.reassign_decode = True
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        current = self.job()
+        self.assertEqual(current["new_owner_marker"], "decode")
+        self.assertEqual(current["browser"]["outcome"], "UNKNOWN")
+        self.assertEqual(self.calls, [])
+        late = self.api.rows("SELECT record FROM control WHERE id LIKE 'late-source-%'")
+        self.assertEqual(len(late), 1)
+        self.assertEqual(
+            json.loads(late[0]["record"])["browser"]["outcome"], "RECEIVED"
+        )
+
+    def test_reassigned_owner_during_audio_keeps_late_native_receipt(self):
+        self.reassign_audio = True
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        current = self.job()
+        self.assertEqual(current["new_owner_marker"], "audio")
+        self.assertEqual(current["calls"][0]["outcome"], "UNKNOWN")
+        self.assertEqual(self.calls, ["audio"])
+        late = self.api.rows("SELECT record FROM control WHERE id LIKE 'late-source-%'")
+        self.assertEqual(len(late), 1)
+        self.assertEqual(
+            json.loads(late[0]["record"])["response"]["native_usage"], {"neurons": 1}
+        )
+
+    def test_missing_job_during_decode_preserves_browser_receipt(self):
+        self.delete_during_decode = True
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        self.assertEqual(self.calls, [])
+        late = self.api.rows("SELECT record FROM control WHERE id LIKE 'late-source-%'")
+        self.assertEqual(len(late), 1)
+        self.assertEqual(
+            json.loads(late[0]["record"])["browser"]["outcome"], "RECEIVED"
+        )
+
+    def test_corrupt_job_during_audio_preserves_native_receipt(self):
+        self.corrupt_during_audio = True
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        self.assertEqual(self.calls, ["audio"])
+        late = self.api.rows("SELECT record FROM control WHERE id LIKE 'late-source-%'")
+        self.assertEqual(len(late), 1)
+        self.assertEqual(
+            json.loads(late[0]["record"])["response"]["native_usage"], {"neurons": 1}
+        )
 
     def test_decoder_unconfirmed_close_persists_receipt_and_never_calls_models(self):
         self.fail_decode_close = True
@@ -272,6 +397,71 @@ class CloudVideoJobTests(unittest.TestCase):
         self.assertEqual(job["browser"]["lifecycle"]["close_status"], "UNKNOWN")
         self.assertEqual(job["browser"]["reserved_seconds"], 600)
         self.assertEqual(self.job()["calls"], [])
+
+    def test_same_lease_metadata_change_before_decode_is_not_overwritten(self):
+        self.grant()
+        self.enqueue()
+
+        async def changed_alarm(_):
+            current = self.job()
+            current["new_owner_marker"] = "same-lease"
+            self.api.save_job(current)
+
+        self.api.ctx.storage.setAlarm = changed_alarm
+        asyncio.run(self.api.alarm())
+        self.assertEqual(self.job()["new_owner_marker"], "same-lease")
+        self.assertNotIn("browser", self.job())
+        self.assertEqual(self.calls, [])
+
+    def test_invalid_audio_response_retains_unknown_hash(self):
+        self.invalid_audio = True
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        late = self.api.rows("SELECT record FROM control WHERE id LIKE 'late-source-%'")
+        receipt = json.loads(late[0]["record"])
+        self.assertEqual(receipt["outcome"], "UNKNOWN")
+        self.assertEqual(receipt["raw_sha256"], hashlib.sha256(b"{bad").hexdigest())
+        self.assertEqual(self.calls, ["audio"])
+
+    def test_invalid_decode_response_retains_unknown_hash(self):
+        self.invalid_decode = True
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        late = self.api.rows("SELECT record FROM control WHERE id LIKE 'late-source-%'")
+        receipt = json.loads(late[0]["record"])
+        self.assertEqual(receipt["outcome"], "UNKNOWN")
+        self.assertEqual(receipt["raw_sha256"], hashlib.sha256(b"{bad").hexdigest())
+        self.assertEqual(self.calls, [])
+
+    def test_invalid_lifecycle_after_job_deletion_retains_unknown(self):
+        self.invalid_lifecycle = True
+        self.delete_during_decode = True
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        late = self.api.rows("SELECT record FROM control WHERE id LIKE 'late-source-%'")
+        self.assertEqual(len(late), 1)
+        receipt = json.loads(late[0]["record"])
+        self.assertEqual(receipt["outcome"], "UNKNOWN")
+        self.assertEqual(
+            receipt["raw_sha256"],
+            hashlib.sha256(b'{"ok":true,"browser_lifecycle":null}').hexdigest(),
+        )
+        self.assertEqual(self.calls, [])
+
+    def test_non_string_decoder_envelope_retains_unknown_type(self):
+        self.binary_decode = True
+        self.delete_during_decode = True
+        self.grant()
+        self.enqueue()
+        asyncio.run(self.api.alarm())
+        late = self.api.rows("SELECT record FROM control WHERE id LIKE 'late-source-%'")
+        receipt = json.loads(late[0]["record"])
+        self.assertEqual(
+            (receipt["outcome"], receipt["raw_type"]), ("UNKNOWN", "bytes")
+        )
 
     def test_missing_browser_headroom_and_wrong_scope_refuse_grant(self):
         for change in (

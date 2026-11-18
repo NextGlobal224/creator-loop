@@ -61,6 +61,19 @@ class CloudTranscript:
     review_state: str = "PENDING"
 
 
+@dataclass(frozen=True)
+class CloudTranscriptChunk:
+    """A validated WAV probe and native response for one contiguous audio slice.
+
+    The caller must separately bind every slice to the unchanged original and
+    retain all native responses and receipts; this object proves neither.
+    """
+
+    start_ms: int
+    probe: CloudAudioProbe
+    native_response: dict[str, Any]
+
+
 def prepare_cloud_transcription(
     db: sqlite3.Connection,
     *,
@@ -339,6 +352,71 @@ def parse_whisper_transcript(
     return CloudTranscript(text, tuple(segments), tuple(warnings), tuple(uncovered))
 
 
+def merge_whisper_chunks(
+    chunks: tuple[CloudTranscriptChunk, ...], *, source_duration_ms: int
+) -> CloudTranscript:
+    """Convert contiguous slice-local transcript locators to original time.
+
+    Parsing is offline only: no decoder, provider call, persistence or review is
+    performed here. A caller must verify original/slice hashes and durations,
+    and persist each untouched native response and its receipt before use.
+    Every boundary remains suspect until a person checks the original audio;
+    this routine deliberately does not guess or remove repeated words.
+    """
+    if (
+        not isinstance(chunks, tuple)
+        or not 1 <= len(chunks) <= 64
+        or type(source_duration_ms) is not int
+        or source_duration_ms <= 0
+    ):
+        raise ValueError("Invalid source duration or audio slices")
+    cursor = 0
+    segments: list[TranscriptSegment] = []
+    uncovered: list[tuple[int, int]] = []
+    texts: list[str] = []
+    warnings: list[str] = []
+    for chunk in chunks:
+        if (
+            not isinstance(chunk, CloudTranscriptChunk)
+            or type(chunk.start_ms) is not int
+            or chunk.start_ms != cursor
+            or not isinstance(chunk.probe, CloudAudioProbe)
+            or type(chunk.probe.duration_ms) is not int
+            or not 0 < chunk.probe.duration_ms <= MAX_AUDIO_MS
+        ):
+            raise ValueError("Audio slices are missing, overlapping or unbounded")
+        end = cursor + chunk.probe.duration_ms
+        if end > source_duration_ms:
+            raise ValueError("Audio slice exceeds source duration")
+        parsed = parse_whisper_transcript(chunk.native_response, chunk.probe)
+        texts.append(parsed.text)
+        segments.extend(
+            TranscriptSegment(
+                cursor + segment.start_ms,
+                cursor + segment.end_ms,
+                segment.text,
+                segment.warnings,
+            )
+            for segment in parsed.segments
+        )
+        uncovered.extend(
+            (cursor + start, cursor + stop)
+            for start, stop in parsed.untranscribed_ranges
+        )
+        for warning in parsed.warnings:
+            if warning not in warnings:
+                warnings.append(warning)
+        cursor = end
+    if cursor != source_duration_ms:
+        raise ValueError("Audio slices do not cover the source duration")
+    text = " ".join(texts)
+    if len(text) > 24_000 or sum(len(segment.text) for segment in segments) > 24_000:
+        raise ValueError("ASR segments vượt giới hạn transcript")
+    if len(chunks) > 1:
+        warnings.append("CHUNK_BOUNDARIES_REQUIRE_REVIEW")
+    return CloudTranscript(text, tuple(segments), tuple(warnings), tuple(uncovered))
+
+
 def store_cloud_transcript(
     db: sqlite3.Connection,
     *,
@@ -377,83 +455,120 @@ def store_cloud_transcript(
         if row[5] is not None and row[5] != probe.duration_ms:
             raise ValueError("Metadata thời lượng cũ không khớp byte gốc")
         transcript = parse_whisper_transcript(native_response, probe)
-        ids = [uuid4().hex for _ in transcript.segments]
-        artifact = {
-            "format": "CREATOR_CLOUD_TRANSCRIPT_V1",
-            "model": WHISPER_MODEL,
-            "run_id": run_id,
-            "input_file_id": file_id,
-            "input_sha256": probe.sha256,
-            "native_response": native_response,
-            "parsed": asdict(transcript),
-            "evidence_version_ids": ids,
-            "factual_approval": False,
-            "publication_approval": False,
-        }
-        blob = json.dumps(
-            artifact,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode()
-        if len(blob) > 256 * 1024:
-            raise ValueError("Transcript artifact vượt 256 KiB; chưa lưu phiên bản")
-        sha = hashlib.sha256(blob).hexdigest()
-        key, output_id, now = "storage/derived/" + sha, uuid4().hex, _timestamp()
-        destination = _anchor_path(data_root, "OTHER", key)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if destination.exists() and destination.read_bytes() != blob:
-            raise ValueError("Transcript artifact identity conflict")
-        destination.write_bytes(blob)
-        db.execute(
-            "UPDATE asset_files SET duration_ms=? WHERE file_id=?",
-            (probe.duration_ms, file_id),
+        return _store_verified_transcript(
+            db,
+            data_root=data_root,
+            file_id=file_id,
+            run_id=run_id,
+            asset_id=row[0],
+            source_sha=probe.sha256,
+            duration_ms=probe.duration_ms,
+            model=WHISPER_MODEL,
+            native_response=native_response,
+            transcript=transcript,
+            artifact_format="CREATOR_CLOUD_TRANSCRIPT_V1",
         )
-        db.execute(
-            """INSERT INTO asset_files(file_id,asset_id,role,storage_key,sha256,byte_size,mime_type,parent_file_id,processing_run_id,created_at)
-               VALUES(?,?,'OTHER',?,?,?,'application/json',?,?,?)""",
-            (output_id, row[0], key, sha, len(blob), file_id, run_id, now),
-        )
-        repo = EvidenceRepository(db)
-        for vid, segment in zip(ids, transcript.segments):
-            eid = uuid4().hex
-            repo.create_with_version(
-                Evidence(eid, row[0], "SPEECH", now, None),
-                EvidenceVersion(
-                    vid,
-                    eid,
-                    row[0],
-                    1,
-                    file_id,
-                    segment.text,
-                    "TIME_RANGE",
-                    json.dumps(
-                        {
-                            "start_ms": segment.start_ms,
-                            "end_ms": segment.end_ms,
-                            "track": "audio",
-                        },
-                        sort_keys=True,
-                    ),
-                    "MODEL",
-                    run_id,
-                    None,
-                    now,
+
+
+def _store_verified_transcript(
+    db: sqlite3.Connection,
+    *,
+    data_root: Path,
+    file_id: str,
+    run_id: str,
+    asset_id: str,
+    source_sha: str,
+    duration_ms: int,
+    model: str,
+    native_response: Any,
+    transcript: CloudTranscript,
+    artifact_format: str,
+    complete_run: bool = True,
+    create_evidence: bool = True,
+) -> dict[str, Any]:
+    """Persist internally verified responses within the caller's transaction."""
+    if not db.in_transaction:
+        raise ValueError("Transcript must be stored in the source transaction")
+    ids = [uuid4().hex for _ in transcript.segments] if create_evidence else []
+    artifact = {
+        "format": artifact_format,
+        "model": model,
+        "run_id": run_id,
+        "input_file_id": file_id,
+        "input_sha256": source_sha,
+        "native_response": native_response,
+        "parsed": asdict(transcript),
+        "evidence_version_ids": ids,
+        "factual_approval": False,
+        "publication_approval": False,
+    }
+    if artifact_format == "CREATOR_CLOUD_CHUNKED_TRANSCRIPT_V1":
+        artifact["source_duration_ms"] = duration_ms
+    blob = json.dumps(
+        artifact,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode()
+    if len(blob) > 256 * 1024:
+        raise ValueError("Transcript artifact vượt 256 KiB; chưa lưu phiên bản")
+    sha = hashlib.sha256(blob).hexdigest()
+    key, output_id, now = "storage/derived/" + sha, uuid4().hex, _timestamp()
+    destination = _anchor_path(data_root, "OTHER", key)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() and destination.read_bytes() != blob:
+        raise ValueError("Transcript artifact identity conflict")
+    destination.write_bytes(blob)
+    db.execute(
+        "UPDATE asset_files SET duration_ms=? WHERE file_id=?",
+        (duration_ms, file_id),
+    )
+    db.execute(
+        """INSERT INTO asset_files(file_id,asset_id,role,storage_key,sha256,byte_size,mime_type,parent_file_id,processing_run_id,created_at)
+           VALUES(?,?,'OTHER',?,?,?,'application/json',?,?,?)""",
+        (output_id, asset_id, key, sha, len(blob), file_id, run_id, now),
+    )
+    repo = EvidenceRepository(db)
+    for vid, segment in zip(ids, transcript.segments):
+        eid = uuid4().hex
+        repo.create_with_version(
+            Evidence(eid, asset_id, "SPEECH", now, None),
+            EvidenceVersion(
+                vid,
+                eid,
+                asset_id,
+                1,
+                file_id,
+                segment.text,
+                "TIME_RANGE",
+                json.dumps(
+                    {
+                        "start_ms": segment.start_ms,
+                        "end_ms": segment.end_ms,
+                        "track": "audio",
+                    },
+                    sort_keys=True,
                 ),
-            )
+                "MODEL",
+                run_id,
+                None,
+                now,
+            ),
+        )
+    if complete_run:
         db.execute(
             "UPDATE processing_runs SET status='SUCCEEDED',finished_at=? WHERE run_id=?",
             (now, run_id),
         )
-        return {
-            "artifact_file_id": output_id,
-            "sha256": sha,
-            "storage_key": key,
-            "content": blob,
-            "evidence_version_ids": ids,
-            "review_state": "PENDING",
-        }
+    return {
+        "artifact_file_id": output_id,
+        "sha256": sha,
+        "storage_key": key,
+        "content": blob,
+        "evidence_version_ids": ids,
+        "review_state": "PENDING",
+    }
 
 
 def correct_cloud_audio_range(
@@ -467,7 +582,7 @@ def correct_cloud_audio_range(
     actor: str,
     reason: str,
 ) -> str:
-    """Append an explicit human correction against verified PCM source bytes.
+    """Append a human correction against a verified source and machine artifact.
 
     Uses the existing version/CORRECT history; never invokes native codecs,
     transcription or factual ACCEPT. Project membership is the Web caller's gate.
@@ -500,19 +615,60 @@ def correct_cloud_audio_range(
         if json.loads(row[5]).get("track") != "audio":
             raise ValueError("Nguồn speech không khớp track audio")
         raw = _anchor_path(data_root, "ORIGINAL", row[6]).read_bytes()
-        probe = probe_pcm_wav(raw)
-        if (
-            probe.sha256 != row[7]
-            or probe.byte_size != row[8]
-            or probe.duration_ms != row[9]
-        ):
+        if hashlib.sha256(raw).hexdigest() != row[7] or len(raw) != row[8]:
+            raise ValueError(
+                "Byte hoặc thời lượng nguồn không khớp; chưa sửa transcript"
+            )
+        try:
+            duration_ms = probe_pcm_wav(raw).duration_ms
+        except ValueError:
+            # Compressed duration is accepted only from the verified, retained
+            # machine artifact that created this evidence, never from a filename
+            # or an untrusted request. Decoder provenance remains explicit there.
+            artifact_row = db.execute(
+                """SELECT f.storage_key,f.sha256,f.byte_size,v.evidence_version_id
+                   FROM evidence_versions v
+                   JOIN asset_files f ON f.processing_run_id=v.processing_run_id
+                   WHERE v.evidence_id=? AND v.version_no=1 AND v.producer_type='MODEL'
+                     AND f.parent_file_id=? AND f.role='OTHER'
+                     AND f.mime_type='application/json'""",
+                (row[0], row[2]),
+            ).fetchall()
+            if not artifact_row:
+                raise ValueError("Thiếu artifact transcript cho nguồn nén")
+            matches = []
+            for key, sha, size, machine_version in artifact_row:
+                artifact_raw = _anchor_path(data_root, "OTHER", key).read_bytes()
+                if (
+                    len(artifact_raw) != size
+                    or hashlib.sha256(artifact_raw).hexdigest() != sha
+                ):
+                    raise ValueError("Artifact transcript không khớp")
+                candidate = json.loads(artifact_raw)
+                if isinstance(candidate, dict) and machine_version in candidate.get(
+                    "evidence_version_ids", []
+                ):
+                    matches.append(candidate)
+            if len(matches) != 1:
+                raise ValueError("Artifact transcript không ràng buộc đúng nguồn")
+            artifact = matches[0]
+            if (
+                not isinstance(artifact, dict)
+                or artifact.get("format") != "CREATOR_CLOUD_CHUNKED_TRANSCRIPT_V1"
+                or artifact.get("input_file_id") != row[2]
+                or artifact.get("input_sha256") != row[7]
+                or type(artifact.get("source_duration_ms")) is not int
+            ):
+                raise ValueError("Artifact transcript không ràng buộc đúng nguồn")
+            duration_ms = artifact["source_duration_ms"]
+        if duration_ms != row[9]:
             raise ValueError(
                 "Byte hoặc thời lượng nguồn không khớp; chưa sửa transcript"
             )
         if (
             type(start_ms) is not int
             or type(end_ms) is not int
-            or not 0 <= start_ms < end_ms <= probe.duration_ms
+            or not 0 <= start_ms < end_ms <= duration_ms
         ):
             raise ValueError("Khoảng sửa nằm ngoài thời lượng nguồn")
         key, now = uuid4().hex, _timestamp()

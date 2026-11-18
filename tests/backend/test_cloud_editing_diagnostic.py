@@ -175,6 +175,53 @@ class EditingDiagnosticTests(unittest.TestCase):
             self.call(key="d" * 32)
         self.assertEqual(self.checkpoint(), before)
 
+    def test_hold_during_alarm_write_prevents_new_diagnostic_job(self):
+        held = {"value": False}
+        self.api._restore_hold = lambda: held["value"]
+
+        async def hold_during_alarm(_when):
+            held["value"] = True
+
+        self.api.ctx.storage.setAlarm.side_effect = hold_during_alarm
+        with self.assertRaisesRegex(WebInputError, "paused"):
+            self.call()
+        self.assertEqual(self.api.rows("SELECT * FROM jobs"), [])
+        self.assertEqual(self.api.rows("SELECT * FROM receipts"), [])
+        self.assertEqual(
+            json.loads(
+                self.api.rows("SELECT record FROM control WHERE id='grant'")[0][
+                    "record"
+                ]
+            ),
+            self.grant,
+        )
+
+    def test_hold_during_alarm_write_prevents_normal_source_and_draft_jobs(self):
+        held = {"value": False}
+        self.api._restore_hold = lambda: held["value"]
+
+        async def hold_during_alarm(_when):
+            held["value"] = True
+
+        self.api.ctx.storage.setAlarm.side_effect = hold_during_alarm
+        for path in ("/api/jobs", "/api/source-jobs"):
+            held["value"] = False
+            with (
+                self.subTest(path=path),
+                self.assertRaisesRegex(WebInputError, "paused"),
+            ):
+                self.call({}, path=path)
+            self.assertEqual(self.api.rows("SELECT * FROM jobs"), [])
+            self.assertEqual(self.api.rows("SELECT * FROM receipts"), [])
+            self.assertEqual(
+                json.loads(
+                    self.api.rows("SELECT record FROM control WHERE id='grant'")[0][
+                        "record"
+                    ]
+                ),
+                self.grant,
+            )
+
     def test_expired_insufficient_wrongmodel_or_multiple_call_grant_denied(self):
         for change in (
             {"observed_at": time.time() - 121},

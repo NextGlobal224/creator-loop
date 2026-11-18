@@ -24,6 +24,7 @@ for item in bundle["files"]:
     files["worker/" + source.relative_to(web).as_posix()] = raw
 for source in [
     web / "wrangler.jsonc",
+    web / "wrangler.snapshot-qa.jsonc",
     web / "bundle-manifest.json",
     web / "src/entry.py",
     *sorted((web / "src/migrations").glob("*.sql")),
