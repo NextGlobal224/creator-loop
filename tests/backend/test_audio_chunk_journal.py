@@ -2,6 +2,7 @@
 
 import asyncio
 import copy
+import hashlib
 import io
 import json
 import shutil
@@ -28,6 +29,7 @@ from creator_loop.backend.knowledge.audio_chunk_journal import (
 )
 from creator_loop.backend.knowledge.audio_playback import playback_audio_type
 from creator_loop.backend.knowledge.cloud_audio import WHISPER_MODEL, probe_pcm_wav
+from creator_loop.backend.knowledge.offline_audio_decoder import decode_offline_audio
 from creator_loop.backend.runtime.database import _connect_write, initialize
 
 from tests.backend.test_audio_playback import m4a, mp3
@@ -650,7 +652,6 @@ class AudioChunkJournalTest(unittest.TestCase):
             directory = Path(self.tmp.name) / extension
             directory.mkdir()
             original = directory / ("original." + extension)
-            decoded = directory / "decoded.pcm"
             subprocess.run(
                 [
                     shutil.which("ffmpeg"),
@@ -675,41 +676,11 @@ class AudioChunkJournalTest(unittest.TestCase):
                 capture_output=True,
                 timeout=90,
             )
-            subprocess.run(
-                [
-                    shutil.which("ffmpeg"),
-                    "-nostdin",
-                    "-v",
-                    "error",
-                    "-i",
-                    str(original),
-                    "-vn",
-                    "-ac",
-                    "1",
-                    "-ar",
-                    "8000",
-                    "-c:a",
-                    "pcm_s16le",
-                    "-f",
-                    "s16le",
-                    str(decoded),
-                ],
-                check=True,
-                capture_output=True,
-                timeout=90,
+            executable = Path(shutil.which("ffmpeg")).resolve()
+            decoder_sha = hashlib.sha256(executable.read_bytes()).hexdigest()
+            chunks = decode_offline_audio(
+                original.read_bytes(), executable, decoder_sha
             )
-            pcm_bytes = decoded.read_bytes()
-            self.assertEqual(len(pcm_bytes) % 2, 0)
-            chunk_list = []
-            for offset in range(0, len(pcm_bytes), 119 * 8000 * 2):
-                buffer = io.BytesIO()
-                with wave.open(buffer, "wb") as writer:
-                    writer.setnchannels(1)
-                    writer.setsampwidth(2)
-                    writer.setframerate(8000)
-                    writer.writeframes(pcm_bytes[offset : offset + 119 * 8000 * 2])
-                chunk_list.append(buffer.getvalue())
-            chunks = tuple(chunk_list)
             duration = sum(probe_pcm_wav(raw).duration_ms for raw in chunks)
             self.assertTrue(599_000 <= duration <= 602_000)
             source, run_id = original.read_bytes(), str(index + 1) * 32
@@ -809,7 +780,64 @@ class AudioChunkJournalTest(unittest.TestCase):
                     part["request_id"]: part["probe"]["duration_ms"]
                     for part in stored_plan["chunks"]
                 }
-                for chunk in chunks:
+                self.assertEqual(
+                    asyncio.run(
+                        dispatch_next_chunk(
+                            db,
+                            run_id=run_id,
+                            source=source,
+                            chunk=chunks[0],
+                            provider=fake_provider,
+                        )
+                    ),
+                    "RECEIVED",
+                )
+                partial = store_received_chunk_for_review(
+                    db, data_root=root, run_id=run_id, file_id=item["file_id"], index=0
+                )
+                pending = {}
+
+                async def interrupted(packet, _raw):
+                    pending.update(packet)
+                    raise TimeoutError("simulated provider outcome unknown")
+
+                with self.assertRaises(TimeoutError):
+                    asyncio.run(
+                        dispatch_next_chunk(
+                            db,
+                            run_id=run_id,
+                            source=source,
+                            chunk=chunks[1],
+                            provider=interrupted,
+                        )
+                    )
+                with self.assertRaisesRegex(ValueError, "unknown"):
+                    reserve_next_chunk(
+                        db, run_id=run_id, source=source, chunk=chunks[1]
+                    )
+                db.close()
+                first_version = partial["evidence_version_ids"][0]
+                change = WebDomain(root).source_audio_range(
+                    {
+                        "project_id": project,
+                        "file_id": item["file_id"],
+                        "evidence_version_id": first_version,
+                        "start_ms": 0,
+                        "end_ms": stored_plan["chunks"][0]["probe"]["duration_ms"] - 1,
+                        "content": "Đã sửa sau đối chiếu",
+                        "reason": "Fixture",
+                    }
+                )
+                db = _connect_write(domain.path)
+                self.assertEqual(
+                    record_chunk_response(
+                        db,
+                        run_id=run_id,
+                        envelope=asyncio.run(fake_provider(pending, chunks[1])),
+                    ),
+                    "RECEIVED",
+                )
+                for chunk in chunks[2:]:
                     self.assertEqual(
                         asyncio.run(
                             dispatch_next_chunk(
@@ -827,6 +855,7 @@ class AudioChunkJournalTest(unittest.TestCase):
                 result = store_completed_chunk_journal(
                     db, data_root=root, run_id=run_id, file_id=item["file_id"]
                 )
+                self.assertEqual(result["evidence_version_ids"], [])
                 path = (
                     root
                     / db.execute(
@@ -837,25 +866,22 @@ class AudioChunkJournalTest(unittest.TestCase):
                 self.assertEqual(path.read_bytes(), source)
             finally:
                 db.close()
-            source_version = result["evidence_version_ids"][-1]
-            change = WebDomain(root).source_audio_range(
-                {
-                    "project_id": project,
-                    "file_id": item["file_id"],
-                    "evidence_version_id": source_version,
-                    "start_ms": stored_plan["chunks"][-1]["start_ms"],
-                    "end_ms": duration - 1,
-                    "content": "Đã sửa sau đối chiếu",
-                    "reason": "Fixture",
-                }
-            )
             review = WebDomain(root).source_review(project, item["file_id"])
             versions = {
                 v["evidence_version_id"]: v for v in review["evidence_versions"]
             }
-            self.assertEqual(versions[source_version]["producer_type"], "MODEL")
+            self.assertEqual(versions[first_version]["producer_type"], "MODEL")
             self.assertEqual(
                 versions[change["evidence_version_id"]]["producer_type"], "HUMAN"
+            )
+            corrected = versions[change["evidence_version_id"]]
+            self.assertEqual(
+                max(
+                    v["version_no"]
+                    for v in versions.values()
+                    if v["evidence_id"] == corrected["evidence_id"]
+                ),
+                corrected["version_no"],
             )
             self.assertIsNone(review["source_use"])
 
