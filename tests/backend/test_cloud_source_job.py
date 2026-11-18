@@ -384,6 +384,19 @@ class CloudSourceJobTests(unittest.TestCase):
             self.api._restore_hold = restore_hold
         with self.assertRaisesRegex(ValueError, "identity mismatch"):
             self.api.reserve_audio_chunk(job["id"], raw + b"x", raw)
+        prior = self.job()
+        used = json.loads(json.dumps(prior))
+        used["calls"].append({"request_id": "prior-call"})
+        self.api.save_job(used)
+        with self.assertRaisesRegex(ValueError, "grant is not available"):
+            self.api.reserve_audio_chunk(job["id"], raw, raw)
+        self.api.save_job(prior)
+        journal_state = json.loads(
+            self.api.rows(
+                "SELECT record FROM control WHERE id=?", "audio-chunks-" + job["id"]
+            )[0]["record"]
+        )
+        self.assertEqual(journal_state["chunks"][0]["state"], "READY")
         execute = self.api.sql.exec
 
         def fail_update(query, *args):

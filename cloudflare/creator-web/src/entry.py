@@ -3266,6 +3266,20 @@ class Database(DurableObject):
                 or not source_audio_quota_verified(self.env, job)
             ):
                 raise ValueError("Chunk quota or active job is not verified")
+            # The current grant covers one call per job, not one per chunk.
+            # Do not mark a second, expired or ungranted chunk UNKNOWN: no
+            # provider dispatch could be authorized by that reservation.
+            grant = job.get("grant", {})
+            live_grant = self.rows("SELECT record FROM control WHERE id='grant'")
+            if (
+                job.get("calls")
+                or not valid_included_grant(grant, WHISPER_MODEL, time.time())
+                or grant.get("remaining_calls") != 0
+                or grant.get("reserved_pipeline") != job_id
+                or len(live_grant) != 1
+                or json.loads(live_grant[0]["record"]) != grant
+            ):
+                raise ValueError("Chunk grant is not available for a new call")
             sources = job.get("sources")
             if (
                 not isinstance(source, bytes)
